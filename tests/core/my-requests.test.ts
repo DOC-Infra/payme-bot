@@ -6,7 +6,7 @@ import {
 	changeRate,
 	createJob,
 	denyRequest,
-	estimateOwed,
+	generatePayout,
 	hireEmployee,
 	myRequests,
 	recordRequestsThread,
@@ -51,7 +51,7 @@ describe('Estimated amount owed', () => {
 		created(approveRequest(payMe, courierManager, submit(payMe, mail.id)));
 		submit(payMe, mail.id);
 
-		expect(estimateOwed(payMe, 'user-alex')).toBe(2800);
+		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 2800 } });
 	});
 
 	it('follows a Rate change made after approval', () => {
@@ -59,7 +59,7 @@ describe('Estimated amount owed', () => {
 		created(approveRequest(payMe, courierManager, submit(payMe, parcel.id)));
 		created(changeRate(payMe, leadership(), parcel.id, '20.25'));
 
-		expect(estimateOwed(payMe, 'user-alex')).toBe(2025);
+		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 2025 } });
 	});
 
 	it('keeps the last Rate of a Retired Task', () => {
@@ -67,14 +67,14 @@ describe('Estimated amount owed', () => {
 		created(approveRequest(payMe, courierManager, submit(payMe, parcel.id)));
 		created(retireTask(payMe, leadership(), parcel.id));
 
-		expect(estimateOwed(payMe, 'user-alex')).toBe(1250);
+		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 1250 } });
 	});
 
 	it('is zero for an Employee with nothing Approved', () => {
 		const { payMe, parcel } = courierAlex();
 		submit(payMe, parcel.id);
 
-		expect(estimateOwed(payMe, 'user-alex')).toBe(0);
+		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 0 } });
 	});
 });
 
@@ -122,6 +122,16 @@ describe('/requests', () => {
 		created(changeRate(payMe, leadership(), parcel.id, '15'));
 
 		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 1500 } });
+	});
+
+	it('counts requests locked in an Open Payout at their frozen Rates, and the rest at current Rates', () => {
+		const { payMe, parcel } = courierAlex();
+		created(approveRequest(payMe, courierManager, submit(payMe, parcel.id)));
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		created(changeRate(payMe, leadership(), parcel.id, '20'));
+		created(approveRequest(payMe, courierManager, submit(payMe, parcel.id)));
+
+		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 3250 } });
 	});
 
 	it('says so when the Employee has no open requests', () => {

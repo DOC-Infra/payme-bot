@@ -1,12 +1,4 @@
-import {
-	insertPayout,
-	selectOpenPayout,
-	selectPayout,
-	selectPayoutsInState,
-	selectUnpaidRequests,
-	settlePayout,
-	type UnpaidRequestRow
-} from '../storage/payouts';
+import { insertPayout, selectOpenPayout, selectPayout, selectPayoutsInState, selectUnpaidRequests, settlePayout } from '../storage/payouts';
 import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
 import type { Effect, PayoutAction } from './effects';
@@ -40,12 +32,15 @@ export interface Payout {
 	settledAt: string | null;
 }
 
-export interface EmployeeOwed {
-	employeeUserId: string;
-	minecraftName: string;
+export interface Owed {
 	unpaidRequestNumbers: number[];
 	estimatedTotal: number;
 	openPayout: Payout | null;
+}
+
+export interface EmployeeOwed extends Owed {
+	employeeUserId: string;
+	minecraftName: string;
 }
 
 export interface PayoutsView {
@@ -57,25 +52,33 @@ export function getPayout(payMe: PayMe, number: number): Payout | null {
 	return selectPayout(payMe.storage, number);
 }
 
+// Unpaid requests are estimated at current Rates; an Open Payout keeps its frozen total (ADR 0001).
+export function owedTo(payMe: PayMe, employeeUserId: string): Owed {
+	const { storage } = payMe;
+	const unpaid = selectUnpaidRequests(storage, employeeUserId);
+	return {
+		unpaidRequestNumbers: unpaid.map((request) => request.number),
+		estimatedTotal: unpaid.reduce((sum, request) => sum + getTask(payMe, request.taskId)!.rate, 0),
+		openPayout: selectOpenPayout(storage, employeeUserId)
+	};
+}
+
+export function totalOwed(owed: Owed): number {
+	return owed.estimatedTotal + (owed.openPayout?.total ?? 0);
+}
+
 function owedAndHistory(payMe: PayMe, employeeUserIds?: readonly string[]): PayoutsView {
 	const { storage } = payMe;
-	const inScope = ({ employeeUserId }: { employeeUserId: string }) => !employeeUserIds || employeeUserIds.includes(employeeUserId);
-	const unpaid = selectUnpaidRequests(storage).filter(inScope);
-	const open = selectPayoutsInState(storage, 'open').filter(inScope);
-	const userIds = new Set([...unpaid, ...open].map((item) => item.employeeUserId));
-
-	const owed = [...userIds].map((userId) => {
-		const requests = unpaid.filter((request) => request.employeeUserId === userId);
-		return {
-			employeeUserId: userId,
-			minecraftName: getEmployee(payMe, userId)!.minecraftName,
-			unpaidRequestNumbers: requests.map((request) => request.number),
-			estimatedTotal: estimate(payMe, requests),
-			openPayout: open.find((payout) => payout.employeeUserId === userId) ?? null
-		};
-	});
+	const inScope = (userId: string) => !employeeUserIds || employeeUserIds.includes(userId);
+	const owing = [...selectUnpaidRequests(storage), ...selectPayoutsInState(storage, 'open')].map((item) => item.employeeUserId);
+	const owed = [...new Set(owing)].filter(inScope).map((userId) => ({
+		employeeUserId: userId,
+		minecraftName: getEmployee(payMe, userId)!.minecraftName,
+		...owedTo(payMe, userId)
+	}));
 	owed.sort((a, b) => a.minecraftName.localeCompare(b.minecraftName));
-	return { owed, history: selectPayoutsInState(storage, 'paid', 'discarded').filter(inScope) };
+	const history = selectPayoutsInState(storage, 'paid', 'discarded').filter((payout) => inScope(payout.employeeUserId));
+	return { owed, history };
 }
 
 export function showPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[]): Outcome<PayoutsView> {
@@ -142,10 +145,6 @@ function owedText(employee: EmployeeOwed): string {
 	return parts.join('; ');
 }
 
-function estimate(payMe: PayMe, requests: readonly UnpaidRequestRow[]): number {
-	return requests.reduce((sum, request) => sum + getTask(payMe, request.taskId)!.rate, 0);
-}
-
 export function generatePayout(payMe: PayMe, actor: Actor, employeeUserId: string): Outcome<Payout> {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
@@ -157,14 +156,12 @@ export function generatePayout(payMe: PayMe, actor: Actor, employeeUserId: strin
 		const open = selectOpenPayout(storage, employeeUserId);
 		if (open) return fail({ code: 'payout-already-open', number: open.number });
 
-		const lines = selectUnpaidRequests(storage)
-			.filter((request) => request.employeeUserId === employeeUserId)
-			.map((request) => ({
-				requestNumber: request.number,
-				taskId: request.taskId,
-				jobId: request.jobId,
-				rate: getTask(payMe, request.taskId)!.rate
-			}));
+		const lines = selectUnpaidRequests(storage, employeeUserId).map((request) => ({
+			requestNumber: request.number,
+			taskId: request.taskId,
+			jobId: request.jobId,
+			rate: getTask(payMe, request.taskId)!.rate
+		}));
 		if (lines.length === 0) return fail({ code: 'nothing-owed' });
 		const number = insertPayout(storage, { employeeUserId, minecraftName: employee.minecraftName, generatedBy: actor.userId, lines });
 		const payout = getPayout(payMe, number)!;

@@ -1,9 +1,9 @@
 import { selectRequest, selectRequestNumbers } from '../storage/requests';
 import type { Actor } from './actor';
 import { getEmployee } from './employees';
-import { estimateOwed } from './estimates';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
+import { owedTo, totalOwed } from './payouts';
 import { formatAmount } from './rates';
 import { stateName } from './labels';
 import { requestTitle, type PaymentRequest } from './requests';
@@ -14,7 +14,6 @@ export interface MyRequests {
 	estimatedOwed: number;
 }
 
-/** The actor's Pending, Rejected and Approved requests, and their Approved requests valued at current Rates. */
 export function myRequests(payMe: PayMe, actor: Actor): Outcome<MyRequests> {
 	if (!getEmployee(payMe, actor.userId)) return fail({ code: 'not-hired' });
 
@@ -22,7 +21,7 @@ export function myRequests(payMe: PayMe, actor: Actor): Outcome<MyRequests> {
 	const requests = selectRequestNumbers(storage, actor.userId, ['pending', 'rejected', 'approved']).map((number) =>
 		selectRequest(storage, number)!
 	);
-	const estimatedOwed = estimateOwed(payMe, actor.userId);
+	const estimatedOwed = totalOwed(owedTo(payMe, actor.userId));
 	if (requests.length === 0)
 		return succeed([{ type: 'private-reply', content: 'You have no open Payment Requests.' }], { requests, estimatedOwed });
 

@@ -58,20 +58,21 @@ export function selectPayoutsInState(storage: Storage, ...states: PayoutState[])
 }
 
 /** Approved requests that are not locked in an Open Payout, oldest first, each with its first eligible Job. */
-export function selectUnpaidRequests(storage: Storage): UnpaidRequestRow[] {
+export function selectUnpaidRequests(storage: Storage, employeeUserId: string | null = null): UnpaidRequestRow[] {
 	return storage.db
 		.prepare(
 			`SELECT number, employee_user_id, task_id,
 				(SELECT MIN(job_id) FROM payment_request_jobs WHERE request_number = number) AS job_id
 			FROM payment_requests
 			WHERE state = 'approved'
+				AND (? IS NULL OR employee_user_id = ?)
 				AND number NOT IN (
 					SELECT request_number FROM payout_lines JOIN payouts ON payouts.number = payout_lines.payout_number
 					WHERE payouts.state = 'open'
 				)
 			ORDER BY number`
 		)
-		.all()
+		.all(employeeUserId, employeeUserId)
 		.map((row) => ({
 			number: Number(row.number),
 			employeeUserId: String(row.employee_user_id),
