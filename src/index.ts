@@ -2,7 +2,7 @@ import './lib/setup';
 
 import { ApplicationCommandRegistries, container, LogLevel, SapphireClient } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
-import { loadConfig } from './config';
+import { loadConfig } from './env';
 import { createPayMe } from './core';
 import { openStorage } from './storage/storage';
 

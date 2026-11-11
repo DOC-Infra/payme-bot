@@ -1,4 +1,4 @@
-import type { Config } from '../config';
+import type { Config } from '../env';
 import type { PayMe } from '../core';
 
 declare module '@sapphire/pieces' {
