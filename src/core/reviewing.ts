@@ -4,7 +4,16 @@ import { getJob } from './jobs';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership } from './permissions';
-import { getPaymentRequest, logStateChange, requestLabel, stateName, updateReviewCopies, type PaymentRequest, type RequestState } from './requests';
+import {
+	getPaymentRequest,
+	logStateChange,
+	requestLabel,
+	stateName,
+	updateEntryActions,
+	updateReviewCopies,
+	type PaymentRequest,
+	type RequestState
+} from './requests';
 
 export function approveRequest(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
 	return decide(payMe, actor, number, 'approved', null);
@@ -51,6 +60,7 @@ function decide(payMe: PayMe, actor: Actor, number: number, to: RequestState, re
 		return succeed(
 			[
 				updateReviewCopies(payMe, request),
+				updateEntryActions(request),
 				logStateChange(payMe, request, to !== 'approved'),
 				{ type: 'private-reply', content: `${stateName(to)} ${requestLabel(number)}.` }
 			],

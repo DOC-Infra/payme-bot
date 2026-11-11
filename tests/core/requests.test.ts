@@ -167,7 +167,8 @@ describe('Submitting a Payment Request', () => {
 				round: 1,
 				employeeUserId: 'user-alex',
 				content: `**R-1** Load Cart\nSubmitted by <@user-alex>, Pending review.\n${evidence}`,
-				files
+				files,
+				actions: ['withdraw']
 			},
 			review(courier.id, 'review-courier'),
 			review(logistics.id, 'review-logistics'),

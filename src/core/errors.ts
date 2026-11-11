@@ -31,7 +31,10 @@ export type PayMeError =
 	| { code: 'payout-already-open'; number: number }
 	| { code: 'nothing-owed' }
 	| { code: 'employee-not-found' }
-	| { code: 'payout-not-open'; number: number; state: PayoutState };
+	| { code: 'payout-not-open'; number: number; state: PayoutState }
+	| { code: 'not-your-request' }
+	| { code: 'cannot-amend'; number: number; state: RequestState }
+	| { code: 'cannot-withdraw'; number: number; state: RequestState };
 
 export function describeError(error: PayMeError): string {
 	switch (error.code) {
@@ -95,5 +98,11 @@ export function describeError(error: PayMeError): string {
 			return 'That member is not an Employee.';
 		case 'payout-not-open':
 			return `${payoutLabel(error.number)} is no longer Open: it is ${payoutStateName(error.state)}.`;
+		case 'not-your-request':
+			return 'Only the Employee who submitted this Payment Request can do that.';
+		case 'cannot-amend':
+			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Rejected requests can be amended.`;
+		case 'cannot-withdraw':
+			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Pending or Rejected requests can be withdrawn.`;
 	}
 }

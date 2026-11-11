@@ -1,8 +1,8 @@
 import { insertMessage, insertRequest, selectRequest } from '../storage/requests';
 import type { Actor } from './actor';
-import type { Effect, EvidenceFile } from './effects';
+import type { Effect, EntryAction, EvidenceFile } from './effects';
 import { getEmployee, type Employee } from './employees';
-import { jobsHeldBy, type Job } from './jobs';
+import { getJob, jobsHeldBy, type Job } from './jobs';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { activeTasksForJobs, getTask, maxTasksPerJob, type Task } from './tasks';
@@ -42,11 +42,14 @@ export interface PaymentRequest {
 	messages: RequestMessage[];
 }
 
-export interface NewPaymentRequest {
-	taskId: number;
+export interface NewEvidence {
 	notes: string;
 	link: string | null;
 	files: readonly EvidenceFile[];
+}
+
+export interface NewPaymentRequest extends NewEvidence {
+	taskId: number;
 }
 
 export function getPaymentRequest(payMe: PayMe, number: number): PaymentRequest | null {
@@ -77,7 +80,8 @@ function findRequester(payMe: PayMe, actor: Actor): Failure | { employee: Employ
 
 export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentRequest): Outcome<PaymentRequest> {
 	if (!input.notes.trim()) return fail({ code: 'notes-required' });
-	if (input.link !== null && !/^https?:\/\/\S+$/.test(input.link)) return fail({ code: 'invalid-link', link: input.link });
+	const invalid = checkLink(input);
+	if (invalid) return invalid;
 	if (!input.link && input.files.length === 0) return fail({ code: 'evidence-required' });
 
 	const { storage } = payMe;
@@ -85,47 +89,70 @@ export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentReque
 		const requester = findRequester(payMe, actor);
 		if ('ok' in requester) return requester;
 
-		const { employee, jobs } = requester;
+		const { jobs } = requester;
 		const task = activeTasksForJobs(
 			payMe,
 			jobs.map((job) => job.id)
 		).find((offered) => offered.id === input.taskId);
 		if (!task) return fail({ code: 'task-not-offered' });
 
-		const eligibleJobs = jobs.filter((job) => task.jobIds.includes(job.id));
-		const evidence = evidenceFor(input, 1);
 		const number = insertRequest(storage, {
 			employeeUserId: actor.userId,
 			taskId: task.id,
-			eligibleJobIds: eligibleJobs.map((job) => job.id),
-			evidence
+			eligibleJobIds: jobs.filter((job) => task.jobIds.includes(job.id)).map((job) => job.id),
+			evidence: evidenceFor(input, 1)
 		});
 
-		const id = requestTitle(number, task);
-		const text = evidenceText(evidence);
-		const files = evidenceFiles(evidence);
-		const effects: Effect[] = [
-			{
-				type: 'post-request-entry',
-				requestNumber: number,
-				round: 1,
-				employeeUserId: actor.userId,
-				content: `${id}\nSubmitted by <@${actor.userId}>, Pending review.\n${text}`,
-				files
-			},
-			...eligibleJobs.map((job): Effect => ({
-				type: 'post-review-message',
-				requestNumber: number,
-				round: 1,
-				jobId: job.id,
-				channelId: job.reviewChannelId,
-				content: reviewCopyText(number, task, employee, evidence),
-				files
-			})),
-			{ type: 'private-reply', content: `Submitted ${requestLabel(number)} for ${task.name}.` }
-		];
-		return succeed(effects, selectRequest(storage, number)!);
+		const request = selectRequest(storage, number)!;
+		return succeed(
+			[
+				...roundEffects(payMe, request, `Submitted by <@${actor.userId}>, Pending review.`),
+				{ type: 'private-reply', content: `Submitted ${requestLabel(number)} for ${task.name}.` }
+			],
+			request
+		);
 	});
+}
+
+/** Posts the Evidence of the request's current round as a new Requests Thread entry and a review copy for each eligible Job. */
+export function roundEffects(payMe: PayMe, request: PaymentRequest, heading: string): Effect[] {
+	const { number, round } = request;
+	const task = getTask(payMe, request.taskId)!;
+	const employee = getEmployee(payMe, request.employeeUserId)!;
+	const evidence = request.evidence.filter((entry) => entry.round === round);
+	const files = evidenceFiles(evidence);
+	return [
+		{
+			type: 'post-request-entry',
+			requestNumber: number,
+			round,
+			employeeUserId: employee.userId,
+			content: `${requestTitle(number, task)}\n${heading}\n${evidenceText(evidence)}`,
+			files,
+			actions: entryActions(request.state)
+		},
+		...request.eligibleJobIds.map((jobId): Effect => ({
+			type: 'post-review-message',
+			requestNumber: number,
+			round,
+			jobId,
+			channelId: getJob(payMe, jobId)!.reviewChannelId,
+			content: reviewCopyText(number, round, task, employee, evidence),
+			files
+		}))
+	];
+}
+
+/** The buttons the Employee gets on the request's latest Requests Thread entry. */
+export function entryActions(state: RequestState): EntryAction[] {
+	if (state === 'pending') return ['withdraw'];
+	if (state === 'rejected') return ['amend', 'withdraw'];
+	return [];
+}
+
+/** Sets the buttons on the request's current Requests Thread entry to match its state. */
+export function updateEntryActions(request: PaymentRequest): Effect {
+	return { type: 'update-entry-actions', requestNumber: request.number, round: request.round, actions: entryActions(request.state) };
 }
 
 export function recordRequestMessage(payMe: PayMe, number: number, message: RequestMessage) {
@@ -154,7 +181,7 @@ export function updateReviewCopies(payMe: PayMe, request: PaymentRequest): Effec
 		type: 'update-review-copies',
 		requestNumber: request.number,
 		round: request.round,
-		content: `${reviewCopyText(request.number, task, employee, evidence)}\n${latestChange(request)}`
+		content: `${reviewCopyText(request.number, request.round, task, employee, evidence)}\n${latestChange(request)}`
 	};
 }
 
@@ -175,15 +202,21 @@ function latestChange(request: PaymentRequest): string {
 	return `**${stateName(change.to)}** by <@${change.actorUserId}>${reason}`;
 }
 
-function requestTitle(number: number, task: Task): string {
+export function requestTitle(number: number, task: Task): string {
 	return `**${requestLabel(number)}** ${task.name}`;
 }
 
-function reviewCopyText(number: number, task: Task, employee: Employee, evidence: readonly Evidence[]): string {
-	return `${requestTitle(number, task)} from <@${employee.userId}> (${employee.minecraftName})\n${evidenceText(evidence)}`;
+function reviewCopyText(number: number, round: number, task: Task, employee: Employee, evidence: readonly Evidence[]): string {
+	const resubmitted = round > 1 ? ', resubmitted' : '';
+	return `${requestTitle(number, task)} from <@${employee.userId}> (${employee.minecraftName})${resubmitted}\n${evidenceText(evidence)}`;
 }
 
-function evidenceFor(input: NewPaymentRequest, round: number): Evidence[] {
+export function checkLink(input: NewEvidence): Failure | null {
+	if (input.link !== null && !/^https?:\/\/\S+$/.test(input.link)) return fail({ code: 'invalid-link', link: input.link });
+	return null;
+}
+
+export function evidenceFor(input: NewEvidence, round: number): Evidence[] {
 	const evidence: Evidence[] = [{ round, kind: 'notes', text: input.notes.trim() }];
 	if (input.link) evidence.push({ round, kind: 'link', url: input.link });
 	for (const file of input.files) evidence.push({ round, kind: 'attachment', name: file.name, url: file.url });

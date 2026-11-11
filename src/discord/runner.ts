@@ -24,6 +24,7 @@ import {
 	type EvidenceFile,
 	type Outcome
 } from '../core';
+import { entryButtons } from './entry';
 import { buttonRows, payoutActionButtons, settleButtons } from './payouts';
 import { reviewButtons, reviewRow } from './review';
 
@@ -75,7 +76,12 @@ const handlers: Handlers = {
 	},
 	'post-request-entry': async (effect) => {
 		const thread = await openRequestsThread(effect.employeeUserId);
-		const message = await thread.send({ content: effect.content, files: uploads(effect.files), allowedMentions: { parse: [] } });
+		const message = await thread.send({
+			content: effect.content,
+			files: uploads(effect.files),
+			components: reviewRow(entryButtons(effect.requestNumber, effect.actions)),
+			allowedMentions: { parse: [] }
+		});
 		recordRequestMessage(container.payMe, effect.requestNumber, {
 			round: effect.round,
 			jobId: null,
@@ -111,7 +117,15 @@ const handlers: Handlers = {
 		return interaction && replyPrivately(interaction, effect.content, buttonRows(open ? settleButtons(effect.payoutNumber) : []));
 	},
 	'show-payouts': async (effect, interaction) =>
-		interaction && replyPrivately(interaction, effect.content, buttonRows(payoutActionButtons(effect.actions)))
+		interaction && replyPrivately(interaction, effect.content, buttonRows(payoutActionButtons(effect.actions))),
+	'update-entry-actions': async (effect) => {
+		const entry = requestEntry(container.payMe, effect.requestNumber, effect.round);
+		if (!entry) return;
+		const thread = await container.client.channels.fetch(entry.channelId);
+		if (!thread?.isThread()) throw new Error(`Requests Thread ${entry.channelId} is not a thread`);
+		if (thread.archived) await thread.setArchived(false);
+		await thread.messages.edit(entry.messageId, { components: reviewRow(entryButtons(effect.requestNumber, effect.actions)) });
+	}
 };
 
 function entryLink(requestNumber: number, round: number): ButtonBuilder[] {
