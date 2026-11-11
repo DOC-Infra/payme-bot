@@ -9,6 +9,7 @@
     "@sapphire/decorators": "^6.2.0",
     "@sapphire/discord.js-utilities": "7.3.3",
     "@sapphire/framework": "^5.5.0",
+    "@sapphire/pieces": "^4.4.1",
     "@sapphire/plugin-logger": "^4.1.0",
     "@sapphire/utilities": "^3.18.2",
     "@skyra/env-utilities": "^2.0.1",
@@ -19,11 +20,12 @@
     "@sapphire/cli": "^1.9.3",
     "@sapphire/prettier-config": "^2.0.0",
     "@sapphire/ts-config": "^5.0.3",
-    "@types/node": "^22.20.1",
+    "@types/node": "^24.19.2",
     "@types/ws": "^8.18.1",
     "prettier": "^3.9.6",
     "tsc-watch": "^6.3.1",
-    "typescript": "~5.4.5"
+    "typescript": "~5.4.5",
+    "vitest": "^4.1.12"
   },
   "scripts": {
     "sapphire": "sapphire",
@@ -33,7 +35,10 @@
     "start": "node dist/index.js",
     "dev": "npm run build && npm run start",
     "watch:start": "tsc-watch --onSuccess \"npm run start\"",
-    "format": "prettier --write \"src/\""
+    "format": "prettier --write src tests",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
+    "lint": "prettier --check src tests"
   },
   "prettier": "@sapphire/prettier-config"
 }
