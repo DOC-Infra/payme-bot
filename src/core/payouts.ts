@@ -11,7 +11,7 @@ import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
 import type { Effect, PayoutAction } from './effects';
 import { getEmployee } from './employees';
-import { allJobs, getJob } from './jobs';
+import { allJobs, getJob, type Job } from './jobs';
 import { payoutLabel, payoutStateName, requestLabel, type PayoutState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
@@ -20,7 +20,6 @@ import { formatAmount } from './rates';
 import { getPaymentRequest, updateReviewCopies } from './requests';
 import { getTask } from './tasks';
 
-/** One Payment Request in a Payout, with its Task, Job and Rate frozen at generation. */
 export interface PayoutLine {
 	requestNumber: number;
 	taskId: number;
@@ -41,7 +40,6 @@ export interface Payout {
 	settledAt: string | null;
 }
 
-/** An Employee who is owed money or has an Open Payout. The estimate uses current Rates (ADR 0001). */
 export interface EmployeeOwed {
 	employeeUserId: string;
 	minecraftName: string;
@@ -52,7 +50,6 @@ export interface EmployeeOwed {
 
 export interface PayoutsView {
 	owed: EmployeeOwed[];
-	/** Paid and Discarded Payouts, newest first. */
 	history: Payout[];
 }
 
@@ -60,8 +57,7 @@ export function getPayout(payMe: PayMe, number: number): Payout | null {
 	return selectPayout(payMe.storage, number);
 }
 
-/** Everyone owed money and every Paid Payout, optionally limited to some Employees. */
-export function payoutsView(payMe: PayMe, employeeUserIds?: readonly string[]): PayoutsView {
+function owedAndHistory(payMe: PayMe, employeeUserIds?: readonly string[]): PayoutsView {
 	const { storage } = payMe;
 	const inScope = ({ employeeUserId }: { employeeUserId: string }) => !employeeUserIds || employeeUserIds.includes(employeeUserId);
 	const unpaid = selectUnpaidRequests(storage).filter(inScope);
@@ -82,18 +78,14 @@ export function payoutsView(payMe: PayMe, employeeUserIds?: readonly string[]): 
 	return { owed, history: selectPayoutsInState(storage, 'paid', 'discarded').filter(inScope) };
 }
 
-/**
- * Leadership sees everyone, with buttons. A Manager sees, read-only, the `members` holding Jobs they manage,
- * plus their Payout history. `members` are the server's members, as the Discord layer sees them now.
- */
-export function viewPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[]): Outcome<PayoutsView> {
+export function showPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[]): Outcome<PayoutsView> {
 	if (isLeadership(payMe, actor)) return leadershipView(payMe);
 
 	const managed = allJobs(payMe).filter((job) => job.managerRoleIds.some((roleId) => actor.roleIds.includes(roleId)));
 	if (managed.length === 0) return fail({ code: 'not-permitted' });
 
-	const team = members.filter((member) => managed.some((job) => member.roleIds.includes(job.employeeRoleId))).map((member) => member.userId);
-	const view = payoutsView(payMe, team);
+	const holders = members.filter((member) => holdsAnyJob(member, managed)).map((member) => member.userId);
+	const view = owedAndHistory(payMe, holders);
 	const history = view.history.map(historyText);
 	const content = ['**Payouts** (read-only)', ...owedLines(view), '**Payout history**', ...(history.length ? history : ['No Payouts yet.'])].join(
 		'\n'
@@ -101,8 +93,12 @@ export function viewPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[
 	return succeed([{ type: 'show-payouts', content, actions: [] }], view);
 }
 
+function holdsAnyJob(member: Actor, jobs: readonly Job[]): boolean {
+	return jobs.some((job) => member.roleIds.includes(job.employeeRoleId));
+}
+
 function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
-	const view = payoutsView(payMe);
+	const view = owedAndHistory(payMe);
 	const actions = view.owed.map((employee): PayoutAction =>
 		employee.openPayout
 			? {
@@ -127,13 +123,13 @@ function historyText(payout: Payout): string {
 	return `**${payoutLabel(number)}** for <@${employeeUserId}> (${minecraftName}): ${formatAmount(total)}, ${payoutStateName(state)} on ${date}`;
 }
 
-export function viewPayout(payMe: PayMe, actor: Actor, number: number): Outcome<Payout> {
+export function showPayout(payMe: PayMe, actor: Actor, number: number): Outcome<Payout> {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
 
 	const payout = getPayout(payMe, number);
 	if (!payout) return fail({ code: 'payout-not-found' });
-	return succeed([showPayout(payMe, payout)], payout);
+	return succeed([payoutEffect(payMe, payout)], payout);
 }
 
 function owedText(employee: EmployeeOwed): string {
@@ -171,8 +167,8 @@ export function generatePayout(payMe: PayMe, actor: Actor, employeeUserId: strin
 			}));
 		if (lines.length === 0) return fail({ code: 'nothing-owed' });
 		const number = insertPayout(storage, { employeeUserId, minecraftName: employee.minecraftName, generatedBy: actor.userId, lines });
-		const payout = selectPayout(storage, number)!;
-		return succeed([showPayout(payMe, payout)], payout);
+		const payout = getPayout(payMe, number)!;
+		return succeed([payoutEffect(payMe, payout)], payout);
 	});
 }
 
@@ -184,7 +180,7 @@ export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number): Outc
 	return storage.transaction(() => {
 		if (!settlePayout(storage, number, 'paid', actor.userId)) return notOpen(payMe, number);
 
-		const payout = selectPayout(storage, number)!;
+		const payout = getPayout(payMe, number)!;
 		const effects: Effect[] = payout.lines.map((line) => {
 			updateRequestState(storage, line.requestNumber, { from: 'approved', to: 'paid', actorUserId: actor.userId, reason: null });
 			return updateReviewCopies(payMe, getPaymentRequest(payMe, line.requestNumber)!);
@@ -209,7 +205,7 @@ export function discardPayout(payMe: PayMe, actor: Actor, number: number): Outco
 	return storage.transaction(() => {
 		if (!settlePayout(storage, number, 'discarded', actor.userId)) return notOpen(payMe, number);
 
-		const payout = selectPayout(storage, number)!;
+		const payout = getPayout(payMe, number)!;
 		const requests = payout.lines.map((line) => requestLabel(line.requestNumber)).join(', ');
 		return succeed([{ type: 'private-reply', content: `Discarded ${payoutLabel(number)}. ${requests} can be paid in a new Payout.` }], payout);
 	});
@@ -225,7 +221,7 @@ export function payCommand(payout: Payout): string {
 	return `/gov payout GovCommerce ${payout.minecraftName} ${formatAmount(payout.total)} PayMe ${payoutLabel(payout.number)}`;
 }
 
-function showPayout(payMe: PayMe, payout: Payout): Effect {
+function payoutEffect(payMe: PayMe, payout: Payout): Effect {
 	const title = `**${payoutLabel(payout.number)}** for <@${payout.employeeUserId}> (${payout.minecraftName}): ${formatAmount(payout.total)}, ${payoutStateName(payout.state)}`;
 	return {
 		type: 'show-payout',

@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import { MessageFlags } from 'discord.js';
-import { fail, isLeadership, viewPayouts, type Actor } from '../core';
+import { fail, isLeadership, showPayouts, type Actor } from '../core';
 import { memberToActor, toActor } from '../discord/actor';
 import { runOutcome } from '../discord/runner';
 
@@ -20,7 +20,7 @@ export class UserCommand extends Command {
 
 		const { payMe } = this.container;
 		const members = isLeadership(payMe, actor) ? [] : await this.members();
-		return runOutcome(interaction, viewPayouts(payMe, actor, members));
+		return runOutcome(interaction, showPayouts(payMe, actor, members));
 	}
 
 	private async members(): Promise<Actor[]> {

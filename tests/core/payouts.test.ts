@@ -11,14 +11,13 @@ import {
 	getPayout,
 	markPayoutPaid,
 	payCommand,
-	payoutsView,
 	hireEmployee,
 	recordRequestsThread,
 	retireJob,
 	retireTask,
 	submitRequest,
-	viewPayout,
-	viewPayouts,
+	showPayout,
+	showPayouts,
 	type Outcome,
 	type PayMe
 } from '../../src/core';
@@ -283,7 +282,7 @@ describe('The payouts view', () => {
 		const { payMe, parcel } = twoEmployees();
 		created(changeRate(payMe, leadership(), parcel.id, '1100'));
 
-		expect(payoutsView(payMe).owed).toEqual([
+		expect(created(showPayouts(payMe, leadership(), [])).owed).toEqual([
 			{ employeeUserId: 'user-alex', minecraftName: 'Alex_42', unpaidRequestNumbers: [1], estimatedTotal: 110000, openPayout: null },
 			{ employeeUserId: 'user-bo', minecraftName: 'Bo_7', unpaidRequestNumbers: [2, 3], estimatedTotal: 160025, openPayout: null }
 		]);
@@ -295,25 +294,16 @@ describe('The payouts view', () => {
 		created(generatePayout(payMe, leadership(), 'user-bo'));
 		created(markPayoutPaid(payMe, leadership(), 2));
 
-		const view = payoutsView(payMe);
+		const view = created(showPayouts(payMe, leadership(), []));
 		expect(view.owed).toMatchObject([{ employeeUserId: 'user-alex', unpaidRequestNumbers: [], estimatedTotal: 0, openPayout: { number: 1 } }]);
 		expect(view.history).toMatchObject([{ number: 2, employeeUserId: 'user-bo', state: 'paid' }]);
-	});
-
-	it('can be limited to some Employees, including their Payout history', () => {
-		const { payMe } = twoEmployees();
-		created(generatePayout(payMe, leadership(), 'user-bo'));
-		created(markPayoutPaid(payMe, leadership(), 1));
-
-		expect(payoutsView(payMe, ['user-bo'])).toMatchObject({ owed: [], history: [{ number: 1, employeeUserId: 'user-bo' }] });
-		expect(payoutsView(payMe, ['user-alex'])).toMatchObject({ owed: [{ employeeUserId: 'user-alex' }], history: [] });
 	});
 
 	it('shows Leadership who is owed, labelled as estimates, with a button to generate or open each Payout', () => {
 		const { payMe } = twoEmployees();
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 
-		expect(viewPayouts(payMe, leadership(), [])).toMatchObject({
+		expect(showPayouts(payMe, leadership(), [])).toMatchObject({
 			ok: true,
 			effects: [
 				{
@@ -336,17 +326,17 @@ describe('The payouts view', () => {
 		const { payMe } = twoEmployees();
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 
-		expect(viewPayout(payMe, leadership(), 1)).toMatchObject({
+		expect(showPayout(payMe, leadership(), 1)).toMatchObject({
 			ok: true,
 			effects: [{ type: 'show-payout', payoutNumber: 1, content: expect.stringContaining('/gov payout GovCommerce Alex_42 1000 PayMe P-1') }]
 		});
-		expect(viewPayout(payMe, leadership(), 9)).toEqual({ ok: false, error: { code: 'payout-not-found' } });
+		expect(showPayout(payMe, leadership(), 9)).toEqual({ ok: false, error: { code: 'payout-not-found' } });
 	});
 
 	it('tells Leadership when nobody is owed anything', () => {
 		const { payMe } = courierAlex();
 
-		expect(viewPayouts(payMe, leadership(), [])).toMatchObject({
+		expect(showPayouts(payMe, leadership(), [])).toMatchObject({
 			effects: [{ type: 'show-payouts', content: '**Payouts**\nNobody is owed anything.', actions: [] }]
 		});
 	});
@@ -363,7 +353,7 @@ describe('Who can pay', () => {
 		const notPermitted = { ok: false, error: { code: 'not-permitted' } };
 
 		for (const actor of [member('user-casey', 'role-courier-manager'), alex]) {
-			expect(viewPayout(payMe, actor, 1)).toEqual(notPermitted);
+			expect(showPayout(payMe, actor, 1)).toEqual(notPermitted);
 			expect(generatePayout(payMe, actor, 'user-bo')).toEqual(notPermitted);
 			expect(markPayoutPaid(payMe, actor, 1)).toEqual(notPermitted);
 			expect(discardPayout(payMe, actor, 1)).toEqual(notPermitted);
@@ -375,7 +365,7 @@ describe('Who can pay', () => {
 	it('refuses the payouts view to anyone who is neither Leadership nor a Manager', () => {
 		const { payMe } = courierAlex();
 
-		expect(viewPayouts(payMe, alex, [alex])).toEqual({ ok: false, error: { code: 'not-permitted' } });
+		expect(showPayouts(payMe, alex, [alex])).toEqual({ ok: false, error: { code: 'not-permitted' } });
 	});
 });
 
@@ -383,7 +373,7 @@ describe("A Manager's payouts view", () => {
 	const casey = member('user-casey', 'role-courier-manager');
 
 	/** Alex is a Courier, Bo works in Logistics, and Casey manages Courier. */
-	function teams() {
+	function courierAndLogistics() {
 		const setup = courierAlex();
 		const { payMe, parcel } = setup;
 		const logistics = job(payMe, 'Logistics');
@@ -396,9 +386,9 @@ describe("A Manager's payouts view", () => {
 	}
 
 	it('shows only Employees holding Jobs the Manager manages, with no buttons', () => {
-		const { payMe, members } = teams();
+		const { payMe, members } = courierAndLogistics();
 
-		expect(viewPayouts(payMe, casey, members)).toMatchObject({
+		expect(showPayouts(payMe, casey, members)).toMatchObject({
 			ok: true,
 			value: { owed: [{ employeeUserId: 'user-alex', estimatedTotal: 100000 }], history: [] },
 			effects: [
@@ -416,8 +406,8 @@ describe("A Manager's payouts view", () => {
 		});
 	});
 
-	it("lists their team's Paid and Discarded Payouts as history with number, total, date and state, newest first", () => {
-		const { payMe, members } = teams();
+	it('lists the Paid and Discarded Payouts of the Job holders as history with number, total, date and state, newest first', () => {
+		const { payMe, members } = courierAndLogistics();
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 		created(discardPayout(payMe, leadership(), 1));
 		created(generatePayout(payMe, leadership(), 'user-alex'));
@@ -425,7 +415,7 @@ describe("A Manager's payouts view", () => {
 		created(generatePayout(payMe, leadership(), 'user-bo'));
 		created(markPayoutPaid(payMe, leadership(), 3));
 
-		const outcome = viewPayouts(payMe, casey, members);
+		const outcome = showPayouts(payMe, casey, members);
 
 		expect(outcome).toMatchObject({
 			ok: true,
@@ -446,13 +436,13 @@ describe("A Manager's payouts view", () => {
 	});
 
 	it('covers every Job the Manager manages, and Leadership still sees everyone', () => {
-		const { payMe, members } = teams();
+		const { payMe, members } = courierAndLogistics();
 		const both = member('user-dana', 'role-courier-manager', 'role-logistics-manager');
 
-		expect(viewPayouts(payMe, both, members)).toMatchObject({
+		expect(showPayouts(payMe, both, members)).toMatchObject({
 			value: { owed: [{ employeeUserId: 'user-alex' }, { employeeUserId: 'user-bo' }] }
 		});
-		expect(viewPayouts(payMe, leadership(), [])).toMatchObject({
+		expect(showPayouts(payMe, leadership(), [])).toMatchObject({
 			value: { owed: [{ employeeUserId: 'user-alex' }, { employeeUserId: 'user-bo' }] }
 		});
 	});

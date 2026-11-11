@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { discardPayout, fail, generatePayout, markPayoutPaid, viewPayout, type Actor } from '../core';
+import { discardPayout, fail, generatePayout, markPayoutPaid, showPayout, type Actor } from '../core';
 import { toActor } from '../discord/actor';
 import { parsePayoutButton, type PayoutButton } from '../discord/payouts';
 import { runOutcome } from '../discord/runner';
@@ -24,7 +24,7 @@ export class ButtonHandler extends InteractionHandler {
 	private press(actor: Actor, button: PayoutButton) {
 		const { payMe } = this.container;
 		if (button.action === 'generate') return generatePayout(payMe, actor, button.employeeUserId);
-		if (button.action === 'show') return viewPayout(payMe, actor, button.payoutNumber);
+		if (button.action === 'show') return showPayout(payMe, actor, button.payoutNumber);
 		if (button.action === 'paid') return markPayoutPaid(payMe, actor, button.payoutNumber);
 		return discardPayout(payMe, actor, button.payoutNumber);
 	}
