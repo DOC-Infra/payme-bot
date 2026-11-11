@@ -37,9 +37,9 @@ describe('Hiring', () => {
 			createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' })
 		);
 		const miner = created(createJob(payMe, leadership(), { name: 'Miner', employeeRoleId: 'role-miner', reviewChannelId: 'review-miner' }));
-		addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager');
-		addManagerRole(payMe, leadership(), courier.id, leadershipRoleId);
-		addManagerRole(payMe, leadership(), miner.id, 'role-miner-manager');
+		addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager', []);
+		addManagerRole(payMe, leadership(), courier.id, leadershipRoleId, []);
+		addManagerRole(payMe, leadership(), miner.id, 'role-miner-manager', []);
 
 		const outcome = hireEmployee(payMe, leadership(), member('user-alex', 'role-courier'), 'Alex_42');
 
@@ -117,7 +117,7 @@ describe('Linking', () => {
 		const courier = created(
 			createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' })
 		);
-		addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager');
+		addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager', []);
 
 		const outcome = linkEmployee(payMe, leadership('user-boss'), member('user-sam', 'role-courier'), 'Sam_7', 'channel-sam');
 

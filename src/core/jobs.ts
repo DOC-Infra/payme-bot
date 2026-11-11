@@ -8,8 +8,10 @@ import {
 	selectJobs,
 	updateJob
 } from '../storage/jobs';
+import { selectEmployee } from '../storage/employees';
 import { retireTasksWithNoActiveJob } from '../storage/tasks';
 import type { Actor } from './actor';
+import type { Effect } from './effects';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
@@ -75,11 +77,19 @@ export function editJob(payMe: PayMe, actor: Actor, id: number, changes: Partial
 	});
 }
 
-export function addManagerRole(payMe: PayMe, actor: Actor, id: number, roleId: string): Outcome<Job> {
-	return changeJob(payMe, actor, id, (job) => {
+/** `holderUserIds` are the members who currently hold the Job's Employee role; their Employee Channels become visible to the new manager role. */
+export function addManagerRole(payMe: PayMe, actor: Actor, id: number, roleId: string, holderUserIds: string[]): Outcome<Job> {
+	const outcome = changeJob(payMe, actor, id, (job) => {
 		insertManagerRole(payMe.storage, id, roleId);
 		return `<@&${roleId}> now manages the ${job.name} Job.`;
 	});
+	if (!outcome.ok) return outcome;
+
+	const grants: Effect[] = holderUserIds.flatMap((userId) => {
+		const channelId = selectEmployee(payMe.storage, userId)?.channelId;
+		return channelId ? [{ type: 'grant-channel-access', channelId, roleIds: [roleId] }] : [];
+	});
+	return { ...outcome, effects: [...grants, ...outcome.effects] };
 }
 
 export function removeManagerRole(payMe: PayMe, actor: Actor, id: number, roleId: string): Outcome<Job> {
