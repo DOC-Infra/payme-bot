@@ -28,6 +28,11 @@ import { entryButtons } from './entry';
 import { buttonRows, payoutActionButtons, settleButtons } from './payouts';
 import { reviewButtons, reviewRow } from './review';
 
+interface PrivateMessage {
+	content?: string;
+	components: ActionRowBuilder<ButtonBuilder>[];
+}
+
 type Handler<T extends Effect> = (effect: T, interaction: RepliableInteraction | null) => Promise<unknown>;
 type Handlers = { [K in Effect['type']]: Handler<Extract<Effect, { type: K }>> };
 
@@ -114,10 +119,9 @@ const handlers: Handlers = {
 	},
 	'show-payout': async (effect, interaction) => {
 		const open = getPayout(container.payMe, effect.payoutNumber)?.state === 'open';
-		return interaction && replyPrivately(interaction, effect.content, buttonRows(open ? settleButtons(effect.payoutNumber) : []));
+		return interaction && replyPrivately(interaction, effect.content, open ? settleButtons(effect.payoutNumber) : []);
 	},
-	'show-payouts': async (effect, interaction) =>
-		interaction && replyPrivately(interaction, effect.content, buttonRows(payoutActionButtons(effect.actions))),
+	'show-payouts': async (effect, interaction) => interaction && replyPrivately(interaction, effect.content, payoutActionButtons(effect.actions)),
 	'update-entry-actions': async (effect) => {
 		const entry = requestEntry(container.payMe, effect.requestNumber, effect.round);
 		if (!entry) return;
@@ -174,9 +178,34 @@ function uploads(files: readonly EvidenceFile[]) {
 	return files.map((file) => ({ attachment: file.url, name: file.name }));
 }
 
-function replyPrivately(interaction: RepliableInteraction, content: string, components: ActionRowBuilder<ButtonBuilder>[] = []) {
-	const message = { content, components, allowedMentions: { parse: [] } };
-	if (interaction.replied) return interaction.followUp({ ...message, flags: MessageFlags.Ephemeral });
-	if (interaction.deferred) return interaction.editReply(message);
-	return interaction.reply({ ...message, flags: MessageFlags.Ephemeral });
+async function replyPrivately(interaction: RepliableInteraction, content: string, buttons: ButtonBuilder[] = []) {
+	const messages: PrivateMessage[] = splitLines(content, 2000).map((text) => ({ content: text, components: [] }));
+	const [first = [], ...rest] = chunk(buttons, 25).map(buttonRows);
+	messages[messages.length - 1].components = first;
+	messages.push(...rest.map((components) => ({ components })));
+	for (const message of messages) await sendPrivately(interaction, message);
+}
+
+function sendPrivately(interaction: RepliableInteraction, message: PrivateMessage) {
+	const options = { ...message, allowedMentions: { parse: [] } };
+	if (interaction.replied) return interaction.followUp({ ...options, flags: MessageFlags.Ephemeral });
+	if (interaction.deferred) return interaction.editReply(options);
+	return interaction.reply({ ...options, flags: MessageFlags.Ephemeral });
+}
+
+function splitLines(text: string, limit: number): string[] {
+	const lines = text.split('\n').flatMap((line) => line.match(new RegExp(`[\\s\\S]{1,${limit}}`, 'g')) ?? ['']);
+	const parts = [lines[0]];
+	for (const line of lines.slice(1)) {
+		const last = parts[parts.length - 1];
+		if (last.length + 1 + line.length > limit) parts.push(line);
+		else parts[parts.length - 1] = `${last}\n${line}`;
+	}
+	return parts;
+}
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+	const chunks: T[][] = [];
+	for (let start = 0; start < items.length; start += size) chunks.push(items.slice(start, start + size));
+	return chunks;
 }

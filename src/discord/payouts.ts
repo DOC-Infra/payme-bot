@@ -25,10 +25,9 @@ export function parsePayoutButton(customId: string): PayoutButton | null {
 	return null;
 }
 
-/** Up to 25 buttons, five to a row. */
 export function buttonRows(buttons: ButtonBuilder[]): ActionRowBuilder<ButtonBuilder>[] {
 	const rows: ActionRowBuilder<ButtonBuilder>[] = [];
-	for (let start = 0; start < Math.min(buttons.length, 25); start += 5) {
+	for (let start = 0; start < buttons.length; start += 5) {
 		rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(start, start + 5)));
 	}
 	return rows;
