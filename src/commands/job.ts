@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import { ChannelType, type SlashCommandIntegerOption, type SlashCommandRoleOption } from 'discord.js';
-import { addManagerRole, allJobs, createJob, editJob, fail, listJobs, removeManagerRole, retireJob, type Actor, type Outcome } from '../core';
+import { ChannelType, MessageFlags, type SlashCommandIntegerOption, type SlashCommandRoleOption } from 'discord.js';
+import { addManagerRole, allJobs, createJob, editJob, fail, getJob, listJobs, removeManagerRole, retireJob, type Actor, type Outcome } from '../core';
 import { toActor } from '../discord/actor';
 import { runOutcome } from '../discord/runner';
 
@@ -59,8 +59,9 @@ export class UserCommand extends Command {
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
+		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 		const actor = toActor(interaction);
-		const outcome = actor ? this.run(interaction, actor) : fail({ code: 'not-permitted' });
+		const outcome = actor ? await this.run(interaction, actor) : fail({ code: 'not-permitted' });
 		await runOutcome(interaction, outcome);
 	}
 
@@ -70,7 +71,7 @@ export class UserCommand extends Command {
 		await interaction.respond(jobs.slice(0, 25).map((job) => ({ name: job.retired ? `${job.name} (retired)` : job.name, value: job.id })));
 	}
 
-	private run(interaction: Command.ChatInputCommandInteraction, actor: Actor): Outcome<unknown> {
+	private async run(interaction: Command.ChatInputCommandInteraction, actor: Actor): Promise<Outcome<unknown>> {
 		const { payMe } = this.container;
 		const { options } = interaction;
 		const group = options.getSubcommandGroup();
@@ -79,7 +80,8 @@ export class UserCommand extends Command {
 		if (group === 'manager-role') {
 			const jobId = options.getInteger('job', true);
 			const roleId = options.getRole('role', true).id;
-			return subcommand === 'add' ? addManagerRole(payMe, actor, jobId, roleId) : removeManagerRole(payMe, actor, jobId, roleId);
+			if (subcommand === 'remove') return removeManagerRole(payMe, actor, jobId, roleId);
+			return addManagerRole(payMe, actor, jobId, roleId, await this.holderUserIds(jobId));
 		}
 
 		switch (subcommand) {
@@ -100,5 +102,14 @@ export class UserCommand extends Command {
 			default:
 				return listJobs(payMe, actor);
 		}
+	}
+
+	private async holderUserIds(jobId: number): Promise<string[]> {
+		const employeeRoleId = getJob(this.container.payMe, jobId)?.employeeRoleId;
+		if (!employeeRoleId) return [];
+
+		const guild = await this.container.client.guilds.fetch(this.container.config.guildId);
+		const members = await guild.members.fetch();
+		return [...members.filter((member) => member.roles.cache.has(employeeRoleId)).keys()];
 	}
 }

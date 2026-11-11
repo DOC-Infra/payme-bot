@@ -9,3 +9,4 @@ export * from './rates';
 export * from './tasks';
 export * from './employees';
 export * from './requests';
+export * from './role-sync';

@@ -28,7 +28,7 @@ function created<T>(outcome: Outcome<T>): T {
 function job(payMe: PayMe, name: string) {
 	const slug = name.toLowerCase();
 	const result = created(createJob(payMe, leadership(), { name, employeeRoleId: `role-${slug}`, reviewChannelId: `review-${slug}` }));
-	addManagerRole(payMe, leadership(), result.id, `role-${slug}-manager`);
+	addManagerRole(payMe, leadership(), result.id, `role-${slug}-manager`, []);
 	return result;
 }
 

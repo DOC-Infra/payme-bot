@@ -23,7 +23,7 @@ import {
 	type Outcome
 } from '../core';
 
-type Handler<T extends Effect> = (effect: T, interaction: RepliableInteraction) => Promise<unknown>;
+type Handler<T extends Effect> = (effect: T, interaction: RepliableInteraction | null) => Promise<unknown>;
 type Handlers = { [K in Effect['type']]: Handler<Extract<Effect, { type: K }>> };
 
 const viewer = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
@@ -37,12 +37,12 @@ const bot = [
 ];
 
 const handlers: Handlers = {
-	'private-reply': (effect, interaction) => replyPrivately(interaction, effect.content),
-	'create-employee-channel': async (effect, interaction) => {
-		const guild = await interaction.client.guilds.fetch(container.config.guildId);
+	'private-reply': async (effect, interaction) => interaction && replyPrivately(interaction, effect.content),
+	'create-employee-channel': async (effect) => {
+		const guild = await container.client.guilds.fetch(container.config.guildId);
 		const overwrites: OverwriteData[] = [
 			{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-			{ id: interaction.client.user.id, type: OverwriteType.Member, allow: bot },
+			{ id: container.client.user!.id, type: OverwriteType.Member, allow: bot },
 			...effect.viewerUserIds.map((id) => ({ id, type: OverwriteType.Member, allow: viewer })),
 			...effect.viewerRoleIds.map((id) => ({ id, type: OverwriteType.Role, allow: viewer }))
 		];
@@ -109,10 +109,15 @@ export async function runOutcome(interaction: RepliableInteraction, outcome: Out
 		await replyPrivately(interaction, describeError(outcome.error));
 		return;
 	}
-	for (const effect of outcome.effects) await runEffect(interaction, effect);
+	await runEffects(outcome.effects, interaction);
 }
 
-function runEffect<T extends Effect>(interaction: RepliableInteraction, effect: T) {
+/** Runs effects that have no interaction to reply to, such as those from listeners. Private replies are dropped. */
+export async function runEffects(effects: Effect[], interaction: RepliableInteraction | null = null): Promise<void> {
+	for (const effect of effects) await runEffect(interaction, effect);
+}
+
+function runEffect<T extends Effect>(interaction: RepliableInteraction | null, effect: T) {
 	const handler = handlers[effect.type] as Handler<T>;
 	return handler(effect, interaction);
 }
