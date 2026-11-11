@@ -1,16 +1,16 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
-import { MessageFlags, type ModalSubmitInteraction } from 'discord.js';
+import type { ModalSubmitInteraction } from 'discord.js';
 import { amendRequest } from '../core';
 import { amendFieldIds, parseAmendModal } from '../discord/entry';
-import { runAsActor } from '../discord/runner';
+import { acknowledge, runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.ModalSubmit
 })
 export class ModalHandler extends InteractionHandler {
 	public async run(interaction: ModalSubmitInteraction, requestNumber: InteractionHandler.ParseResult<this>) {
-		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+		await acknowledge(interaction);
 		const { fields } = interaction;
 		const files = fields.getUploadedFiles(amendFieldIds.files)?.values() ?? [];
 		const input = {

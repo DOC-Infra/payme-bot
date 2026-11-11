@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { addManagerRole, createJob, getEmployee, hireEmployee, linkEmployee, recordRequestsThread, type Outcome, type PayMe } from '../../src/core';
+import {
+	addManagerRole,
+	createJob,
+	getEmployee,
+	hireEmployee,
+	linkEmployee,
+	pinnedMessageCard,
+	recordRequestsThread,
+	type Outcome,
+	type PayMe
+} from '../../src/core';
 import { createTestPayMe, leadership, leadershipRoleId, member } from '../support/payme';
 
 function created<T>(outcome: Outcome<T>): T {
@@ -19,7 +29,7 @@ describe('Hiring', () => {
 			name: 'alex_42',
 			viewerUserIds: ['user-alex'],
 			viewerRoleIds: [leadershipRoleId],
-			pinnedMessage: 'Employee: <@user-alex>\nMinecraft Name: Alex_42',
+			pinnedMessage: pinnedMessageCard('user-alex', 'Alex_42'),
 			threadName: 'Requests: Alex_42'
 		});
 		expect(getEmployee(payMe, 'user-alex')).toEqual({
@@ -55,10 +65,10 @@ describe('Hiring', () => {
 			{
 				type: 'post-to-requests-thread',
 				employeeUserId: 'user-alex',
-				content: 'Hired by <@user-boss> with Minecraft Name Alex_42.',
+				card: { tone: 'neutral', description: 'Hired by <@user-boss> with Minecraft Name Alex_42.' },
 				ping: false
 			},
-			{ type: 'private-reply', content: 'Hired <@user-alex> with Minecraft Name Alex_42.' }
+			{ type: 'private-reply', card: { tone: 'success', description: 'Hired <@user-alex> with Minecraft Name Alex_42.' } }
 		]);
 	});
 
@@ -127,16 +137,16 @@ describe('Linking', () => {
 				type: 'start-requests-thread',
 				employeeUserId: 'user-sam',
 				channelId: 'channel-sam',
-				pinnedMessage: 'Employee: <@user-sam>\nMinecraft Name: Sam_7',
+				pinnedMessage: pinnedMessageCard('user-sam', 'Sam_7'),
 				threadName: 'Requests: Sam_7'
 			},
 			{
 				type: 'post-to-requests-thread',
 				employeeUserId: 'user-sam',
-				content: 'Linked to <#channel-sam> by <@user-boss> with Minecraft Name Sam_7.',
+				card: { tone: 'neutral', description: 'Linked to <#channel-sam> by <@user-boss> with Minecraft Name Sam_7.' },
 				ping: false
 			},
-			{ type: 'private-reply', content: 'Linked <@user-sam> to <#channel-sam> with Minecraft Name Sam_7.' }
+			{ type: 'private-reply', card: { tone: 'success', description: 'Linked <@user-sam> to <#channel-sam> with Minecraft Name Sam_7.' } }
 		]);
 		expect(getEmployee(payMe, 'user-sam')).toEqual({
 			userId: 'user-sam',
@@ -157,10 +167,10 @@ describe('Linking', () => {
 			{
 				type: 'post-to-requests-thread',
 				employeeUserId: 'user-alex',
-				content: 'Minecraft Name changed from Alex_42 to Alex_43 by <@user-boss>.',
+				card: { tone: 'neutral', description: 'Minecraft Name changed from Alex_42 to Alex_43 by <@user-boss>.' },
 				ping: false
 			},
-			{ type: 'private-reply', content: 'Linked <@user-alex> to <#channel-alex> with Minecraft Name Alex_43.' }
+			{ type: 'private-reply', card: { tone: 'success', description: 'Linked <@user-alex> to <#channel-alex> with Minecraft Name Alex_43.' } }
 		]);
 		expect(getEmployee(payMe, 'user-alex')).toEqual({
 			userId: 'user-alex',
@@ -183,16 +193,16 @@ describe('Linking', () => {
 				type: 'start-requests-thread',
 				employeeUserId: 'user-alex',
 				channelId: 'channel-new',
-				pinnedMessage: 'Employee: <@user-alex>\nMinecraft Name: Alex_42',
+				pinnedMessage: pinnedMessageCard('user-alex', 'Alex_42'),
 				threadName: 'Requests: Alex_42'
 			},
 			{
 				type: 'post-to-requests-thread',
 				employeeUserId: 'user-alex',
-				content: 'Moved from <#channel-alex> to <#channel-new> by <@user-boss>.',
+				card: { tone: 'neutral', description: 'Moved from <#channel-alex> to <#channel-new> by <@user-boss>.' },
 				ping: false
 			},
-			{ type: 'private-reply', content: 'Linked <@user-alex> to <#channel-new> with Minecraft Name Alex_42.' }
+			{ type: 'private-reply', card: { tone: 'success', description: 'Linked <@user-alex> to <#channel-new> with Minecraft Name Alex_42.' } }
 		]);
 		expect(getEmployee(payMe, 'user-alex')).toEqual({
 			userId: 'user-alex',
@@ -236,7 +246,7 @@ describe('Linking', () => {
 		const outcome = linkEmployee(payMe, leadership(), member('user-alex'), 'Alex_42', 'channel-alex');
 
 		expect(outcome.ok && outcome.effects).toEqual([
-			{ type: 'private-reply', content: 'Linked <@user-alex> to <#channel-alex> with Minecraft Name Alex_42.' }
+			{ type: 'private-reply', card: { tone: 'success', description: 'Linked <@user-alex> to <#channel-alex> with Minecraft Name Alex_42.' } }
 		]);
 	});
 });

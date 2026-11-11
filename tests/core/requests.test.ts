@@ -3,6 +3,7 @@ import {
 	addManagerRole,
 	addTask,
 	addTaskToJob,
+	claimTicket,
 	createJob,
 	getPaymentRequest,
 	hireEmployee,
@@ -12,6 +13,8 @@ import {
 	requestForm,
 	retireTask,
 	submitRequest,
+	ticketTaskName,
+	withdrawRequest,
 	type Actor,
 	type Outcome,
 	type PayMe
@@ -192,14 +195,17 @@ describe('Submitting a Payment Request', () => {
 			files
 		});
 
-		const evidence = 'Notes: Loaded 64 crates\nLink: https://example.com/proof';
+		const fields = [
+			{ name: 'Notes', value: 'Loaded 64 crates' },
+			{ name: 'Link', value: 'https://example.com/proof' }
+		];
 		const review = (jobId: number, channelId: string) => ({
 			type: 'post-review-message',
 			requestNumber: 1,
 			round: 1,
 			jobId,
 			channelId,
-			content: `**R-1** Load Cart from <@user-alex> (Alex_42)\n${evidence}`,
+			card: { tone: 'info', title: 'R-1 · Load Cart', description: 'From <@user-alex> (Alex_42)', fields, footer: undefined },
 			files
 		});
 		expect(outcome.ok && outcome.effects).toEqual([
@@ -208,13 +214,19 @@ describe('Submitting a Payment Request', () => {
 				requestNumber: 1,
 				round: 1,
 				employeeUserId: 'user-alex',
-				content: `**R-1** Load Cart\nSubmitted by <@user-alex>, Pending review.\n${evidence}`,
+				card: {
+					tone: 'info',
+					title: 'R-1 · Load Cart',
+					description: 'Submitted by <@user-alex>, Pending review.',
+					fields,
+					footer: undefined
+				},
 				files,
 				actions: ['withdraw']
 			},
 			review(courier.id, 'review-courier'),
 			review(logistics.id, 'review-logistics'),
-			{ type: 'private-reply', content: 'Submitted R-1 for Load Cart.' }
+			{ type: 'private-reply', card: { tone: 'success', description: 'Submitted R-1 for Load Cart.' } }
 		]);
 	});
 
@@ -275,6 +287,32 @@ describe('Submitting a Payment Request', () => {
 		expect(getPaymentRequest(payMe, 1)).toBeNull();
 	});
 
+	it('accepts notes alone for a Task that needs no link or file', () => {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		const meeting = created(addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', evidenceRequired: false, jobIds: [courier.id] }));
+		hire(payMe, 'user-alex');
+
+		const request = created(
+			submitRequest(payMe, member('user-alex', 'role-courier'), { taskId: meeting.id, notes: 'Was there', link: null, files: [] })
+		);
+
+		expect(request.evidence).toEqual([{ round: 1, kind: 'notes', text: 'Was there' }]);
+	});
+
+	it('accepts blank notes for a Task that needs no notes, recording no notes Evidence', () => {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		const scan = created(addTask(payMe, leadership(), { name: 'Scan crate', rate: '5', notesRequired: false, jobIds: [courier.id] }));
+		hire(payMe, 'user-alex');
+
+		const request = created(
+			submitRequest(payMe, member('user-alex', 'role-courier'), { taskId: scan.id, notes: ' ', link: null, files: [screenshot] })
+		);
+
+		expect(request.evidence).toEqual([{ round: 1, kind: 'attachment', name: screenshot.name, url: screenshot.url }]);
+	});
+
 	it('refuses blank notes and a link that is not a web address', () => {
 		const payMe = createTestPayMe();
 		const parcel = task(payMe, 'Deliver Parcel', job(payMe, 'Courier').id);
@@ -316,5 +354,59 @@ describe('Submitting a Payment Request', () => {
 
 		expect(submitRequest(payMe, member('user-sam', 'role-courier'), input)).toEqual({ ok: false, error: { code: 'not-hired' } });
 		expect(submitRequest(payMe, member('user-alex'), input)).toEqual({ ok: false, error: { code: 'no-jobs' } });
+	});
+});
+
+describe('Claiming a DOC ticket', () => {
+	function ticketScenario() {
+		const payMe = createTestPayMe();
+		const support = job(payMe, 'Support');
+		const assistance = task(payMe, ticketTaskName, support.id);
+		hire(payMe, 'user-alex');
+		return { payMe, assistance, alex: member('user-alex', 'role-support') };
+	}
+
+	it('submits a request for the DOC Ticket Assistance Task with the ticket number as its only Evidence', () => {
+		const { payMe, assistance, alex } = ticketScenario();
+
+		const request = created(claimTicket(payMe, alex, '01234'));
+
+		expect(request.taskId).toBe(assistance.id);
+		expect(request.state).toBe('pending');
+		expect(request.evidence).toEqual([{ round: 1, kind: 'notes', text: 'Ticket 01234' }]);
+	});
+
+	it.each(['1234', '123456', '12a45', ''])('refuses %j, which is not 5 digits', (ticket) => {
+		const { payMe, alex } = ticketScenario();
+
+		expect(claimTicket(payMe, alex, ticket)).toEqual({ ok: false, error: { code: 'invalid-ticket', ticket } });
+	});
+
+	it('refuses a ticket the Employee already claimed, unless that request was withdrawn', () => {
+		const { payMe, alex } = ticketScenario();
+		created(claimTicket(payMe, alex, '55555'));
+
+		expect(claimTicket(payMe, alex, '55555')).toEqual({ ok: false, error: { code: 'ticket-claimed', ticket: '55555' } });
+		created(withdrawRequest(payMe, alex, 1));
+		expect(created(claimTicket(payMe, alex, '55555')).number).toBe(2);
+	});
+
+	it('lets different Employees claim the same ticket', () => {
+		const { payMe, alex } = ticketScenario();
+		hire(payMe, 'user-sam');
+		created(claimTicket(payMe, alex, '55555'));
+
+		expect(created(claimTicket(payMe, member('user-sam', 'role-support'), '55555')).employeeUserId).toBe('user-sam');
+	});
+
+	it('explains when the Task does not exist or the Employee is not offered it', () => {
+		const payMe = createTestPayMe();
+		job(payMe, 'Courier');
+		hire(payMe, 'user-alex');
+		const alex = member('user-alex', 'role-courier');
+
+		expect(claimTicket(payMe, alex, '12345')).toEqual({ ok: false, error: { code: 'no-ticket-task', name: ticketTaskName } });
+		task(payMe, ticketTaskName, job(payMe, 'Support').id);
+		expect(claimTicket(payMe, alex, '12345')).toEqual({ ok: false, error: { code: 'task-not-offered' } });
 	});
 });

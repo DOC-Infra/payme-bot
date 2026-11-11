@@ -1,6 +1,8 @@
 import type { Events } from '@sapphire/framework';
 import { Listener } from '@sapphire/framework';
 import type { Message } from 'discord.js';
+import { notice } from '../core';
+import { toEmbeds } from '../discord/embeds';
 
 export class UserEvent extends Listener<typeof Events.MentionPrefixOnly> {
 	public override run(message: Message) {
@@ -8,6 +10,9 @@ export class UserEvent extends Listener<typeof Events.MentionPrefixOnly> {
 		if (!message.channel.isSendable()) return;
 
 		const prefix = this.container.client.options.defaultPrefix;
-		return message.channel.send(prefix ? `My prefix in this guild is: \`${prefix}\`` : 'Cannot find any Prefix for Message Commands.');
+		const card = prefix
+			? notice(`My prefix in this guild is: \`${prefix}\``, 'info')
+			: notice('Cannot find any Prefix for Message Commands.', 'warning');
+		return message.channel.send({ embeds: toEmbeds(card) });
 	}
 }

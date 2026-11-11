@@ -32,8 +32,13 @@ export function parseEntryButton(customId: string): { action: EntryButton; reque
 	return { action: known, requestNumber: Number(number) };
 }
 
-export function buildAmendModal(requestNumber: number): ModalBuilder {
-	const notes = new TextInputBuilder().setCustomId(amendFieldIds.notes).setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000);
+export function buildAmendModal(requestNumber: number, notesRequired: boolean): ModalBuilder {
+	const notes = new TextInputBuilder()
+		.setCustomId(amendFieldIds.notes)
+		.setStyle(TextInputStyle.Paragraph)
+		.setRequired(notesRequired)
+		.setMaxLength(1000);
+	const notesHint = notesRequired ? 'What did you change or add?' : 'What did you change or add? Optional.';
 	const link = new TextInputBuilder().setCustomId(amendFieldIds.link).setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(500);
 	const files = new FileUploadBuilder().setCustomId(amendFieldIds.files).setRequired(false).setMaxValues(10);
 
@@ -41,7 +46,7 @@ export function buildAmendModal(requestNumber: number): ModalBuilder {
 		.setCustomId(`${modalPrefix}:${requestNumber}`)
 		.setTitle(`Amend ${requestLabel(requestNumber)}`)
 		.addLabelComponents(
-			new LabelBuilder().setLabel('Notes').setDescription('What did you change or add?').setTextInputComponent(notes),
+			new LabelBuilder().setLabel('Notes').setDescription(notesHint).setTextInputComponent(notes),
 			new LabelBuilder().setLabel('Link').setDescription('Optional.').setTextInputComponent(link),
 			new LabelBuilder().setLabel('Files').setDescription('Optional screenshots.').setFileUploadComponent(files)
 		);

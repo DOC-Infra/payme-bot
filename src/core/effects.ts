@@ -9,7 +9,9 @@ export type Effect =
 	| UpdateReviewCopies
 	| ShowPayout
 	| ShowPayouts
-	| UpdateEntryActions;
+	| UpdateEntryActions
+	| UpdateRequestEntry
+	| DeleteReviewCopies;
 
 /** A button the Employee gets on a request's Requests Thread entry. */
 export type EntryAction = 'amend' | 'withdraw';
@@ -19,9 +21,30 @@ export interface EvidenceFile {
 	url: string;
 }
 
+/** How a message looks: Discord shows it as an embed coloured by its tone. */
+export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+
+export interface CardField {
+	name: string;
+	value: string;
+	inline?: boolean;
+}
+
+export interface Card {
+	tone: Tone;
+	title?: string;
+	description?: string;
+	fields?: CardField[];
+	footer?: string;
+}
+
+export function notice(description: string, tone: Tone = 'success'): Card {
+	return { tone, description };
+}
+
 export interface PrivateReply {
 	type: 'private-reply';
-	content: string;
+	card: Card;
 }
 
 /**
@@ -34,7 +57,7 @@ export interface CreateEmployeeChannel {
 	name: string;
 	viewerUserIds: string[];
 	viewerRoleIds: string[];
-	pinnedMessage: string;
+	pinnedMessage: Card;
 	threadName: string;
 }
 
@@ -43,7 +66,7 @@ export interface StartRequestsThread {
 	type: 'start-requests-thread';
 	employeeUserId: string;
 	channelId: string;
-	pinnedMessage: string;
+	pinnedMessage: Card;
 	threadName: string;
 }
 
@@ -58,7 +81,7 @@ export interface GrantChannelAccess {
 export interface PostToRequestsThread {
 	type: 'post-to-requests-thread';
 	employeeUserId: string;
-	content: string;
+	card: Card;
 	ping: boolean;
 }
 
@@ -71,7 +94,7 @@ export interface PostRequestEntry {
 	requestNumber: number;
 	round: number;
 	employeeUserId: string;
-	content: string;
+	card: Card;
 	files: EvidenceFile[];
 	actions: EntryAction[];
 }
@@ -84,16 +107,31 @@ export interface UpdateEntryActions {
 	actions: EntryAction[];
 }
 
+/** Replace the card and buttons on this round's Requests Thread entry, keeping its files. */
+export interface UpdateRequestEntry {
+	type: 'update-request-entry';
+	requestNumber: number;
+	round: number;
+	card: Card;
+	actions: EntryAction[];
+}
+
+/** Delete every recorded review copy of the request, from every round. */
+export interface DeleteReviewCopies {
+	type: 'delete-review-copies';
+	requestNumber: number;
+}
+
 /**
  * Post a review copy in a Job's Review Channel, re-uploading the files and linking to the round's Requests Thread entry
  * (see `requestEntry`), then report the message back with `recordRequestMessage`.
  */
-/** Edit every recorded review copy of this round in place: replace its text and remove the review buttons, keeping the link to the thread entry. */
+/** Edit every recorded review copy of this round in place: replace its card and remove the review buttons, keeping the link to the thread entry. */
 export interface UpdateReviewCopies {
 	type: 'update-review-copies';
 	requestNumber: number;
 	round: number;
-	content: string;
+	card: Card;
 }
 
 export interface PostReviewMessage {
@@ -102,7 +140,7 @@ export interface PostReviewMessage {
 	round: number;
 	jobId: number;
 	channelId: string;
-	content: string;
+	card: Card;
 	files: EvidenceFile[];
 }
 
@@ -110,7 +148,7 @@ export interface PostReviewMessage {
 export interface ShowPayout {
 	type: 'show-payout';
 	payoutNumber: number;
-	content: string;
+	card: Card;
 }
 
 export type PayoutAction = { kind: 'generate'; employeeUserId: string; label: string } | { kind: 'show'; payoutNumber: number; label: string };
@@ -118,6 +156,6 @@ export type PayoutAction = { kind: 'generate'; employeeUserId: string; label: st
 /** Show the payouts view privately to the actor, with one button per action. */
 export interface ShowPayouts {
 	type: 'show-payouts';
-	content: string;
+	card: Card;
 	actions: PayoutAction[];
 }

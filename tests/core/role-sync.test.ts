@@ -57,7 +57,7 @@ describe('Role sync', () => {
 		expect(outcome.ok && outcome.effects).toEqual([
 			{ type: 'grant-channel-access', channelId: 'channel-alex', roleIds: ['role-courier-lead'] },
 			{ type: 'grant-channel-access', channelId: 'channel-sam', roleIds: ['role-courier-lead'] },
-			{ type: 'private-reply', content: '<@&role-courier-lead> now manages the Courier Job.' }
+			{ type: 'private-reply', card: { tone: 'success', description: '<@&role-courier-lead> now manages the Courier Job.' } }
 		]);
 	});
 });

@@ -1,9 +1,9 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
-import { MessageFlags, type ButtonInteraction } from 'discord.js';
+import type { ButtonInteraction } from 'discord.js';
 import { approveRequest, checkReviewer } from '../core';
 import { buildReasonModal, parseReviewButton } from '../discord/review';
-import { runAsActor } from '../discord/runner';
+import { acknowledge, runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
@@ -13,7 +13,7 @@ export class ButtonHandler extends InteractionHandler {
 		const { payMe } = this.container;
 		return runAsActor(interaction, { code: 'not-a-reviewer' }, async (actor) => {
 			if (action === 'approve') {
-				await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+				await acknowledge(interaction);
 				return approveRequest(payMe, actor, requestNumber);
 			}
 

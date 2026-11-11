@@ -104,13 +104,13 @@ describe('/requests', () => {
 			effects: [
 				{
 					type: 'private-reply',
-					content: [
-						'**R-1** Deliver Parcel: Approved',
-						'**R-2** Sort Mail: Rejected',
-						'**R-4** Sort Mail: Pending',
-						'',
-						'Estimated amount owed: **12.5** (an estimate at current Rates; the Rate when your Payout is generated applies)'
-					].join('\n')
+					card: {
+						tone: 'info',
+						title: 'Your open requests',
+						description: ['**R-1** Deliver Parcel: Approved', '**R-2** Sort Mail: Rejected', '**R-4** Sort Mail: Pending'].join('\n'),
+						fields: [{ name: 'Estimated amount owed', value: '**12.5**' }],
+						footer: 'An estimate at current Rates. The Rate when your Payout is generated applies.'
+					}
 				}
 			]
 		});
@@ -140,7 +140,7 @@ describe('/requests', () => {
 		expect(myRequests(payMe, alex)).toMatchObject({
 			ok: true,
 			value: { requests: [], estimatedOwed: 0 },
-			effects: [{ type: 'private-reply', content: 'You have no open Payment Requests.' }]
+			effects: [{ type: 'private-reply', card: { tone: 'neutral', description: 'You have no open Payment Requests.' } }]
 		});
 	});
 

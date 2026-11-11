@@ -1,19 +1,9 @@
 import { insertEvidence, startNextRound, updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
-import { requestLabel } from './labels';
-import { fail, succeed, type Outcome } from './outcome';
+import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import {
-	checkLink,
-	evidenceFor,
-	getPaymentRequest,
-	logStateChange,
-	roundEffects,
-	updateEntryActions,
-	updateReviewCopies,
-	type NewEvidence,
-	type PaymentRequest
-} from './requests';
+import { getTask } from './tasks';
+import { checkLink, evidenceFor, getPaymentRequest, roundEffects, updateRequestEntry, type NewEvidence, type PaymentRequest } from './requests';
 
 /** Checks that the actor may amend the request now, for example before showing them the amend form. */
 export function checkAmend(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
@@ -37,7 +27,6 @@ function findOwnRequest(payMe: PayMe, actor: Actor, number: number): Outcome<Pay
 }
 
 export function amendRequest(payMe: PayMe, actor: Actor, number: number, input: NewEvidence): Outcome<PaymentRequest> {
-	if (!input.notes.trim()) return fail({ code: 'notes-required' });
 	const invalid = checkLink(input);
 	if (invalid) return invalid;
 
@@ -45,6 +34,9 @@ export function amendRequest(payMe: PayMe, actor: Actor, number: number, input: 
 	return storage.transaction(() => {
 		const checked = checkAmend(payMe, actor, number);
 		if (!checked.ok) return checked;
+
+		const empty = checkAmendment(payMe, checked.value, input);
+		if (empty) return empty;
 
 		const { round } = checked.value;
 		updateRequestState(storage, number, { from: 'rejected', to: 'pending', actorUserId: actor.userId, reason: null });
@@ -54,12 +46,18 @@ export function amendRequest(payMe: PayMe, actor: Actor, number: number, input: 
 		return succeed(
 			[
 				{ type: 'update-entry-actions', requestNumber: number, round, actions: [] },
-				...roundEffects(payMe, request, `Amended and resubmitted by <@${actor.userId}>, Pending review.`),
-				{ type: 'private-reply', content: `Resubmitted ${requestLabel(number)}.` }
+				...roundEffects(payMe, request, `Amended and resubmitted by <@${actor.userId}>, Pending review.`)
 			],
 			request
 		);
 	});
+}
+
+function checkAmendment(payMe: PayMe, request: PaymentRequest, input: NewEvidence): Failure | null {
+	const hasNotes = input.notes.trim() !== '';
+	if (getTask(payMe, request.taskId)?.notesRequired && !hasNotes) return fail({ code: 'notes-required' });
+	if (!hasNotes && !input.link && input.files.length === 0) return fail({ code: 'amendment-empty' });
+	return null;
 }
 
 export function withdrawRequest(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
@@ -70,14 +68,6 @@ export function withdrawRequest(payMe: PayMe, actor: Actor, number: number): Out
 
 		updateRequestState(storage, number, { from: checked.value.state, to: 'withdrawn', actorUserId: actor.userId, reason: null });
 		const request = getPaymentRequest(payMe, number)!;
-		return succeed(
-			[
-				updateReviewCopies(payMe, request),
-				updateEntryActions(request),
-				logStateChange(payMe, request, false),
-				{ type: 'private-reply', content: `Withdrew ${requestLabel(number)}.` }
-			],
-			request
-		);
+		return succeed([updateRequestEntry(payMe, request), { type: 'delete-review-copies', requestNumber: number }], request);
 	});
 }

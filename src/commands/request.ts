@@ -1,8 +1,8 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import { jobsHeldBy, requestForm } from '../core';
+import { jobsHeldBy } from '../core';
 import { toActor } from '../discord/actor';
-import { buildRequestModal } from '../discord/requestModal';
+import { openRequestForm } from '../discord/requestModal';
 import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<Command.Options>({
@@ -21,13 +21,7 @@ export class UserCommand extends Command {
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
-		const jobId = interaction.options.getInteger('job');
-		return runAsActor(interaction, { code: 'not-hired' }, async (actor) => {
-			const form = requestForm(this.container.payMe, actor, jobId);
-			if (!form.ok) return form;
-			await interaction.showModal(buildRequestModal(form.value));
-			return null;
-		});
+		return runAsActor(interaction, { code: 'not-hired' }, openRequestForm(interaction, interaction.options.getInteger('job')));
 	}
 
 	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {

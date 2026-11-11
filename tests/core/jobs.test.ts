@@ -98,12 +98,21 @@ describe('Jobs', () => {
 		expect(outcome.ok && outcome.effects).toEqual([
 			{
 				type: 'private-reply',
-				content: [
-					'**Courier**',
-					'Employee role: <@&role-courier> | Manager roles: none | Review Channel: <#channel-courier-review>',
-					'**Miner** (retired)',
-					'Employee role: <@&role-miner> | Manager roles: <@&role-miner-manager>, <@&role-miner-lead> | Review Channel: <#channel-miner-review>'
-				].join('\n')
+				card: {
+					tone: 'info',
+					title: 'Jobs',
+					description: [
+						'**Courier**',
+						'Employee role: <@&role-courier>',
+						'Manager roles: none',
+						'Review Channel: <#channel-courier-review>',
+						'',
+						'**Miner** (retired)',
+						'Employee role: <@&role-miner>',
+						'Manager roles: <@&role-miner-manager>, <@&role-miner-lead>',
+						'Review Channel: <#channel-miner-review>'
+					].join('\n')
+				}
 			}
 		]);
 	});
@@ -114,7 +123,7 @@ describe('Jobs', () => {
 		expect(listJobs(payMe, leadership())).toEqual({
 			ok: true,
 			value: [],
-			effects: [{ type: 'private-reply', content: 'There are no Jobs yet.' }]
+			effects: [{ type: 'private-reply', card: { tone: 'neutral', description: 'There are no Jobs yet.' } }]
 		});
 	});
 

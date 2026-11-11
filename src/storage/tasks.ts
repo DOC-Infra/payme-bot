@@ -20,8 +20,15 @@ export function selectTaskIdByName(storage: Storage, name: string): number | nul
 	return row ? Number(row.id) : null;
 }
 
-export function insertTask(storage: Storage, name: string, rate: number, jobIds: readonly number[]): number {
-	const result = storage.db.prepare('INSERT INTO tasks (name, rate) VALUES (?, ?)').run(name, rate);
+export interface TaskRequirements {
+	evidenceRequired: boolean;
+	notesRequired: boolean;
+}
+
+export function insertTask(storage: Storage, name: string, rate: number, requirements: TaskRequirements, jobIds: readonly number[]): number {
+	const result = storage.db
+		.prepare('INSERT INTO tasks (name, rate, evidence_required, notes_required) VALUES (?, ?, ?, ?)')
+		.run(name, rate, requirements.evidenceRequired ? 1 : 0, requirements.notesRequired ? 1 : 0);
 	const id = Number(result.lastInsertRowid);
 	for (const jobId of jobIds) insertTaskJob(storage, id, jobId);
 	return id;
@@ -39,6 +46,14 @@ export function updateTaskRate(storage: Storage, id: number, rate: number) {
 	storage.db.prepare('UPDATE tasks SET rate = ? WHERE id = ?').run(rate, id);
 }
 
+export function updateTaskEvidenceRequired(storage: Storage, id: number, evidenceRequired: boolean) {
+	storage.db.prepare('UPDATE tasks SET evidence_required = ? WHERE id = ?').run(evidenceRequired ? 1 : 0, id);
+}
+
+export function updateTaskNotesRequired(storage: Storage, id: number, notesRequired: boolean) {
+	storage.db.prepare('UPDATE tasks SET notes_required = ? WHERE id = ?').run(notesRequired ? 1 : 0, id);
+}
+
 export function countActiveTasks(storage: Storage, jobId: number): number {
 	const row = storage.db
 		.prepare(
@@ -48,8 +63,8 @@ export function countActiveTasks(storage: Storage, jobId: number): number {
 	return Number(row?.count);
 }
 
-export function markTaskRetired(storage: Storage, id: number) {
-	storage.db.prepare('UPDATE tasks SET retired = 1 WHERE id = ?').run(id);
+export function setTaskRetired(storage: Storage, id: number, retired: boolean) {
+	storage.db.prepare('UPDATE tasks SET retired = ? WHERE id = ?').run(retired ? 1 : 0, id);
 }
 
 export function retireTasksWithNoActiveJob(storage: Storage, jobId: number) {
@@ -72,6 +87,8 @@ function toTask(storage: Storage, row: Row): Task {
 		id,
 		name: String(row.name),
 		rate: Number(row.rate),
+		evidenceRequired: row.evidence_required === 1,
+		notesRequired: row.notes_required === 1,
 		jobIds: selectTaskJobIds(storage, id),
 		retired: row.retired === 1
 	};

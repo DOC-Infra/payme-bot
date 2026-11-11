@@ -117,17 +117,24 @@ describe('The Pay Command', () => {
 				{
 					type: 'show-payout',
 					payoutNumber: 1,
-					content: [
-						'**P-1** for <@user-alex> (Alex_42): 1750.25, Open',
-						'```',
-						'/gov payout GovCommerce Alex_42 1750.25 PayMe P-1',
-						'```',
-						`**${courier.name}**: 1500.25`,
-						'- **R-1** Deliver Parcel: 1000',
-						'- **R-3** Sort Mail: 500.25',
-						`**${logistics.name}**: 250`,
-						'- **R-2** Load Cart: 250'
-					].join('\n')
+					card: {
+						tone: 'info',
+						title: 'P-1 · Alex_42',
+						description: [
+							'For <@user-alex>',
+							'',
+							`**${courier.name}**: 1500.25`,
+							'- **R-1** Deliver Parcel: 1000',
+							'- **R-3** Sort Mail: 500.25',
+							`**${logistics.name}**: 250`,
+							'- **R-2** Load Cart: 250'
+						].join('\n'),
+						fields: [
+							{ name: 'Total', value: '**1750.25**', inline: true },
+							{ name: 'Status', value: 'Open', inline: true },
+							{ name: 'Pay Command', value: '```\n/gov payout GovCommerce Alex_42 1750.25 PayMe P-1\n```' }
+						]
+					}
 				}
 			]
 		});
@@ -168,19 +175,41 @@ describe('Marking a Payout paid', () => {
 
 		expect(markPayoutPaid(payMe, leadership('user-lin'), 1)).toMatchObject({
 			effects: [
-				{ type: 'update-review-copies', requestNumber: 1, content: expect.stringContaining('**Paid** by <@user-lin>') },
-				{ type: 'update-review-copies', requestNumber: 2, content: expect.stringContaining('**Paid** by <@user-lin>') },
+				{
+					type: 'update-review-copies',
+					requestNumber: 1,
+					card: { fields: expect.arrayContaining([{ name: 'Status', value: '**Paid** by <@user-lin>' }]) }
+				},
+				{
+					type: 'update-review-copies',
+					requestNumber: 2,
+					card: { fields: expect.arrayContaining([{ name: 'Status', value: '**Paid** by <@user-lin>' }]) }
+				},
 				{
 					type: 'post-to-requests-thread',
 					employeeUserId: 'user-alex',
-					content: [
-						'**P-1** paid by <@user-lin>: 1500.25 to Alex_42',
-						'- **R-1** Deliver Parcel: 1000',
-						'- **R-2** Sort Mail: 500.25'
-					].join('\n'),
+					card: {
+						tone: 'success',
+						title: 'P-1 paid',
+						description: [
+							'Paid by <@user-lin>: **1500.25** to Alex_42',
+							'- **R-1** Deliver Parcel: 1000',
+							'- **R-2** Sort Mail: 500.25'
+						].join('\n')
+					},
 					ping: false
 				},
-				{ type: 'private-reply', content: 'Marked P-1 paid.' }
+				{
+					type: 'show-payout',
+					payoutNumber: 1,
+					card: {
+						tone: 'success',
+						fields: [
+							{ name: 'Total', value: '**1500.25**', inline: true },
+							{ name: 'Status', value: '**Paid** by <@user-lin>', inline: true }
+						]
+					}
+				}
 			]
 		});
 	});
@@ -235,7 +264,20 @@ describe('Discarding a Payout', () => {
 		expect(discardPayout(payMe, leadership('user-lin'), 1)).toMatchObject({
 			ok: true,
 			value: { state: 'discarded', settledBy: 'user-lin' },
-			effects: [{ type: 'private-reply', content: 'Discarded P-1. R-1 can be paid in a new Payout.' }]
+			effects: [
+				{
+					type: 'show-payout',
+					payoutNumber: 1,
+					card: {
+						tone: 'neutral',
+						fields: [
+							{ name: 'Total', value: '**1000**', inline: true },
+							{ name: 'Status', value: '**Discarded** by <@user-lin>', inline: true }
+						],
+						footer: 'R-1 can be paid in a new Payout.'
+					}
+				}
+			]
 		});
 		expect(getPaymentRequest(payMe, 1)?.state).toBe('approved');
 		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({ ok: true, value: { number: 2, total: 120000 } });
@@ -308,11 +350,14 @@ describe('The payouts view', () => {
 			effects: [
 				{
 					type: 'show-payouts',
-					content: [
-						'**Payouts**',
-						'<@user-alex> (Alex_42): Open Payout **P-1**, 1000',
-						'<@user-bo> (Bo_7): about 1500.25 owed (estimate at current Rates) for R-2, R-3'
-					].join('\n'),
+					card: {
+						tone: 'info',
+						title: 'Payouts',
+						description: [
+							'<@user-alex> (Alex_42): Open Payout **P-1**, 1000',
+							'<@user-bo> (Bo_7): about 1500.25 owed (estimate at current Rates) for R-2, R-3'
+						].join('\n')
+					},
 					actions: [
 						{ kind: 'show', payoutNumber: 1, label: 'P-1 for Alex_42' },
 						{ kind: 'generate', employeeUserId: 'user-bo', label: 'Generate for Bo_7' }
@@ -328,7 +373,17 @@ describe('The payouts view', () => {
 
 		expect(showPayout(payMe, leadership(), 1)).toMatchObject({
 			ok: true,
-			effects: [{ type: 'show-payout', payoutNumber: 1, content: expect.stringContaining('/gov payout GovCommerce Alex_42 1000 PayMe P-1') }]
+			effects: [
+				{
+					type: 'show-payout',
+					payoutNumber: 1,
+					card: {
+						fields: expect.arrayContaining([
+							{ name: 'Pay Command', value: expect.stringContaining('/gov payout GovCommerce Alex_42 1000 PayMe P-1') }
+						])
+					}
+				}
+			]
 		});
 		expect(showPayout(payMe, leadership(), 9)).toEqual({ ok: false, error: { code: 'payout-not-found' } });
 	});
@@ -337,7 +392,7 @@ describe('The payouts view', () => {
 		const { payMe } = courierAlex();
 
 		expect(showPayouts(payMe, leadership(), [])).toMatchObject({
-			effects: [{ type: 'show-payouts', content: '**Payouts**\nNobody is owed anything.', actions: [] }]
+			effects: [{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts', description: 'Nobody is owed anything.' }, actions: [] }]
 		});
 	});
 });
@@ -394,12 +449,16 @@ describe("A Manager's payouts view", () => {
 			effects: [
 				{
 					type: 'show-payouts',
-					content: [
-						'**Payouts** (read-only)',
-						'<@user-alex> (Alex_42): about 1000 owed (estimate at current Rates) for R-1',
-						'**Payout history**',
-						'No Payouts yet.'
-					].join('\n'),
+					card: {
+						tone: 'info',
+						title: 'Payouts (read-only)',
+						description: [
+							'<@user-alex> (Alex_42): about 1000 owed (estimate at current Rates) for R-1',
+							'',
+							'**Payout history**',
+							'No Payouts yet.'
+						].join('\n')
+					},
 					actions: []
 				}
 			]
@@ -427,11 +486,13 @@ describe("A Manager's payouts view", () => {
 				]
 			}
 		});
-		const content = outcome.ok ? outcome.effects[0] : null;
-		expect(content).toMatchObject({
-			content: expect.stringMatching(
-				/\*\*Payout history\*\*\n\*\*P-2\*\* for <@user-alex> \(Alex_42\): 1000, Paid on \d{4}-\d{2}-\d{2}\n\*\*P-1\*\* for <@user-alex> \(Alex_42\): 1000, Discarded on \d{4}-\d{2}-\d{2}$/
-			)
+		const view = outcome.ok ? outcome.effects[0] : null;
+		expect(view).toMatchObject({
+			card: {
+				description: expect.stringMatching(
+					/\*\*Payout history\*\*\n\*\*P-2\*\* for <@user-alex> \(Alex_42\): 1000, Paid on \d{4}-\d{2}-\d{2}\n\*\*P-1\*\* for <@user-alex> \(Alex_42\): 1000, Discarded on \d{4}-\d{2}-\d{2}$/
+				)
+			}
 		});
 	});
 

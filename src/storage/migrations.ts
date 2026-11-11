@@ -116,5 +116,13 @@ export const migrations: Migration[] = [
 			);
 			CREATE INDEX payout_lines_by_request ON payout_lines (request_number);
 		`
+	},
+	{
+		name: '0006-task-evidence-required',
+		sql: `ALTER TABLE tasks ADD COLUMN evidence_required INTEGER NOT NULL DEFAULT 1;`
+	},
+	{
+		name: '0007-task-notes-required',
+		sql: `ALTER TABLE tasks ADD COLUMN notes_required INTEGER NOT NULL DEFAULT 1;`
 	}
 ];

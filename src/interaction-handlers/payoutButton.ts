@@ -3,14 +3,15 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
 import { discardPayout, generatePayout, markPayoutPaid, showPayout, type Actor } from '../core';
 import { parsePayoutButton, type PayoutButton } from '../discord/payouts';
-import { runAsActor } from '../discord/runner';
+import { acknowledge, runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
 })
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction, button: InteractionHandler.ParseResult<this>) {
-		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+		if (button.action === 'paid' || button.action === 'discard') await acknowledge(interaction);
+		else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 		await runAsActor(interaction, { code: 'not-permitted' }, (actor) => this.press(actor, button));
 	}
 

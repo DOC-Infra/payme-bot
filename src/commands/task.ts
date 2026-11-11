@@ -1,12 +1,30 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import type { SlashCommandIntegerOption } from 'discord.js';
-import { addTask, addTaskToJob, allJobs, allTasks, changeRate, listTasks, removeTaskFromJob, retireTask, type Actor, type Outcome } from '../core';
+import type { SlashCommandBooleanOption, SlashCommandIntegerOption } from 'discord.js';
+import {
+	addTask,
+	addTaskToJob,
+	allJobs,
+	allTasks,
+	changeRate,
+	listTasks,
+	removeTaskFromJob,
+	restoreTask,
+	retireTask,
+	setEvidenceRequired,
+	setNotesRequired,
+	type Actor,
+	type Outcome
+} from '../core';
 import { runAsActor, runOutcome } from '../discord/runner';
 
 const extraJobOptions = ['job-2', 'job-3', 'job-4', 'job-5'];
 
 const taskOption = (option: SlashCommandIntegerOption) => option.setName('task').setDescription('The Task').setRequired(true).setAutocomplete(true);
+const evidenceOption = (option: SlashCommandBooleanOption) =>
+	option.setName('evidence-required').setDescription('Whether requests need a link or a file (default true)');
+const notesOption = (option: SlashCommandBooleanOption) =>
+	option.setName('notes-required').setDescription('Whether requests need notes (default true)');
 const jobOption = (name: string, required: boolean) => (option: SlashCommandIntegerOption) =>
 	option.setName(name).setDescription('A Job').setRequired(required).setAutocomplete(true);
 
@@ -32,7 +50,7 @@ export class UserCommand extends Command {
 						.addStringOption((option) => option.setName('rate').setDescription('The Rate, like 1500 or 12.5').setRequired(true))
 						.addIntegerOption(jobOption('job', true));
 					for (const name of extraJobOptions) sub.addIntegerOption(jobOption(name, false));
-					return sub;
+					return sub.addBooleanOption(evidenceOption).addBooleanOption(notesOption);
 				})
 				.addSubcommand((sub) =>
 					sub
@@ -40,6 +58,20 @@ export class UserCommand extends Command {
 						.setDescription("Change a Task's Rate")
 						.addIntegerOption(taskOption)
 						.addStringOption((option) => option.setName('rate').setDescription('The new Rate, like 1500 or 12.5').setRequired(true))
+				)
+				.addSubcommand((sub) =>
+					sub
+						.setName('evidence')
+						.setDescription('Choose whether a Task needs a link or a file as Evidence')
+						.addIntegerOption(taskOption)
+						.addBooleanOption((option) => evidenceOption(option).setRequired(true))
+				)
+				.addSubcommand((sub) =>
+					sub
+						.setName('notes')
+						.setDescription('Choose whether a Task needs notes')
+						.addIntegerOption(taskOption)
+						.addBooleanOption((option) => notesOption(option).setRequired(true))
 				)
 				.addSubcommandGroup((group) =>
 					group
@@ -61,6 +93,7 @@ export class UserCommand extends Command {
 						)
 				)
 				.addSubcommand((sub) => sub.setName('retire').setDescription('Retire a Task').addIntegerOption(taskOption))
+				.addSubcommand((sub) => sub.setName('restore').setDescription('Bring back a Retired Task').addIntegerOption(taskOption))
 				.addSubcommand((sub) => sub.setName('list').setDescription('Show the Rate Schedule'))
 		);
 	}
@@ -103,11 +136,19 @@ export class UserCommand extends Command {
 				return addTask(payMe, actor, {
 					name: options.getString('name', true),
 					rate: options.getString('rate', true),
+					evidenceRequired: options.getBoolean('evidence-required') ?? true,
+					notesRequired: options.getBoolean('notes-required') ?? true,
 					jobIds: [...new Set([options.getInteger('job', true), ...extraJobIds])]
 				});
 			}
+			case 'evidence':
+				return setEvidenceRequired(payMe, actor, options.getInteger('task', true), options.getBoolean('evidence-required', true));
+			case 'notes':
+				return setNotesRequired(payMe, actor, options.getInteger('task', true), options.getBoolean('notes-required', true));
 			case 'rate':
 				return changeRate(payMe, actor, options.getInteger('task', true), options.getString('rate', true));
+			case 'restore':
+				return restoreTask(payMe, actor, options.getInteger('task', true));
 			default:
 				return retireTask(payMe, actor, options.getInteger('task', true));
 		}

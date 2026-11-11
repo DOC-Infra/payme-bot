@@ -24,7 +24,6 @@ export class UserCommand extends Command {
 
 	private async members(): Promise<Actor[]> {
 		const guild = await this.container.client.guilds.fetch(this.container.config.guildId);
-		const members = await guild.members.fetch();
-		return members.map((member) => memberToActor(member.id, member));
+		return guild.members.cache.map((member) => memberToActor(member.id, member));
 	}
 }

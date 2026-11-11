@@ -1,8 +1,30 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import { ChannelType, MessageFlags, type SlashCommandIntegerOption, type SlashCommandRoleOption } from 'discord.js';
-import { addManagerRole, allJobs, createJob, editJob, getJob, listJobs, removeManagerRole, retireJob, type Actor, type Outcome } from '../core';
+import { ChannelType, MessageFlags, PermissionFlagsBits, type SlashCommandIntegerOption, type SlashCommandRoleOption } from 'discord.js';
+import {
+	addManagerRole,
+	allJobs,
+	createJob,
+	editJob,
+	fail,
+	getJob,
+	isLeadership,
+	listJobs,
+	removeManagerRole,
+	retireJob,
+	type Actor,
+	type Failure,
+	type Outcome
+} from '../core';
 import { runAsActor } from '../discord/runner';
+
+const reviewPermissions = {
+	'View Channel': PermissionFlagsBits.ViewChannel,
+	'Send Messages': PermissionFlagsBits.SendMessages,
+	'Embed Links': PermissionFlagsBits.EmbedLinks,
+	'Attach Files': PermissionFlagsBits.AttachFiles,
+	'Read Message History': PermissionFlagsBits.ReadMessageHistory
+};
 
 const jobOption = (option: SlashCommandIntegerOption) => option.setName('job').setDescription('The Job').setRequired(true).setAutocomplete(true);
 const managerRoleOption = (option: SlashCommandRoleOption) => option.setName('role').setDescription('The manager role').setRequired(true);
@@ -81,6 +103,12 @@ export class UserCommand extends Command {
 			return addManagerRole(payMe, actor, jobId, roleId, await this.holderUserIds(jobId));
 		}
 
+		const reviewChannelId = options.getChannel('review-channel')?.id;
+		if (reviewChannelId && isLeadership(payMe, actor)) {
+			const unusable = await this.checkReviewChannel(reviewChannelId);
+			if (unusable) return unusable;
+		}
+
 		switch (subcommand) {
 			case 'create':
 				return createJob(payMe, actor, {
@@ -92,7 +120,7 @@ export class UserCommand extends Command {
 				return editJob(payMe, actor, options.getInteger('job', true), {
 					name: options.getString('name') ?? undefined,
 					employeeRoleId: options.getRole('employee-role')?.id,
-					reviewChannelId: options.getChannel('review-channel')?.id
+					reviewChannelId
 				});
 			case 'retire':
 				return retireJob(payMe, actor, options.getInteger('job', true));
@@ -101,12 +129,21 @@ export class UserCommand extends Command {
 		}
 	}
 
+	private async checkReviewChannel(channelId: string): Promise<Failure | null> {
+		const guild = await this.container.client.guilds.fetch(this.container.config.guildId);
+		const channel = await guild.channels.fetch(channelId);
+		const granted = channel?.permissionsFor(await guild.members.fetchMe());
+		const missing = Object.entries(reviewPermissions)
+			.filter(([, flag]) => !granted?.has(flag))
+			.map(([name]) => name);
+		return missing.length > 0 ? fail({ code: 'review-channel-unusable', channelId, missing }) : null;
+	}
+
 	private async holderUserIds(jobId: number): Promise<string[]> {
 		const employeeRoleId = getJob(this.container.payMe, jobId)?.employeeRoleId;
 		if (!employeeRoleId) return [];
 
 		const guild = await this.container.client.guilds.fetch(this.container.config.guildId);
-		const members = await guild.members.fetch();
-		return [...members.filter((member) => member.roles.cache.has(employeeRoleId)).keys()];
+		return [...guild.members.cache.filter((member) => member.roles.cache.has(employeeRoleId)).keys()];
 	}
 }

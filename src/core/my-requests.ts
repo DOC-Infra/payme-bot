@@ -1,5 +1,6 @@
 import { selectRequest, selectRequestNumbers } from '../storage/requests';
 import type { Actor } from './actor';
+import { notice, type Card } from './effects';
 import { getEmployee } from './employees';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
@@ -23,9 +24,15 @@ export function myRequests(payMe: PayMe, actor: Actor): Outcome<MyRequests> {
 	);
 	const estimatedOwed = totalOwed(owedTo(payMe, actor.userId));
 	if (requests.length === 0)
-		return succeed([{ type: 'private-reply', content: 'You have no open Payment Requests.' }], { requests, estimatedOwed });
+		return succeed([{ type: 'private-reply', card: notice('You have no open Payment Requests.', 'neutral') }], { requests, estimatedOwed });
 
 	const lines = requests.map((request) => `${requestTitle(request.number, getTask(payMe, request.taskId)!)}: ${stateName(request.state)}`);
-	const estimate = `Estimated amount owed: **${formatAmount(estimatedOwed)}** (an estimate at current Rates; the Rate when your Payout is generated applies)`;
-	return succeed([{ type: 'private-reply', content: [...lines, '', estimate].join('\n') }], { requests, estimatedOwed });
+	const card: Card = {
+		tone: 'info',
+		title: 'Your open requests',
+		description: lines.join('\n'),
+		fields: [{ name: 'Estimated amount owed', value: `**${formatAmount(estimatedOwed)}**` }],
+		footer: 'An estimate at current Rates. The Rate when your Payout is generated applies.'
+	};
+	return succeed([{ type: 'private-reply', card }], { requests, estimatedOwed });
 }

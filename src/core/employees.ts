@@ -1,6 +1,6 @@
-import { saveEmployee, selectEmployee, selectEmployeeIdByChannel, updateRequestsThread } from '../storage/employees';
+import { saveEmployee, selectEmployee, selectEmployeeIdByChannel, selectEmployees, updateRequestsThread } from '../storage/employees';
 import type { Actor } from './actor';
-import type { Effect } from './effects';
+import { notice, type Card, type Effect } from './effects';
 import { jobsHeldBy } from './jobs';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
@@ -16,6 +16,10 @@ export interface Employee {
 
 export function getEmployee(payMe: PayMe, userId: string): Employee | null {
 	return selectEmployee(payMe.storage, userId);
+}
+
+export function allEmployees(payMe: PayMe): Employee[] {
+	return selectEmployees(payMe.storage);
 }
 
 export interface RequestsThreadIds {
@@ -48,7 +52,7 @@ export function hireEmployee(payMe: PayMe, actor: Actor, hiree: Actor, minecraft
 				...requestsThreadStart(hiree.userId, minecraftName)
 			},
 			logEntry(hiree.userId, `Hired by <@${actor.userId}> with Minecraft Name ${minecraftName}.`),
-			{ type: 'private-reply', content: `Hired <@${hiree.userId}> with Minecraft Name ${minecraftName}.` }
+			{ type: 'private-reply', card: notice(`Hired <@${hiree.userId}> with Minecraft Name ${minecraftName}.`) }
 		];
 		return succeed(effects, selectEmployee(storage, hiree.userId)!);
 	});
@@ -76,7 +80,7 @@ export function linkEmployee(payMe: PayMe, actor: Actor, linked: Actor, minecraf
 					{ type: 'start-requests-thread', employeeUserId: userId, channelId, ...requestsThreadStart(userId, minecraftName) }
 				];
 		for (const change of linkChanges(existing, minecraftName, channelId, `<@${actor.userId}>`)) effects.push(logEntry(userId, change));
-		effects.push({ type: 'private-reply', content: `Linked <@${userId}> to <#${channelId}> with Minecraft Name ${minecraftName}.` });
+		effects.push({ type: 'private-reply', card: notice(`Linked <@${userId}> to <#${channelId}> with Minecraft Name ${minecraftName}.`) });
 		return succeed(effects, selectEmployee(storage, userId)!);
 	});
 }
@@ -93,11 +97,25 @@ function linkChanges(existing: Employee | null, minecraftName: string, channelId
 }
 
 function requestsThreadStart(userId: string, minecraftName: string) {
-	return { pinnedMessage: `Employee: <@${userId}>\nMinecraft Name: ${minecraftName}`, threadName: `Requests: ${minecraftName}` };
+	return { pinnedMessage: pinnedMessageCard(userId, minecraftName), threadName: `Requests: ${minecraftName}` };
 }
 
-function logEntry(employeeUserId: string, content: string): Effect {
-	return { type: 'post-to-requests-thread', employeeUserId, content, ping: false };
+/** The pinned message at the top of an Employee Channel, which the Requests Thread starts from. */
+export function pinnedMessageCard(userId: string, minecraftName: string): Card {
+	return {
+		tone: 'info',
+		title: minecraftName,
+		description:
+			'Press **Request payment** to claim pay for a Task, or **Claim ticket** to claim a DOC ticket by its number. Every request and its outcome is logged in the Requests Thread below.',
+		fields: [
+			{ name: 'Employee', value: `<@${userId}>`, inline: true },
+			{ name: 'Minecraft Name', value: minecraftName, inline: true }
+		]
+	};
+}
+
+function logEntry(employeeUserId: string, text: string): Effect {
+	return { type: 'post-to-requests-thread', employeeUserId, card: notice(text, 'neutral'), ping: false };
 }
 
 function viewerRoleIds(payMe: PayMe, employee: Actor): string[] {

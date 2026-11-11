@@ -11,7 +11,7 @@ import {
 import { selectEmployee } from '../storage/employees';
 import { retireTasksWithNoActiveJob } from '../storage/tasks';
 import type { Actor } from './actor';
-import type { Effect } from './effects';
+import { notice, type Card, type Effect } from './effects';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
@@ -45,8 +45,11 @@ export function listJobs(payMe: PayMe, actor: Actor): Outcome<Job[]> {
 	if (refused) return refused;
 
 	const jobs = allJobs(payMe);
-	const content = jobs.length === 0 ? 'There are no Jobs yet.' : jobs.map(describeJob).join('\n');
-	return succeed([{ type: 'private-reply', content }], jobs);
+	const card: Card =
+		jobs.length === 0
+			? notice('There are no Jobs yet.', 'neutral')
+			: { tone: 'info', title: 'Jobs', description: jobs.map(describeJob).join('\n\n') };
+	return succeed([{ type: 'private-reply', card }], jobs);
 }
 
 export function createJob(payMe: PayMe, actor: Actor, details: JobDetails): Outcome<Job> {
@@ -58,7 +61,7 @@ export function createJob(payMe: PayMe, actor: Actor, details: JobDetails): Outc
 		if (selectJobIdByName(storage, details.name) !== null) return fail({ code: 'job-name-taken', name: details.name });
 
 		const job = selectJob(storage, insertJob(storage, details))!;
-		return succeed([{ type: 'private-reply', content: `Created the ${job.name} Job.` }], job);
+		return succeed([{ type: 'private-reply', card: notice(`Created the ${job.name} Job.`) }], job);
 	});
 }
 
@@ -111,7 +114,9 @@ function describeJob(job: Job): string {
 	const managers = job.managerRoleIds.length === 0 ? 'none' : job.managerRoleIds.map((id) => `<@&${id}>`).join(', ');
 	return [
 		`**${job.name}**${job.retired ? ' (retired)' : ''}`,
-		`Employee role: <@&${job.employeeRoleId}> | Manager roles: ${managers} | Review Channel: <#${job.reviewChannelId}>`
+		`Employee role: <@&${job.employeeRoleId}>`,
+		`Manager roles: ${managers}`,
+		`Review Channel: <#${job.reviewChannelId}>`
 	].join('\n');
 }
 
@@ -126,6 +131,6 @@ function changeJob(payMe: PayMe, actor: Actor, id: number, change: (job: Job) =>
 
 		const result = change(job);
 		if (typeof result !== 'string') return result;
-		return succeed([{ type: 'private-reply', content: result }], selectJob(storage, id)!);
+		return succeed([{ type: 'private-reply', card: notice(result) }], selectJob(storage, id)!);
 	});
 }

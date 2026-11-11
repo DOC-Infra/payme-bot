@@ -2,12 +2,15 @@ import { payoutLabel, payoutStateName, requestLabel, stateName, type PayoutState
 
 export type PayMeError =
 	| { code: 'not-permitted' }
+	| { code: 'review-channel-unusable'; channelId: string; missing: string[] }
 	| { code: 'job-not-found' }
 	| { code: 'job-name-taken'; name: string }
 	| { code: 'job-retired'; name: string }
 	| { code: 'invalid-rate'; rate: string }
 	| { code: 'task-not-found' }
-	| { code: 'task-name-taken'; name: string }
+	| { code: 'task-name-taken'; name: string; retired: boolean }
+	| { code: 'task-not-retired'; name: string }
+	| { code: 'task-has-no-active-job'; name: string }
 	| { code: 'task-needs-a-job' }
 	| { code: 'too-many-tasks'; job: string }
 	| { code: 'already-employee' }
@@ -20,6 +23,10 @@ export type PayMeError =
 	| { code: 'pick-a-job' }
 	| { code: 'job-not-held' }
 	| { code: 'notes-required' }
+	| { code: 'amendment-empty' }
+	| { code: 'invalid-ticket'; ticket: string }
+	| { code: 'no-ticket-task'; name: string }
+	| { code: 'ticket-claimed'; ticket: string }
 	| { code: 'invalid-link'; link: string }
 	| { code: 'evidence-required' }
 	| { code: 'no-requests-thread' }
@@ -41,6 +48,8 @@ export function describeError(error: PayMeError): string {
 	switch (error.code) {
 		case 'not-permitted':
 			return 'Only Leadership can do that.';
+		case 'review-channel-unusable':
+			return `PayMe can't post review messages in <#${error.channelId}>. Give it these permissions there: ${error.missing.join(', ')}.`;
 		case 'job-not-found':
 			return 'That Job does not exist.';
 		case 'job-name-taken':
@@ -50,7 +59,13 @@ export function describeError(error: PayMeError): string {
 		case 'task-not-found':
 			return 'That Task does not exist.';
 		case 'task-name-taken':
-			return `A Task named ${error.name} already exists.`;
+			return error.retired
+				? `A Retired Task named ${error.name} already exists. Use /task restore to bring it back.`
+				: `A Task named ${error.name} already exists.`;
+		case 'task-not-retired':
+			return `The ${error.name} Task is not retired.`;
+		case 'task-has-no-active-job':
+			return `The ${error.name} Task doesn't belong to any active Job. Add it to one with /task jobs add first.`;
 		case 'task-needs-a-job':
 			return 'A Task must belong to at least one Job.';
 		case 'too-many-tasks':
@@ -72,11 +87,19 @@ export function describeError(error: PayMeError): string {
 		case 'task-not-offered':
 			return 'That Task is not an active Task in any of your Jobs.';
 		case 'pick-a-job':
-			return 'Your Jobs have more Tasks than one form can list. Run /request again and pick a Job.';
+			return 'Your Jobs have more Tasks than one form can list. Run /request and pick a Job.';
 		case 'job-not-held':
 			return "You don't hold that Job, or it is retired.";
 		case 'notes-required':
 			return 'Add some notes about the work.';
+		case 'amendment-empty':
+			return 'Add notes, a link or a file to show what you changed.';
+		case 'invalid-ticket':
+			return `${error.ticket} is not a ticket number. Enter exactly 5 digits.`;
+		case 'no-ticket-task':
+			return `There is no ${error.name} Task yet. Ask Leadership to add it.`;
+		case 'ticket-claimed':
+			return `You have already claimed ticket ${error.ticket}.`;
 		case 'invalid-link':
 			return `${error.link} is not a web link. Use one starting with https://.`;
 		case 'evidence-required':

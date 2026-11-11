@@ -1,9 +1,10 @@
-import { insertMessage, insertRequest, selectRequest } from '../storage/requests';
+import { insertMessage, insertRequest, selectRequest, ticketClaimed } from '../storage/requests';
+import { selectTaskIdByName } from '../storage/tasks';
 import type { Actor } from './actor';
-import type { Effect, EntryAction, EvidenceFile } from './effects';
+import { notice, type Card, type CardField, type Effect, type EntryAction, type EvidenceFile } from './effects';
 import { getEmployee, type Employee } from './employees';
 import { getJob, jobsHeldBy, type Job } from './jobs';
-import { requestLabel, stateName, type RequestState } from './labels';
+import { requestLabel, stateName, stateTone, type RequestState } from './labels';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { activeTasksForJobs, getTask, maxTasksPerJob, type Task } from './tasks';
@@ -78,12 +79,32 @@ function findRequester(payMe: PayMe, actor: Actor): Failure | { employee: Employ
 	return { employee, jobs };
 }
 
+export const ticketTaskName = 'DOC Ticket Assistance';
+
 export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentRequest): Outcome<PaymentRequest> {
-	if (!input.notes.trim()) return fail({ code: 'notes-required' });
 	const invalid = checkLink(input);
 	if (invalid) return invalid;
-	if (!input.link && input.files.length === 0) return fail({ code: 'evidence-required' });
 
+	return fileRequest(payMe, actor, input, (task) => {
+		if (task.notesRequired && !input.notes.trim()) return fail({ code: 'notes-required' });
+		if (task.evidenceRequired && !input.link && input.files.length === 0) return fail({ code: 'evidence-required' });
+		return null;
+	});
+}
+
+/** Submits a Payment Request for the DOC Ticket Assistance Task. The ticket number is the Evidence, so no link or file is needed. */
+export function claimTicket(payMe: PayMe, actor: Actor, ticket: string): Outcome<PaymentRequest> {
+	if (!/^\d{5}$/.test(ticket)) return fail({ code: 'invalid-ticket', ticket });
+	const taskId = selectTaskIdByName(payMe.storage, ticketTaskName);
+	if (taskId === null) return fail({ code: 'no-ticket-task', name: ticketTaskName });
+
+	const notes = `Ticket ${ticket}`;
+	return fileRequest(payMe, actor, { taskId, notes, link: null, files: [] }, (task) =>
+		ticketClaimed(payMe.storage, actor.userId, task.id, notes) ? fail({ code: 'ticket-claimed', ticket }) : null
+	);
+}
+
+function fileRequest(payMe: PayMe, actor: Actor, input: NewPaymentRequest, check: (task: Task) => Failure | null): Outcome<PaymentRequest> {
 	const { storage } = payMe;
 	return storage.transaction(() => {
 		const requester = findRequester(payMe, actor);
@@ -95,6 +116,8 @@ export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentReque
 			jobs.map((job) => job.id)
 		).find((offered) => offered.id === input.taskId);
 		if (!task) return fail({ code: 'task-not-offered' });
+		const refused = check(task);
+		if (refused) return refused;
 
 		const number = insertRequest(storage, {
 			employeeUserId: actor.userId,
@@ -107,7 +130,7 @@ export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentReque
 		return succeed(
 			[
 				...roundEffects(payMe, request, `Submitted by <@${actor.userId}>, Pending review.`),
-				{ type: 'private-reply', content: `Submitted ${requestLabel(number)} for ${task.name}.` }
+				{ type: 'private-reply', card: notice(`Submitted ${requestLabel(number)} for ${task.name}.`) }
 			],
 			request
 		);
@@ -127,7 +150,7 @@ export function roundEffects(payMe: PayMe, request: PaymentRequest, heading: str
 			requestNumber: number,
 			round,
 			employeeUserId: employee.userId,
-			content: `${requestTitle(number, task)}\n${heading}\n${evidenceText(evidence)}`,
+			card: entryCard(request, task, heading),
 			files,
 			actions: entryActions(request.state)
 		},
@@ -137,10 +160,32 @@ export function roundEffects(payMe: PayMe, request: PaymentRequest, heading: str
 			round,
 			jobId,
 			channelId: getJob(payMe, jobId)!.reviewChannelId,
-			content: reviewCopyText(number, round, task, employee, evidence),
+			card: reviewCard(request, task, employee, evidence),
 			files
 		}))
 	];
+}
+
+function entryCard(request: PaymentRequest, task: Task, description: string): Card {
+	const evidence = request.evidence.filter((entry) => entry.round === request.round);
+	return {
+		tone: stateTone(request.state),
+		title: cardTitle(request.number, task),
+		description,
+		fields: evidenceFields(evidence),
+		footer: roundFooter(request.round)
+	};
+}
+
+/** Rewrites the request's current Requests Thread entry to show its latest state change, with the buttons that state allows. */
+export function updateRequestEntry(payMe: PayMe, request: PaymentRequest): Effect {
+	return {
+		type: 'update-request-entry',
+		requestNumber: request.number,
+		round: request.round,
+		card: entryCard(request, getTask(payMe, request.taskId)!, latestChange(request)),
+		actions: entryActions(request.state)
+	};
 }
 
 /** The buttons the Employee gets on the request's latest Requests Thread entry. */
@@ -173,7 +218,10 @@ export function updateReviewCopies(payMe: PayMe, request: PaymentRequest): Effec
 		type: 'update-review-copies',
 		requestNumber: request.number,
 		round: request.round,
-		content: `${reviewCopyText(request.number, request.round, task, employee, evidence)}\n${latestChange(request)}`
+		card: {
+			...reviewCard(request, task, employee, evidence),
+			fields: [...evidenceFields(evidence), { name: 'Status', value: latestChange(request) }]
+		}
 	};
 }
 
@@ -183,7 +231,7 @@ export function logStateChange(payMe: PayMe, request: PaymentRequest, ping: bool
 	return {
 		type: 'post-to-requests-thread',
 		employeeUserId: request.employeeUserId,
-		content: `${requestTitle(request.number, task)}: ${latestChange(request)}`,
+		card: { tone: stateTone(request.state), title: cardTitle(request.number, task), description: latestChange(request) },
 		ping
 	};
 }
@@ -198,9 +246,22 @@ export function requestTitle(number: number, task: Task): string {
 	return `**${requestLabel(number)}** ${task.name}`;
 }
 
-function reviewCopyText(number: number, round: number, task: Task, employee: Employee, evidence: readonly Evidence[]): string {
-	const resubmitted = round > 1 ? ', resubmitted' : '';
-	return `${requestTitle(number, task)} from <@${employee.userId}> (${employee.minecraftName})${resubmitted}\n${evidenceText(evidence)}`;
+function cardTitle(number: number, task: Task): string {
+	return `${requestLabel(number)} · ${task.name}`;
+}
+
+function roundFooter(round: number): string | undefined {
+	return round > 1 ? `Resubmission ${round - 1}` : undefined;
+}
+
+function reviewCard(request: PaymentRequest, task: Task, employee: Employee, evidence: readonly Evidence[]): Card {
+	return {
+		tone: stateTone(request.state),
+		title: cardTitle(request.number, task),
+		description: `From <@${employee.userId}> (${employee.minecraftName})`,
+		fields: evidenceFields(evidence),
+		footer: roundFooter(request.round)
+	};
 }
 
 export function checkLink(input: NewEvidence): Failure | null {
@@ -209,20 +270,19 @@ export function checkLink(input: NewEvidence): Failure | null {
 }
 
 export function evidenceFor(input: NewEvidence, round: number): Evidence[] {
-	const evidence: Evidence[] = [{ round, kind: 'notes', text: input.notes.trim() }];
+	const notes = input.notes.trim();
+	const evidence: Evidence[] = notes ? [{ round, kind: 'notes', text: notes }] : [];
 	if (input.link) evidence.push({ round, kind: 'link', url: input.link });
 	for (const file of input.files) evidence.push({ round, kind: 'attachment', name: file.name, url: file.url });
 	return evidence;
 }
 
-function evidenceText(evidence: readonly Evidence[]): string {
-	return evidence
-		.flatMap((entry) => {
-			if (entry.kind === 'notes') return [`Notes: ${entry.text}`];
-			if (entry.kind === 'link') return [`Link: ${entry.url}`];
-			return [];
-		})
-		.join('\n');
+function evidenceFields(evidence: readonly Evidence[]): CardField[] {
+	return evidence.flatMap((entry): CardField[] => {
+		if (entry.kind === 'notes') return [{ name: 'Notes', value: entry.text }];
+		if (entry.kind === 'link') return [{ name: 'Link', value: entry.url }];
+		return [];
+	});
 }
 
 function evidenceFiles(evidence: readonly Evidence[]): EvidenceFile[] {

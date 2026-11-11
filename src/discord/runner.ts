@@ -4,16 +4,25 @@ import {
 	ButtonBuilder,
 	ButtonStyle,
 	ChannelType,
+	ComponentType,
+	EmbedBuilder,
 	messageLink,
 	MessageFlags,
 	OverwriteType,
 	PermissionFlagsBits,
+	type ActionRow,
+	type MessageActionRowComponent,
+	type ButtonInteraction,
+	type ModalSubmitInteraction,
 	type OverwriteData,
 	type RepliableInteraction,
 	type TextChannel
 } from 'discord.js';
 import {
+	allEmployees,
 	describeError,
+	notice,
+	pinnedMessageCard,
 	fail,
 	getEmployee,
 	getPaymentRequest,
@@ -22,36 +31,45 @@ import {
 	recordRequestsThread,
 	requestEntry,
 	type Actor,
+	type Card,
 	type Effect,
 	type EvidenceFile,
 	type Outcome,
 	type PayMeError
 } from '../core';
 import { toActor } from './actor';
+import { toEmbeds } from './embeds';
 import { entryButtons } from './entry';
+import { claimTicketButtonId, requestButtonRow } from './requestModal';
 import { buttonRows, payoutActionButtons, settleButtons } from './payouts';
 import { reviewButtons, reviewRow } from './review';
 
 interface PrivateMessage {
-	content?: string;
+	embeds?: EmbedBuilder[];
 	components: ActionRowBuilder<ButtonBuilder>[];
 }
 
 type Handler<T extends Effect> = (effect: T, interaction: RepliableInteraction | null) => Promise<unknown>;
 type Handlers = { [K in Effect['type']]: Handler<Extract<Effect, { type: K }>> };
 
+/** Interactions acknowledged without a reply: their message shows the result, so anything else they say goes in a private follow-up. */
+const acknowledged = new WeakSet<RepliableInteraction>();
+
 const viewer = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory];
 const bot = [
 	...viewer,
 	PermissionFlagsBits.SendMessages,
+	PermissionFlagsBits.EmbedLinks,
+	PermissionFlagsBits.AttachFiles,
 	PermissionFlagsBits.ManageMessages,
+	PermissionFlagsBits.PinMessages,
 	PermissionFlagsBits.CreatePublicThreads,
 	PermissionFlagsBits.SendMessagesInThreads,
 	PermissionFlagsBits.ManageThreads
 ];
 
 const handlers: Handlers = {
-	'private-reply': async (effect, interaction) => interaction && replyPrivately(interaction, effect.content),
+	'private-reply': async (effect, interaction) => interaction && replyPrivately(interaction, effect.card),
 	'create-employee-channel': async (effect) => {
 		const guild = await container.client.guilds.fetch(container.config.guildId);
 		const overwrites: OverwriteData[] = [
@@ -80,13 +98,13 @@ const handlers: Handlers = {
 	},
 	'post-to-requests-thread': async (effect) => {
 		const thread = await openRequestsThread(effect.employeeUserId);
-		const content = effect.ping ? `<@${effect.employeeUserId}> ${effect.content}` : effect.content;
-		await thread.send({ content, allowedMentions: { users: effect.ping ? [effect.employeeUserId] : [] } });
+		const content = effect.ping ? `<@${effect.employeeUserId}>` : undefined;
+		await thread.send({ content, embeds: toEmbeds(effect.card), allowedMentions: { users: effect.ping ? [effect.employeeUserId] : [] } });
 	},
 	'post-request-entry': async (effect) => {
 		const thread = await openRequestsThread(effect.employeeUserId);
 		const message = await thread.send({
-			content: effect.content,
+			embeds: toEmbeds(effect.card),
 			files: uploads(effect.files),
 			components: reviewRow(entryButtons(effect.requestNumber, effect.actions)),
 			allowedMentions: { parse: [] }
@@ -103,7 +121,12 @@ const handlers: Handlers = {
 		if (!channel?.isSendable()) throw new Error(`Review Channel ${effect.channelId} is not a channel PayMe can send to`);
 
 		const components = reviewRow([...entryLink(effect.requestNumber, effect.round), ...reviewButtons(effect.requestNumber)]);
-		const message = await channel.send({ content: effect.content, files: uploads(effect.files), components, allowedMentions: { parse: [] } });
+		const message = await channel.send({
+			embeds: toEmbeds(effect.card),
+			files: uploads(effect.files),
+			components,
+			allowedMentions: { parse: [] }
+		});
 		recordRequestMessage(container.payMe, effect.requestNumber, {
 			round: effect.round,
 			jobId: effect.jobId,
@@ -118,14 +141,39 @@ const handlers: Handlers = {
 			if (copy.jobId === null || copy.round !== effect.round) continue;
 			const channel = await container.client.channels.fetch(copy.channelId);
 			if (!channel?.isTextBased()) throw new Error(`Review Channel ${copy.channelId} is not a text channel`);
-			await channel.messages.edit(copy.messageId, { content: effect.content, components, allowedMentions: { parse: [] } });
+			await channel.messages.edit(copy.messageId, { content: null, embeds: toEmbeds(effect.card), components, allowedMentions: { parse: [] } });
 		}
 	},
 	'show-payout': async (effect, interaction) => {
 		const open = getPayout(container.payMe, effect.payoutNumber)?.state === 'open';
-		return interaction && replyPrivately(interaction, effect.content, open ? settleButtons(effect.payoutNumber) : []);
+		if (!interaction) return;
+		return replyPrivately(interaction, effect.card, open ? settleButtons(effect.payoutNumber) : [], acknowledged.has(interaction));
 	},
-	'show-payouts': async (effect, interaction) => interaction && replyPrivately(interaction, effect.content, payoutActionButtons(effect.actions)),
+	'show-payouts': async (effect, interaction) => interaction && replyPrivately(interaction, effect.card, payoutActionButtons(effect.actions)),
+	'update-request-entry': async (effect) => {
+		const entry = requestEntry(container.payMe, effect.requestNumber, effect.round);
+		if (!entry) return;
+		const thread = await container.client.channels.fetch(entry.channelId);
+		if (!thread?.isThread()) throw new Error(`Requests Thread ${entry.channelId} is not a thread`);
+		if (thread.archived) await thread.setArchived(false);
+		await thread.messages.edit(entry.messageId, {
+			embeds: toEmbeds(effect.card),
+			components: reviewRow(entryButtons(effect.requestNumber, effect.actions)),
+			allowedMentions: { parse: [] }
+		});
+	},
+	'delete-review-copies': async (effect) => {
+		const copies = getPaymentRequest(container.payMe, effect.requestNumber)?.messages ?? [];
+		for (const copy of copies) {
+			if (copy.jobId === null) continue;
+			try {
+				const channel = await container.client.channels.fetch(copy.channelId);
+				if (channel?.isTextBased()) await channel.messages.delete(copy.messageId);
+			} catch (error) {
+				container.logger.warn(`Could not delete review copy ${copy.messageId} of R-${effect.requestNumber}`, error);
+			}
+		}
+	},
 	'update-entry-actions': async (effect) => {
 		const entry = requestEntry(container.payMe, effect.requestNumber, effect.round);
 		if (!entry) return;
@@ -143,9 +191,19 @@ function entryLink(requestNumber: number, round: number): ButtonBuilder[] {
 	return [new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open in Requests Thread').setURL(url)];
 }
 
+/** Acknowledges a button, or a modal opened from one, whose result shows by updating its message. Anything else replies privately. */
+export async function acknowledge(interaction: ButtonInteraction | ModalSubmitInteraction): Promise<void> {
+	if (interaction.isButton() || interaction.isFromMessage()) {
+		await interaction.deferUpdate();
+		acknowledged.add(interaction);
+		return;
+	}
+	await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+}
+
 export async function runOutcome(interaction: RepliableInteraction, outcome: Outcome<unknown>): Promise<void> {
 	if (!outcome.ok) {
-		await replyPrivately(interaction, describeError(outcome.error));
+		await replyPrivately(interaction, notice(describeError(outcome.error), 'danger'));
 		return;
 	}
 	await runEffects(outcome.effects, interaction);
@@ -170,8 +228,28 @@ function runEffect<T extends Effect>(interaction: RepliableInteraction | null, e
 	return handler(effect, interaction);
 }
 
-async function startRequestsThread(channel: TextChannel, employeeUserId: string, pinnedMessage: string, threadName: string) {
-	const message = await channel.send({ content: pinnedMessage, allowedMentions: { parse: [] } });
+/** Brings pinned messages posted before the Request payment and Claim ticket buttons existed up to date. */
+export async function addMissingRequestButtons(): Promise<void> {
+	for (const employee of allEmployees(container.payMe)) {
+		if (!employee.channelId || !employee.pinnedMessageId) continue;
+		try {
+			const channel = await container.client.channels.fetch(employee.channelId);
+			if (channel?.type !== ChannelType.GuildText) continue;
+			const message = await channel.messages.fetch(employee.pinnedMessageId);
+			const rows = message.components.filter(
+				(component): component is ActionRow<MessageActionRowComponent> => component.type === ComponentType.ActionRow
+			);
+			if (rows.some((row) => row.components.some((button) => button.customId === claimTicketButtonId))) continue;
+			const card = pinnedMessageCard(employee.userId, employee.minecraftName);
+			await message.edit({ content: null, embeds: toEmbeds(card), components: [requestButtonRow()], allowedMentions: { parse: [] } });
+		} catch (error) {
+			container.logger.warn(`Could not add the Request payment button for ${employee.userId}`, error);
+		}
+	}
+}
+
+async function startRequestsThread(channel: TextChannel, employeeUserId: string, pinnedMessage: Card, threadName: string) {
+	const message = await channel.send({ embeds: toEmbeds(pinnedMessage), components: [requestButtonRow()], allowedMentions: { parse: [] } });
 	await message.pin();
 	const thread = await message.startThread({ name: threadName });
 	recordRequestsThread(container.payMe, employeeUserId, { channelId: channel.id, pinnedMessageId: message.id, threadId: thread.id });
@@ -191,30 +269,23 @@ function uploads(files: readonly EvidenceFile[]) {
 	return files.map((file) => ({ attachment: file.url, name: file.name }));
 }
 
-async function replyPrivately(interaction: RepliableInteraction, content: string, buttons: ButtonBuilder[] = []) {
-	const messages: PrivateMessage[] = splitLines(content, 2000).map((text) => ({ content: text, components: [] }));
+/** Replies privately, or with `update`, replaces the message the interaction came from, following up with any overflow. */
+async function replyPrivately(interaction: RepliableInteraction, card: Card, buttons: ButtonBuilder[] = [], update = false) {
+	const messages: PrivateMessage[] = toEmbeds(card).map((embed) => ({ embeds: [embed], components: [] }));
 	const [first = [], ...rest] = chunk(buttons, 25).map(buttonRows);
 	messages[messages.length - 1].components = first;
 	messages.push(...rest.map((components) => ({ components })));
-	for (const message of messages) await sendPrivately(interaction, message);
+	for (const message of messages) {
+		if (update && !interaction.replied) await interaction.editReply({ ...message, allowedMentions: { parse: [] } });
+		else await sendPrivately(interaction, message);
+	}
 }
 
 function sendPrivately(interaction: RepliableInteraction, message: PrivateMessage) {
 	const options = { ...message, allowedMentions: { parse: [] } };
-	if (interaction.replied) return interaction.followUp({ ...options, flags: MessageFlags.Ephemeral });
+	if (interaction.replied || acknowledged.has(interaction)) return interaction.followUp({ ...options, flags: MessageFlags.Ephemeral });
 	if (interaction.deferred) return interaction.editReply(options);
 	return interaction.reply({ ...options, flags: MessageFlags.Ephemeral });
-}
-
-function splitLines(text: string, limit: number): string[] {
-	const lines = text.split('\n').flatMap((line) => line.match(new RegExp(`[\\s\\S]{1,${limit}}`, 'g')) ?? ['']);
-	const parts = [lines[0]];
-	for (const line of lines.slice(1)) {
-		const last = parts[parts.length - 1];
-		if (last.length + 1 + line.length > limit) parts.push(line);
-		else parts[parts.length - 1] = `${last}\n${line}`;
-	}
-	return parts;
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {

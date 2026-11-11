@@ -3,7 +3,14 @@ import type { Storage } from './storage';
 
 export function selectEmployee(storage: Storage, userId: string): Employee | null {
 	const row = storage.db.prepare('SELECT * FROM employees WHERE user_id = ?').get(userId);
-	if (!row) return null;
+	return row ? toEmployee(row) : null;
+}
+
+export function selectEmployees(storage: Storage): Employee[] {
+	return storage.db.prepare('SELECT * FROM employees ORDER BY user_id').all().map(toEmployee);
+}
+
+function toEmployee(row: Record<string, unknown>): Employee {
 	return {
 		userId: String(row.user_id),
 		minecraftName: String(row.minecraft_name),

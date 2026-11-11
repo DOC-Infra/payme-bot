@@ -1,7 +1,7 @@
 import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
 import { getJob } from './jobs';
-import { requestLabel, stateName, type RequestState } from './labels';
+import type { RequestState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership } from './permissions';
@@ -49,14 +49,6 @@ function decide(payMe: PayMe, actor: Actor, number: number, to: RequestState, re
 		const updated = updateRequestState(storage, number, { from: 'pending', to, actorUserId: actor.userId, reason });
 		const request = getPaymentRequest(payMe, number)!;
 		if (!updated) return fail({ code: 'already-decided', number, state: request.state });
-		return succeed(
-			[
-				updateReviewCopies(payMe, request),
-				updateEntryActions(request),
-				logStateChange(payMe, request, to !== 'approved'),
-				{ type: 'private-reply', content: `${stateName(to)} ${requestLabel(number)}.` }
-			],
-			request
-		);
+		return succeed([updateReviewCopies(payMe, request), updateEntryActions(request), logStateChange(payMe, request, to !== 'approved')], request);
 	});
 }

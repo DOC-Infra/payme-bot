@@ -98,22 +98,29 @@ describe('Rejecting and denying a Payment Request', () => {
 });
 
 describe('What a decision posts', () => {
-	const copy = '**R-1** Deliver Parcel from <@user-alex> (Alex_42)\nNotes: Done';
+	const copy = (tone: string, status: string) => ({
+		tone,
+		title: 'R-1 · Deliver Parcel',
+		description: 'From <@user-alex> (Alex_42)',
+		fields: [
+			{ name: 'Notes', value: 'Done' },
+			{ name: 'Status', value: status }
+		]
+	});
 
 	it('updates every review copy with the outcome and reviewer, removes the Withdraw button, and logs an approval without pinging the Employee', () => {
 		const { payMe } = pendingParcel();
 
 		expect(approveRequest(payMe, courierManager, 1)).toMatchObject({
 			effects: [
-				{ type: 'update-review-copies', requestNumber: 1, round: 1, content: `${copy}\n**Approved** by <@user-casey>` },
+				{ type: 'update-review-copies', requestNumber: 1, round: 1, card: copy('success', '**Approved** by <@user-casey>') },
 				{ type: 'update-entry-actions', requestNumber: 1, round: 1, actions: [] },
 				{
 					type: 'post-to-requests-thread',
 					employeeUserId: 'user-alex',
-					content: '**R-1** Deliver Parcel: **Approved** by <@user-casey>',
+					card: { tone: 'success', title: 'R-1 · Deliver Parcel', description: '**Approved** by <@user-casey>' },
 					ping: false
-				},
-				{ type: 'private-reply', content: 'Approved R-1.' }
+				}
 			]
 		});
 	});
@@ -124,18 +131,24 @@ describe('What a decision posts', () => {
 
 		expect(rejectRequest(payMe, courierManager, 1, 'Blurry screenshot')).toMatchObject({
 			effects: [
-				{ type: 'update-review-copies', content: `${copy}\n**Rejected** by <@user-casey>: Blurry screenshot` },
+				{ type: 'update-review-copies', card: copy('warning', '**Rejected** by <@user-casey>: Blurry screenshot') },
 				{ type: 'update-entry-actions', requestNumber: 1, actions: ['amend', 'withdraw'] },
-				{ type: 'post-to-requests-thread', content: '**R-1** Deliver Parcel: **Rejected** by <@user-casey>: Blurry screenshot', ping: true },
-				{ type: 'private-reply', content: 'Rejected R-1.' }
+				{
+					type: 'post-to-requests-thread',
+					card: { tone: 'warning', title: 'R-1 · Deliver Parcel', description: '**Rejected** by <@user-casey>: Blurry screenshot' },
+					ping: true
+				}
 			]
 		});
 		expect(denyRequest(payMe, courierManager, 2, 'Duplicate')).toMatchObject({
 			effects: [
 				{ type: 'update-review-copies', requestNumber: 2 },
 				{ type: 'update-entry-actions', requestNumber: 2, actions: [] },
-				{ type: 'post-to-requests-thread', content: '**R-2** Deliver Parcel: **Denied** by <@user-casey>: Duplicate', ping: true },
-				{ type: 'private-reply', content: 'Denied R-2.' }
+				{
+					type: 'post-to-requests-thread',
+					card: { tone: 'danger', title: 'R-2 · Deliver Parcel', description: '**Denied** by <@user-casey>: Duplicate' },
+					ping: true
+				}
 			]
 		});
 	});

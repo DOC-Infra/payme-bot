@@ -35,7 +35,7 @@ _Avoid_: Senior Manager, admin, payer, owner
 ## Work and pay
 
 **Task**:
-A predefined kind of work that an Employee can be paid for. A Task belongs to one or more Jobs and has one Rate.
+A predefined kind of work that an Employee can be paid for. A Task belongs to one or more Jobs and has one Rate. By default its Payment Requests need notes and a link or a file as Evidence; Leadership can waive either requirement per Task.
 _Avoid_: Job, assignment, activity
 
 **Rate**:
@@ -47,7 +47,7 @@ The full list of Tasks and their current Rates, maintained by Leadership.
 _Avoid_: Price list, catalog
 
 **Retired Task**:
-A Task that can no longer be requested but still exists so that past Payment Requests can refer to it.
+A Task that can no longer be requested but still exists so that past Payment Requests can refer to it. Leadership can restore it, which makes it requestable again with the same name, Rate and Jobs.
 _Avoid_: Deleted task, archived task
 
 **Payment Request**:

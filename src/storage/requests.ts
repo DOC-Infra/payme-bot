@@ -60,6 +60,22 @@ export function selectRequestNumbers(storage: Storage, employeeUserId: string, s
 		.map((row) => Number(row.number));
 }
 
+/** Whether the Employee already has a request for the Task, not Denied or Withdrawn, with these notes. */
+export function ticketClaimed(storage: Storage, employeeUserId: string, taskId: number, notes: string): boolean {
+	const row = storage.db
+		.prepare(
+			`SELECT 1 FROM payment_requests
+			JOIN payment_request_evidence ON payment_request_evidence.request_number = payment_requests.number
+			WHERE payment_requests.employee_user_id = ?
+				AND payment_requests.task_id = ?
+				AND payment_requests.state NOT IN ('denied', 'withdrawn')
+				AND payment_request_evidence.kind = 'notes'
+				AND payment_request_evidence.value = ?`
+		)
+		.get(employeeUserId, taskId, notes);
+	return row !== undefined;
+}
+
 export function insertMessage(storage: Storage, number: number, message: RequestMessage) {
 	storage.db
 		.prepare('INSERT OR REPLACE INTO payment_request_messages (message_id, request_number, round, job_id, channel_id) VALUES (?, ?, ?, ?, ?)')

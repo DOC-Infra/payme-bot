@@ -9,8 +9,11 @@ import {
 	getTask,
 	listTasks,
 	removeTaskFromJob,
+	restoreTask,
 	retireJob,
 	retireTask,
+	setEvidenceRequired,
+	setNotesRequired,
 	type Outcome,
 	type PayMe,
 	type Task
@@ -50,7 +53,44 @@ describe('Tasks', () => {
 
 		const task = created(addTask(payMe, leadership(), { name: 'Deliver parcel', rate: '12.5', jobIds: [job.id] }));
 
-		expect(getTask(payMe, task.id)).toEqual({ id: task.id, name: 'Deliver parcel', rate: 1250, jobIds: [job.id], retired: false });
+		expect(getTask(payMe, task.id)).toEqual({
+			id: task.id,
+			name: 'Deliver parcel',
+			rate: 1250,
+			evidenceRequired: true,
+			notesRequired: true,
+			jobIds: [job.id],
+			retired: false
+		});
+	});
+
+	it('lets Leadership add a Task that needs no link or file, and change that later', () => {
+		const payMe = createTestPayMe();
+		const job = created(createJob(payMe, leadership(), courier));
+		const task = created(addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', evidenceRequired: false, jobIds: [job.id] }));
+
+		expect(task.evidenceRequired).toBe(false);
+		expect(created(setEvidenceRequired(payMe, leadership(), task.id, true)).evidenceRequired).toBe(true);
+	});
+
+	it('lets Leadership add a Task that needs no notes, and change that later', () => {
+		const payMe = createTestPayMe();
+		const job = created(createJob(payMe, leadership(), courier));
+		const task = created(addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', notesRequired: false, jobIds: [job.id] }));
+
+		expect(task.notesRequired).toBe(false);
+		expect(created(setNotesRequired(payMe, leadership(), task.id, true)).notesRequired).toBe(true);
+		expect(setNotesRequired(payMe, member('user-alex'), task.id, false).ok).toBe(false);
+		expect(getTask(payMe, task.id)?.notesRequired).toBe(true);
+	});
+
+	it('refuses to change whether a Task needs Evidence for anyone but Leadership', () => {
+		const payMe = createTestPayMe();
+		const job = created(createJob(payMe, leadership(), courier));
+		const task = created(addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', jobIds: [job.id] }));
+
+		expect(setEvidenceRequired(payMe, member('user-alex'), task.id, false).ok).toBe(false);
+		expect(getTask(payMe, task.id)?.evidenceRequired).toBe(true);
 	});
 
 	it.each([
@@ -109,7 +149,7 @@ describe('Tasks', () => {
 
 		expect(addTask(payMe, leadership(), { name: 'deliver PARCEL', rate: '5', jobIds: [job.id] })).toEqual({
 			ok: false,
-			error: { code: 'task-name-taken', name: 'deliver PARCEL' }
+			error: { code: 'task-name-taken', name: 'deliver PARCEL', retired: false }
 		});
 	});
 
@@ -198,6 +238,39 @@ describe('Tasks', () => {
 		expect(getTask(payMe, task.id)).toEqual({ ...task, retired: true });
 	});
 
+	it('lets Leadership restore a Retired Task as it was, and points /task add at restoring', () => {
+		const payMe = createTestPayMe();
+		const job = created(createJob(payMe, leadership(), courier));
+		const task = created(addTask(payMe, leadership(), { name: 'Deliver parcel', rate: '5', notesRequired: false, jobIds: [job.id] }));
+		retireTask(payMe, leadership(), task.id);
+
+		expect(addTask(payMe, leadership(), { name: 'Deliver parcel', rate: '5', jobIds: [job.id] })).toEqual({
+			ok: false,
+			error: { code: 'task-name-taken', name: 'Deliver parcel', retired: true }
+		});
+		expect(restoreTask(payMe, member('user-alex'), task.id).ok).toBe(false);
+		expect(created(restoreTask(payMe, leadership(), task.id))).toEqual(task);
+		expect(restoreTask(payMe, leadership(), task.id)).toEqual({ ok: false, error: { code: 'task-not-retired', name: 'Deliver parcel' } });
+	});
+
+	it('refuses to restore a Task with no active Job, or into a Job that is full', () => {
+		const payMe = createTestPayMe();
+		const courierJob = created(createJob(payMe, leadership(), courier));
+		const minerJob = created(createJob(payMe, leadership(), miner));
+		const parcel = created(addTask(payMe, leadership(), { name: 'Deliver parcel', rate: '5', jobIds: [courierJob.id] }));
+		const ore = created(addTask(payMe, leadership(), { name: 'Mine ore', rate: '5', jobIds: [minerJob.id] }));
+
+		retireJob(payMe, leadership(), courierJob.id);
+		expect(restoreTask(payMe, leadership(), parcel.id)).toEqual({
+			ok: false,
+			error: { code: 'task-has-no-active-job', name: 'Deliver parcel' }
+		});
+
+		retireTask(payMe, leadership(), ore.id);
+		addTasks(payMe, 25, [minerJob.id]);
+		expect(restoreTask(payMe, leadership(), ore.id)).toEqual({ ok: false, error: { code: 'too-many-tasks', job: 'Miner' } });
+	});
+
 	it('retires the Tasks of a retired Job unless they still belong to another active Job', () => {
 		const payMe = createTestPayMe();
 		const courierJob = created(createJob(payMe, leadership(), courier));
@@ -224,14 +297,23 @@ describe('Tasks', () => {
 		addTask(payMe, leadership(), { name: 'Haul ore', rate: '3.5', jobIds: [minerJob.id, courierJob.id] });
 		const parcel = created(addTask(payMe, leadership(), { name: 'Deliver parcel', rate: '1500', jobIds: [courierJob.id] }));
 		retireTask(payMe, leadership(), parcel.id);
+		addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', evidenceRequired: false, jobIds: [courierJob.id] });
 
 		const outcome = listTasks(payMe);
 
-		expect(outcome).toMatchObject({ ok: true, value: [{ name: 'Deliver parcel' }, { name: 'Haul ore' }] });
+		expect(outcome).toMatchObject({ ok: true, value: [{ name: 'Attend meeting' }, { name: 'Deliver parcel' }, { name: 'Haul ore' }] });
 		expect(outcome.ok && outcome.effects).toEqual([
 			{
 				type: 'private-reply',
-				content: ['**Deliver parcel** (retired): 1500 (Courier)', '**Haul ore**: 3.5 (Courier, Miner)'].join('\n')
+				card: {
+					tone: 'info',
+					title: 'Rate Schedule',
+					description: [
+						'**Attend meeting** (no link or file needed): 5 (Courier)',
+						'**Deliver parcel** (retired): 1500 (Courier)',
+						'**Haul ore**: 3.5 (Courier, Miner)'
+					].join('\n')
+				}
 			}
 		]);
 	});
@@ -240,7 +322,7 @@ describe('Tasks', () => {
 		expect(listTasks(createTestPayMe())).toEqual({
 			ok: true,
 			value: [],
-			effects: [{ type: 'private-reply', content: 'The Rate Schedule is empty.' }]
+			effects: [{ type: 'private-reply', card: { tone: 'neutral', description: 'The Rate Schedule is empty.' } }]
 		});
 	});
 

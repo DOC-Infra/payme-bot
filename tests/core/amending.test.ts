@@ -12,6 +12,7 @@ import {
 	hireEmployee,
 	recordRequestsThread,
 	rejectRequest,
+	setNotesRequired,
 	submitRequest,
 	withdrawRequest,
 	type Outcome,
@@ -107,13 +108,26 @@ describe('Amending a Rejected Payment Request', () => {
 	});
 });
 
+describe('Amending a request for a Task that needs no notes', () => {
+	it('accepts blank notes alongside a link or file, but not an empty amendment', () => {
+		const { payMe } = rejectedParcel();
+		created(setNotesRequired(payMe, leadership(), getPaymentRequest(payMe, 1)!.taskId, false));
+
+		expect(amendRequest(payMe, alex, 1, { notes: ' ', link: null, files: [] })).toEqual({ ok: false, error: { code: 'amendment-empty' } });
+		expect(created(amendRequest(payMe, alex, 1, { notes: ' ', link: null, files: [clearer] })).state).toBe('pending');
+	});
+});
+
 describe('What resubmitting posts', () => {
 	it('posts the added Evidence as a new entry in the Requests Thread and a new review copy in each eligible Review Channel', () => {
 		const { payMe, courier } = rejectedParcel();
 
 		const outcome = amendRequest(payMe, alex, 1, { notes: 'Retook it', link: 'https://example.com/more', files: [clearer] });
 
-		const evidence = 'Notes: Retook it\nLink: https://example.com/more';
+		const fields = [
+			{ name: 'Notes', value: 'Retook it' },
+			{ name: 'Link', value: 'https://example.com/more' }
+		];
 		expect(outcome.ok && outcome.effects).toEqual([
 			{ type: 'update-entry-actions', requestNumber: 1, round: 1, actions: [] },
 			{
@@ -121,7 +135,13 @@ describe('What resubmitting posts', () => {
 				requestNumber: 1,
 				round: 2,
 				employeeUserId: 'user-alex',
-				content: `**R-1** Deliver Parcel\nAmended and resubmitted by <@user-alex>, Pending review.\n${evidence}`,
+				card: {
+					tone: 'info',
+					title: 'R-1 · Deliver Parcel',
+					description: 'Amended and resubmitted by <@user-alex>, Pending review.',
+					fields,
+					footer: 'Resubmission 1'
+				},
 				files: [clearer],
 				actions: ['withdraw']
 			},
@@ -131,16 +151,15 @@ describe('What resubmitting posts', () => {
 				round: 2,
 				jobId: courier.id,
 				channelId: 'review-courier',
-				content: `**R-1** Deliver Parcel from <@user-alex> (Alex_42), resubmitted\n${evidence}`,
+				card: { tone: 'info', title: 'R-1 · Deliver Parcel', description: 'From <@user-alex> (Alex_42)', fields, footer: 'Resubmission 1' },
 				files: [clearer]
-			},
-			{ type: 'private-reply', content: 'Resubmitted R-1.' }
+			}
 		]);
 	});
 });
 
 describe('Withdrawing a Payment Request', () => {
-	it('moves a Pending request to Withdrawn, closes its review copies and logs it without pinging', () => {
+	it('moves a Pending request to Withdrawn, marks its Requests Thread entry and deletes its review copies', () => {
 		const { payMe } = pendingParcel();
 
 		expect(withdrawRequest(payMe, alex, 1)).toEqual({
@@ -148,19 +167,19 @@ describe('Withdrawing a Payment Request', () => {
 			value: getPaymentRequest(payMe, 1),
 			effects: [
 				{
-					type: 'update-review-copies',
+					type: 'update-request-entry',
 					requestNumber: 1,
 					round: 1,
-					content: '**R-1** Deliver Parcel from <@user-alex> (Alex_42)\nNotes: Done\n**Withdrawn** by <@user-alex>'
+					card: {
+						tone: 'neutral',
+						title: 'R-1 · Deliver Parcel',
+						description: '**Withdrawn** by <@user-alex>',
+						fields: [{ name: 'Notes', value: 'Done' }],
+						footer: undefined
+					},
+					actions: []
 				},
-				{ type: 'update-entry-actions', requestNumber: 1, round: 1, actions: [] },
-				{
-					type: 'post-to-requests-thread',
-					employeeUserId: 'user-alex',
-					content: '**R-1** Deliver Parcel: **Withdrawn** by <@user-alex>',
-					ping: false
-				},
-				{ type: 'private-reply', content: 'Withdrew R-1.' }
+				{ type: 'delete-review-copies', requestNumber: 1 }
 			]
 		});
 		expect(getPaymentRequest(payMe, 1)?.history.at(-1)).toMatchObject({ from: 'pending', to: 'withdrawn', actorUserId: 'user-alex' });
