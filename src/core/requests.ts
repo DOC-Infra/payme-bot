@@ -5,7 +5,7 @@ import { getEmployee, type Employee } from './employees';
 import { jobsHeldBy, type Job } from './jobs';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import { activeTasksForJobs, maxTasksPerJob, type Task } from './tasks';
+import { activeTasksForJobs, getTask, maxTasksPerJob, type Task } from './tasks';
 
 export type RequestState = 'pending' | 'approved' | 'rejected' | 'denied' | 'withdrawn' | 'paid';
 
@@ -101,7 +101,7 @@ export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentReque
 			evidence
 		});
 
-		const id = `**${requestLabel(number)}** ${task.name}`;
+		const id = requestTitle(number, task);
 		const text = evidenceText(evidence);
 		const files = evidenceFiles(evidence);
 		const effects: Effect[] = [
@@ -119,7 +119,7 @@ export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentReque
 				round: 1,
 				jobId: job.id,
 				channelId: job.reviewChannelId,
-				content: `${id} from <@${actor.userId}> (${employee.minecraftName})\n${text}`,
+				content: reviewCopyText(number, task, employee, evidence),
 				files
 			})),
 			{ type: 'private-reply', content: `Submitted ${requestLabel(number)} for ${task.name}.` }
@@ -139,6 +139,48 @@ export function requestEntry(payMe: PayMe, number: number, round: number): Reque
 
 export function requestLabel(number: number): string {
 	return `R-${number}`;
+}
+
+export function stateName(state: RequestState): string {
+	return state[0].toUpperCase() + state.slice(1);
+}
+
+/** Rewrites every review copy of the request's current round to show its latest state change, without review buttons. */
+export function updateReviewCopies(payMe: PayMe, request: PaymentRequest): Effect {
+	const task = getTask(payMe, request.taskId)!;
+	const employee = getEmployee(payMe, request.employeeUserId)!;
+	const evidence = request.evidence.filter((entry) => entry.round === request.round);
+	return {
+		type: 'update-review-copies',
+		requestNumber: request.number,
+		round: request.round,
+		content: `${reviewCopyText(request.number, task, employee, evidence)}\n${latestChange(request)}`
+	};
+}
+
+/** Logs the request's latest state change in the Employee's Requests Thread. */
+export function logStateChange(payMe: PayMe, request: PaymentRequest, ping: boolean): Effect {
+	const task = getTask(payMe, request.taskId)!;
+	return {
+		type: 'post-to-requests-thread',
+		employeeUserId: request.employeeUserId,
+		content: `${requestTitle(request.number, task)}: ${latestChange(request)}`,
+		ping
+	};
+}
+
+function latestChange(request: PaymentRequest): string {
+	const change = request.history[request.history.length - 1];
+	const reason = change.reason ? `: ${change.reason}` : '';
+	return `**${stateName(change.to)}** by <@${change.actorUserId}>${reason}`;
+}
+
+function requestTitle(number: number, task: Task): string {
+	return `**${requestLabel(number)}** ${task.name}`;
+}
+
+function reviewCopyText(number: number, task: Task, employee: Employee, evidence: readonly Evidence[]): string {
+	return `${requestTitle(number, task)} from <@${employee.userId}> (${employee.minecraftName})\n${evidenceText(evidence)}`;
 }
 
 function evidenceFor(input: NewPaymentRequest, round: number): Evidence[] {

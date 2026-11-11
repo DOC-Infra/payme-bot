@@ -1,5 +1,12 @@
 export type Effect =
-	PrivateReply | CreateEmployeeChannel | StartRequestsThread | GrantChannelAccess | PostToRequestsThread | PostRequestEntry | PostReviewMessage;
+	| PrivateReply
+	| CreateEmployeeChannel
+	| StartRequestsThread
+	| GrantChannelAccess
+	| PostToRequestsThread
+	| PostRequestEntry
+	| PostReviewMessage
+	| UpdateReviewCopies;
 
 export interface EvidenceFile {
 	name: string;
@@ -66,6 +73,14 @@ export interface PostRequestEntry {
  * Post a review copy in a Job's Review Channel, re-uploading the files and linking to the round's Requests Thread entry
  * (see `requestEntry`), then report the message back with `recordRequestMessage`.
  */
+/** Edit every recorded review copy of this round in place: replace its text and remove the review buttons, keeping the link to the thread entry. */
+export interface UpdateReviewCopies {
+	type: 'update-review-copies';
+	requestNumber: number;
+	round: number;
+	content: string;
+}
+
 export interface PostReviewMessage {
 	type: 'post-review-message';
 	requestNumber: number;

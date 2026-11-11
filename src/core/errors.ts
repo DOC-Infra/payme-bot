@@ -1,3 +1,5 @@
+import { requestLabel, stateName, type RequestState } from './requests';
+
 export type PayMeError =
 	| { code: 'not-permitted' }
 	| { code: 'job-not-found' }
@@ -18,7 +20,12 @@ export type PayMeError =
 	| { code: 'notes-required' }
 	| { code: 'invalid-link'; link: string }
 	| { code: 'evidence-required' }
-	| { code: 'no-requests-thread' };
+	| { code: 'no-requests-thread' }
+	| { code: 'already-decided'; number: number; state: RequestState }
+	| { code: 'request-not-found' }
+	| { code: 'own-request' }
+	| { code: 'not-a-reviewer' }
+	| { code: 'reason-required' };
 
 export function describeError(error: PayMeError): string {
 	switch (error.code) {
@@ -62,5 +69,15 @@ export function describeError(error: PayMeError): string {
 			return 'Add a link or at least one file as Evidence.';
 		case 'no-requests-thread':
 			return 'Your Requests Thread is not set up yet. Ask Leadership to /link you to your Employee Channel.';
+		case 'already-decided':
+			return `${requestLabel(error.number)} was already decided: it is ${stateName(error.state)}.`;
+		case 'request-not-found':
+			return 'That Payment Request does not exist.';
+		case 'own-request':
+			return 'You cannot review your own Payment Request.';
+		case 'not-a-reviewer':
+			return 'Only Managers of the Jobs this request was submitted for, or Leadership, can review it.';
+		case 'reason-required':
+			return 'Give a reason so the Employee knows why.';
 	}
 }

@@ -38,6 +38,16 @@ export function insertHistory(storage: Storage, number: number, entry: Omit<Requ
 		.run(number, entry.from, entry.to, entry.actorUserId, entry.reason);
 }
 
+/** Moves the request to `to` only if it is still in `from`, and records it in the history. False if its state had already changed. */
+export function updateRequestState(storage: Storage, number: number, change: Omit<RequestHistoryEntry, 'at'> & { from: RequestState }): boolean {
+	const { changes } = storage.db
+		.prepare('UPDATE payment_requests SET state = ? WHERE number = ? AND state = ?')
+		.run(change.to, number, change.from);
+	if (Number(changes) === 0) return false;
+	insertHistory(storage, number, change);
+	return true;
+}
+
 export function insertMessage(storage: Storage, number: number, message: RequestMessage) {
 	storage.db
 		.prepare('INSERT OR REPLACE INTO payment_request_messages (message_id, request_number, round, job_id, channel_id) VALUES (?, ?, ?, ?, ?)')
