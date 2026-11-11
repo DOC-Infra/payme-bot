@@ -1,0 +1,248 @@
+import { describe, expect, it } from 'vitest';
+import { addManagerRole, createJob, getEmployee, hireEmployee, linkEmployee, recordRequestsThread, type Outcome, type PayMe } from '../../src/core';
+import { createTestPayMe, leadership, leadershipRoleId, member } from '../support/payme';
+
+function created<T>(outcome: Outcome<T>): T {
+	if (!outcome.ok) throw new Error(`Expected success, got ${outcome.error.code}`);
+	return outcome.value;
+}
+
+describe('Hiring', () => {
+	it('lets Leadership hire a member, creating an Employee Channel visible to the Employee and Leadership', () => {
+		const payMe = createTestPayMe();
+
+		const outcome = hireEmployee(payMe, leadership(), member('user-alex'), 'Alex_42');
+
+		expect(outcome.ok && outcome.effects[0]).toEqual({
+			type: 'create-employee-channel',
+			employeeUserId: 'user-alex',
+			name: 'alex_42',
+			viewerUserIds: ['user-alex'],
+			viewerRoleIds: [leadershipRoleId],
+			pinnedMessage: 'Employee: <@user-alex>\nMinecraft Name: Alex_42',
+			threadName: 'Requests: Alex_42'
+		});
+		expect(getEmployee(payMe, 'user-alex')).toEqual({
+			userId: 'user-alex',
+			minecraftName: 'Alex_42',
+			channelId: null,
+			threadId: null,
+			pinnedMessageId: null
+		});
+	});
+
+	it('also lets Managers of the Jobs the member already holds see the new Employee Channel', () => {
+		const payMe = createTestPayMe();
+		const courier = created(
+			createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' })
+		);
+		const miner = created(createJob(payMe, leadership(), { name: 'Miner', employeeRoleId: 'role-miner', reviewChannelId: 'review-miner' }));
+		addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager');
+		addManagerRole(payMe, leadership(), courier.id, leadershipRoleId);
+		addManagerRole(payMe, leadership(), miner.id, 'role-miner-manager');
+
+		const outcome = hireEmployee(payMe, leadership(), member('user-alex', 'role-courier'), 'Alex_42');
+
+		expect(outcome.ok && outcome.effects[0]).toMatchObject({ viewerRoleIds: [leadershipRoleId, 'role-courier-manager'] });
+	});
+
+	it('logs the hiring and Minecraft Name in the new Requests Thread without pinging the Employee', () => {
+		const payMe = createTestPayMe();
+
+		const outcome = hireEmployee(payMe, leadership('user-boss'), member('user-alex'), 'Alex_42');
+
+		expect(outcome.ok && outcome.effects.slice(1)).toEqual([
+			{
+				type: 'post-to-requests-thread',
+				employeeUserId: 'user-alex',
+				content: 'Hired by <@user-boss> with Minecraft Name Alex_42.',
+				ping: false
+			},
+			{ type: 'private-reply', content: 'Hired <@user-alex> with Minecraft Name Alex_42.' }
+		]);
+	});
+
+	it('records the Employee Channel, pinned message and Requests Thread once they exist in Discord', () => {
+		const payMe = createTestPayMe();
+		hireEmployee(payMe, leadership(), member('user-alex'), 'Alex_42');
+
+		recordRequestsThread(payMe, 'user-alex', { channelId: 'channel-alex', pinnedMessageId: 'message-pin', threadId: 'thread-alex' });
+
+		expect(getEmployee(payMe, 'user-alex')).toEqual({
+			userId: 'user-alex',
+			minecraftName: 'Alex_42',
+			channelId: 'channel-alex',
+			pinnedMessageId: 'message-pin',
+			threadId: 'thread-alex'
+		});
+	});
+
+	it('refuses to hire a member who is already an Employee', () => {
+		const payMe = createTestPayMe();
+		hireEmployee(payMe, leadership(), member('user-alex'), 'Alex_42');
+
+		expect(hireEmployee(payMe, leadership(), member('user-alex'), 'Someone_Else')).toEqual({
+			ok: false,
+			error: { code: 'already-employee' }
+		});
+		expect(getEmployee(payMe, 'user-alex')?.minecraftName).toBe('Alex_42');
+	});
+
+	it('refuses a Minecraft Name that could not appear in a Pay Command', () => {
+		const payMe = createTestPayMe();
+
+		for (const name of ['Al', 'Alex 42', 'Alex;payout', 'A_name_far_too_long']) {
+			expect(hireEmployee(payMe, leadership(), member('user-alex'), name)).toEqual({
+				ok: false,
+				error: { code: 'invalid-minecraft-name', name }
+			});
+		}
+		expect(getEmployee(payMe, 'user-alex')).toBeNull();
+	});
+
+	it('refuses hiring to anyone who is not Leadership', () => {
+		const payMe = createTestPayMe();
+
+		expect(hireEmployee(payMe, member('user-manager', 'role-courier-manager'), member('user-alex'), 'Alex_42')).toEqual({
+			ok: false,
+			error: { code: 'not-permitted' }
+		});
+		expect(getEmployee(payMe, 'user-alex')).toBeNull();
+	});
+});
+
+describe('Linking', () => {
+	it('lets Leadership link a member to their existing channel, starting a Requests Thread there', () => {
+		const payMe = createTestPayMe();
+		const courier = created(
+			createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' })
+		);
+		addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager');
+
+		const outcome = linkEmployee(payMe, leadership('user-boss'), member('user-sam', 'role-courier'), 'Sam_7', 'channel-sam');
+
+		expect(outcome.ok && outcome.effects).toEqual([
+			{ type: 'grant-channel-access', channelId: 'channel-sam', roleIds: [leadershipRoleId, 'role-courier-manager'] },
+			{
+				type: 'start-requests-thread',
+				employeeUserId: 'user-sam',
+				channelId: 'channel-sam',
+				pinnedMessage: 'Employee: <@user-sam>\nMinecraft Name: Sam_7',
+				threadName: 'Requests: Sam_7'
+			},
+			{
+				type: 'post-to-requests-thread',
+				employeeUserId: 'user-sam',
+				content: 'Linked to <#channel-sam> by <@user-boss> with Minecraft Name Sam_7.',
+				ping: false
+			},
+			{ type: 'private-reply', content: 'Linked <@user-sam> to <#channel-sam> with Minecraft Name Sam_7.' }
+		]);
+		expect(getEmployee(payMe, 'user-sam')).toEqual({
+			userId: 'user-sam',
+			minecraftName: 'Sam_7',
+			channelId: 'channel-sam',
+			threadId: null,
+			pinnedMessageId: null
+		});
+	});
+
+	it('reuses the existing Requests Thread when re-linking to the same channel, logging the Minecraft Name change', () => {
+		const payMe = createTestPayMe();
+		hiredWithThread(payMe, 'user-alex', 'Alex_42');
+
+		const outcome = linkEmployee(payMe, leadership('user-boss'), member('user-alex'), 'Alex_43', 'channel-alex');
+
+		expect(outcome.ok && outcome.effects).toEqual([
+			{
+				type: 'post-to-requests-thread',
+				employeeUserId: 'user-alex',
+				content: 'Minecraft Name changed from Alex_42 to Alex_43 by <@user-boss>.',
+				ping: false
+			},
+			{ type: 'private-reply', content: 'Linked <@user-alex> to <#channel-alex> with Minecraft Name Alex_43.' }
+		]);
+		expect(getEmployee(payMe, 'user-alex')).toEqual({
+			userId: 'user-alex',
+			minecraftName: 'Alex_43',
+			channelId: 'channel-alex',
+			pinnedMessageId: 'pin-alex',
+			threadId: 'thread-alex'
+		});
+	});
+
+	it('starts a new Requests Thread when re-linking to a different channel, logging the move there', () => {
+		const payMe = createTestPayMe();
+		hiredWithThread(payMe, 'user-alex', 'Alex_42');
+
+		const outcome = linkEmployee(payMe, leadership('user-boss'), member('user-alex'), 'Alex_42', 'channel-new');
+
+		expect(outcome.ok && outcome.effects).toEqual([
+			{ type: 'grant-channel-access', channelId: 'channel-new', roleIds: [leadershipRoleId] },
+			{
+				type: 'start-requests-thread',
+				employeeUserId: 'user-alex',
+				channelId: 'channel-new',
+				pinnedMessage: 'Employee: <@user-alex>\nMinecraft Name: Alex_42',
+				threadName: 'Requests: Alex_42'
+			},
+			{
+				type: 'post-to-requests-thread',
+				employeeUserId: 'user-alex',
+				content: 'Moved from <#channel-alex> to <#channel-new> by <@user-boss>.',
+				ping: false
+			},
+			{ type: 'private-reply', content: 'Linked <@user-alex> to <#channel-new> with Minecraft Name Alex_42.' }
+		]);
+		expect(getEmployee(payMe, 'user-alex')).toEqual({
+			userId: 'user-alex',
+			minecraftName: 'Alex_42',
+			channelId: 'channel-new',
+			pinnedMessageId: null,
+			threadId: null
+		});
+	});
+
+	it("refuses to link a member to another Employee's channel", () => {
+		const payMe = createTestPayMe();
+		hiredWithThread(payMe, 'user-alex', 'Alex_42');
+
+		expect(linkEmployee(payMe, leadership(), member('user-sam'), 'Sam_7', 'channel-alex')).toEqual({
+			ok: false,
+			error: { code: 'employee-channel-taken', channelId: 'channel-alex' }
+		});
+		expect(getEmployee(payMe, 'user-sam')).toBeNull();
+	});
+
+	it('refuses linking to anyone who is not Leadership, and an invalid Minecraft Name', () => {
+		const payMe = createTestPayMe();
+		hiredWithThread(payMe, 'user-alex', 'Alex_42');
+
+		expect(linkEmployee(payMe, member('user-alex'), member('user-alex'), 'Thief_1', 'channel-alex')).toEqual({
+			ok: false,
+			error: { code: 'not-permitted' }
+		});
+		expect(linkEmployee(payMe, leadership(), member('user-alex'), 'Alex 43', 'channel-alex')).toEqual({
+			ok: false,
+			error: { code: 'invalid-minecraft-name', name: 'Alex 43' }
+		});
+		expect(getEmployee(payMe, 'user-alex')?.minecraftName).toBe('Alex_42');
+	});
+
+	it('logs nothing when re-linking changes nothing', () => {
+		const payMe = createTestPayMe();
+		hiredWithThread(payMe, 'user-alex', 'Alex_42');
+
+		const outcome = linkEmployee(payMe, leadership(), member('user-alex'), 'Alex_42', 'channel-alex');
+
+		expect(outcome.ok && outcome.effects).toEqual([
+			{ type: 'private-reply', content: 'Linked <@user-alex> to <#channel-alex> with Minecraft Name Alex_42.' }
+		]);
+	});
+});
+
+function hiredWithThread(payMe: PayMe, userId: string, minecraftName: string) {
+	hireEmployee(payMe, leadership(), member(userId), minecraftName);
+	const name = userId.replace('user-', '');
+	recordRequestsThread(payMe, userId, { channelId: `channel-${name}`, pinnedMessageId: `pin-${name}`, threadId: `thread-${name}` });
+}

@@ -17,5 +17,17 @@ export const migrations: Migration[] = [
 				PRIMARY KEY (job_id, role_id)
 			);
 		`
+	},
+	{
+		name: '0003-employees',
+		sql: `
+			CREATE TABLE employees (
+				user_id TEXT PRIMARY KEY,
+				minecraft_name TEXT NOT NULL,
+				channel_id TEXT UNIQUE,
+				thread_id TEXT,
+				pinned_message_id TEXT
+			);
+		`
 	}
 ];
