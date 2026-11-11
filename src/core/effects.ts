@@ -6,7 +6,9 @@ export type Effect =
 	| PostToRequestsThread
 	| PostRequestEntry
 	| PostReviewMessage
-	| UpdateReviewCopies;
+	| UpdateReviewCopies
+	| ShowPayout
+	| ShowPayouts;
 
 export interface EvidenceFile {
 	name: string;
@@ -89,4 +91,20 @@ export interface PostReviewMessage {
 	channelId: string;
 	content: string;
 	files: EvidenceFile[];
+}
+
+/** Show a Payout privately to the actor, with Mark paid and Discard buttons while it is Open. */
+export interface ShowPayout {
+	type: 'show-payout';
+	payoutNumber: number;
+	content: string;
+}
+
+export type PayoutAction = { kind: 'generate'; employeeUserId: string; label: string } | { kind: 'show'; payoutNumber: number; label: string };
+
+/** Show the payouts view privately to the actor, with one button per action. */
+export interface ShowPayouts {
+	type: 'show-payouts';
+	content: string;
+	actions: PayoutAction[];
 }

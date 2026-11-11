@@ -1,3 +1,4 @@
+import { payoutLabel, payoutStateName, type PayoutState } from './payouts';
 import { requestLabel, stateName, type RequestState } from './requests';
 
 export type PayMeError =
@@ -25,7 +26,12 @@ export type PayMeError =
 	| { code: 'request-not-found' }
 	| { code: 'own-request' }
 	| { code: 'not-a-reviewer' }
-	| { code: 'reason-required' };
+	| { code: 'reason-required' }
+	| { code: 'payout-not-found' }
+	| { code: 'payout-already-open'; number: number }
+	| { code: 'nothing-owed' }
+	| { code: 'employee-not-found' }
+	| { code: 'payout-not-open'; number: number; state: PayoutState };
 
 export function describeError(error: PayMeError): string {
 	switch (error.code) {
@@ -79,5 +85,15 @@ export function describeError(error: PayMeError): string {
 			return 'Only Managers of the Jobs this request was submitted for, or Leadership, can review it.';
 		case 'reason-required':
 			return 'Give a reason so the Employee knows why.';
+		case 'payout-not-found':
+			return 'That Payout does not exist.';
+		case 'payout-already-open':
+			return `This Employee already has an Open Payout, ${payoutLabel(error.number)}. Mark it paid or discard it first.`;
+		case 'nothing-owed':
+			return 'This Employee has no Approved requests waiting to be paid.';
+		case 'employee-not-found':
+			return 'That member is not an Employee.';
+		case 'payout-not-open':
+			return `${payoutLabel(error.number)} is no longer Open: it is ${payoutStateName(error.state)}.`;
 	}
 }

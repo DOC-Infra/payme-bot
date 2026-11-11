@@ -90,5 +90,31 @@ export const migrations: Migration[] = [
 			);
 			CREATE INDEX payment_request_messages_by_request ON payment_request_messages (request_number);
 		`
+	},
+	{
+		name: '0005-payouts',
+		sql: `
+			CREATE TABLE payouts (
+				number INTEGER PRIMARY KEY,
+				employee_user_id TEXT NOT NULL REFERENCES employees (user_id),
+				minecraft_name TEXT NOT NULL,
+				total INTEGER NOT NULL,
+				state TEXT NOT NULL CHECK (state IN ('open', 'paid', 'discarded')),
+				generated_by TEXT NOT NULL,
+				generated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+				settled_by TEXT,
+				settled_at TEXT
+			);
+			CREATE UNIQUE INDEX payouts_one_open_per_employee ON payouts (employee_user_id) WHERE state = 'open';
+			CREATE TABLE payout_lines (
+				payout_number INTEGER NOT NULL REFERENCES payouts (number),
+				request_number INTEGER NOT NULL REFERENCES payment_requests (number),
+				task_id INTEGER NOT NULL REFERENCES tasks (id),
+				job_id INTEGER NOT NULL REFERENCES jobs (id),
+				rate INTEGER NOT NULL,
+				PRIMARY KEY (payout_number, request_number)
+			);
+			CREATE INDEX payout_lines_by_request ON payout_lines (request_number);
+		`
 	}
 ];
