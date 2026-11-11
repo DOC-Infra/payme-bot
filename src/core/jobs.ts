@@ -8,6 +8,7 @@ import {
 	selectJobs,
 	updateJob
 } from '../storage/jobs';
+import { retireTasksWithNoActiveJob } from '../storage/tasks';
 import type { Actor } from './actor';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
@@ -91,7 +92,8 @@ export function removeManagerRole(payMe: PayMe, actor: Actor, id: number, roleId
 export function retireJob(payMe: PayMe, actor: Actor, id: number): Outcome<Job> {
 	return changeJob(payMe, actor, id, (job) => {
 		markJobRetired(payMe.storage, id);
-		return `Retired the ${job.name} Job.`;
+		retireTasksWithNoActiveJob(payMe.storage, id);
+		return `Retired the ${job.name} Job and its Tasks that belong to no other active Job.`;
 	});
 }
 

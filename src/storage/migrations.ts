@@ -17,5 +17,21 @@ export const migrations: Migration[] = [
 				PRIMARY KEY (job_id, role_id)
 			);
 		`
+	},
+	{
+		name: '0002-tasks',
+		sql: `
+			CREATE TABLE tasks (
+				id INTEGER PRIMARY KEY,
+				name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+				rate INTEGER NOT NULL,
+				retired INTEGER NOT NULL DEFAULT 0
+			);
+			CREATE TABLE task_jobs (
+				task_id INTEGER NOT NULL REFERENCES tasks (id),
+				job_id INTEGER NOT NULL REFERENCES jobs (id),
+				PRIMARY KEY (task_id, job_id)
+			);
+		`
 	}
 ];
