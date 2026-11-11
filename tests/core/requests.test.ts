@@ -77,21 +77,63 @@ describe('Opening the request form', () => {
 		expect(form.map((offered) => offered.name)).toEqual(['Deliver Parcel', 'Load Cart', 'Stack Crates']);
 	});
 
-	it('offers at most 25 Tasks, the first by name, when the Employee holds several full Jobs', () => {
+	describe('when the Employee holds Jobs with more than 25 active Tasks between them', () => {
+		function twoFullJobs() {
+			const payMe = createTestPayMe();
+			const courier = job(payMe, 'Courier');
+			const miner = job(payMe, 'Miner');
+			for (let i = 10; i < 30; i++) {
+				task(payMe, `Courier Task ${i}`, courier.id);
+				task(payMe, `Miner Task ${i}`, miner.id);
+			}
+			const outside = task(payMe, 'Stack Crates', job(payMe, 'Logistics').id);
+			hire(payMe, 'user-alex');
+			return { payMe, miner, outside, alex: member('user-alex', 'role-courier', 'role-miner') };
+		}
+
+		it('asks them to pick a Job', () => {
+			const { payMe, alex } = twoFullJobs();
+
+			expect(requestForm(payMe, alex)).toEqual({ ok: false, error: { code: 'pick-a-job' } });
+		});
+
+		it("offers only the picked Job's active Tasks", () => {
+			const { payMe, miner, alex } = twoFullJobs();
+
+			const form = created(requestForm(payMe, alex, miner.id));
+
+			expect(form).toHaveLength(20);
+			expect(form.every((offered) => offered.name.startsWith('Miner Task'))).toBe(true);
+		});
+
+		it('refuses a Job they do not hold', () => {
+			const { payMe, alex } = twoFullJobs();
+			const warehouse = job(payMe, 'Warehouse');
+
+			expect(requestForm(payMe, alex, warehouse.id)).toEqual({ ok: false, error: { code: 'job-not-held' } });
+		});
+
+		it('accepts any active Task of their Jobs on submission, and no other', () => {
+			const { payMe, miner, outside, alex } = twoFullJobs();
+			const minerTask = created(requestForm(payMe, alex, miner.id))[19];
+			const evidence = { notes: 'Done', link: null, files: [screenshot] };
+
+			expect(submitRequest(payMe, alex, { taskId: minerTask.id, ...evidence })).toMatchObject({ ok: true, value: { taskId: minerTask.id } });
+			expect(submitRequest(payMe, alex, { taskId: outside.id, ...evidence })).toEqual({ ok: false, error: { code: 'task-not-offered' } });
+		});
+	});
+
+	it("offers only a picked Job's Tasks when the Employee has 25 or fewer in total", () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
-		const miner = job(payMe, 'Miner');
-		for (let i = 10; i < 30; i++) {
-			task(payMe, `Courier Task ${i}`, courier.id);
-			task(payMe, `Miner Task ${i}`, miner.id);
-		}
+		const logistics = job(payMe, 'Logistics');
+		task(payMe, 'Deliver Parcel', courier.id);
+		task(payMe, 'Stack Crates', logistics.id);
 		hire(payMe, 'user-alex');
 
-		const form = created(requestForm(payMe, member('user-alex', 'role-courier', 'role-miner')));
+		const form = created(requestForm(payMe, member('user-alex', 'role-courier', 'role-logistics'), logistics.id));
 
-		expect(form).toHaveLength(25);
-		expect(form[0].name).toBe('Courier Task 10');
-		expect(form[24].name).toBe('Miner Task 14');
+		expect(form.map((offered) => offered.name)).toEqual(['Stack Crates']);
 	});
 
 	it('tells an Employee whose Jobs have no active Tasks that there is nothing to request', () => {

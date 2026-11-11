@@ -55,16 +55,17 @@ export function getPaymentRequest(payMe: PayMe, number: number): PaymentRequest 
 	return selectRequest(payMe.storage, number);
 }
 
-export function requestForm(payMe: PayMe, actor: Actor): Outcome<Task[]> {
+export function requestForm(payMe: PayMe, actor: Actor, jobId: number | null = null): Outcome<Task[]> {
 	const requester = findRequester(payMe, actor);
 	if ('ok' in requester) return requester;
 
-	const tasks = activeTasksForJobs(
-		payMe,
-		requester.jobs.map((job) => job.id)
-	);
+	const heldJobIds = requester.jobs.map((job) => job.id);
+	if (jobId !== null && !heldJobIds.includes(jobId)) return fail({ code: 'job-not-held' });
+
+	const tasks = activeTasksForJobs(payMe, jobId === null ? heldJobIds : [jobId]);
 	if (tasks.length === 0) return fail({ code: 'no-tasks' });
-	return succeed([], tasks.slice(0, maxTasksPerJob));
+	if (tasks.length > maxTasksPerJob) return fail({ code: 'pick-a-job' });
+	return succeed([], tasks);
 }
 
 function findRequester(payMe: PayMe, actor: Actor): Failure | { employee: Employee; jobs: Job[] } {

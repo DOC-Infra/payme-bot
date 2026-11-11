@@ -17,6 +17,8 @@ export type PayMeError =
 	| { code: 'no-jobs' }
 	| { code: 'no-tasks' }
 	| { code: 'task-not-offered' }
+	| { code: 'pick-a-job' }
+	| { code: 'job-not-held' }
 	| { code: 'notes-required' }
 	| { code: 'invalid-link'; link: string }
 	| { code: 'evidence-required' }
@@ -69,6 +71,10 @@ export function describeError(error: PayMeError): string {
 			return 'Your Jobs have no active Tasks to request pay for. Ask Leadership to add some.';
 		case 'task-not-offered':
 			return 'That Task is not an active Task in any of your Jobs.';
+		case 'pick-a-job':
+			return 'Your Jobs have more Tasks than one form can list. Run /request again and pick a Job.';
+		case 'job-not-held':
+			return "You don't hold that Job, or it is retired.";
 		case 'notes-required':
 			return 'Add some notes about the work.';
 		case 'invalid-link':
