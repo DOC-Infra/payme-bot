@@ -435,6 +435,23 @@ describe("A Manager's payouts view", () => {
 		});
 	});
 
+	it('still shows Employees who no longer hold the Job but are owed for requests submitted for it', () => {
+		const { payMe, parcel } = courierAndLogistics();
+		hire(payMe, 'user-cy', 'Cy_3');
+		approved(payMe, member('user-cy', 'role-courier'), parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-cy'));
+		const leftCourier = [member('user-alex'), member('user-cy'), member('user-bo', 'role-logistics'), casey];
+
+		expect(showPayouts(payMe, casey, leftCourier)).toMatchObject({
+			value: {
+				owed: [
+					{ employeeUserId: 'user-alex', unpaidRequestNumbers: [1], openPayout: null },
+					{ employeeUserId: 'user-cy', unpaidRequestNumbers: [], openPayout: { number: 1 } }
+				]
+			}
+		});
+	});
+
 	it('covers every Job the Manager manages, and Leadership still sees everyone', () => {
 		const { payMe, members } = courierAndLogistics();
 		const both = member('user-dana', 'role-courier-manager', 'role-logistics-manager');

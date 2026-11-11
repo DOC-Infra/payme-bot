@@ -88,7 +88,7 @@ export function showPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[
 	if (managed.length === 0) return fail({ code: 'not-permitted' });
 
 	const holders = members.filter((member) => holdsAnyJob(member, managed)).map((member) => member.userId);
-	const view = owedAndHistory(payMe, holders);
+	const view = owedAndHistory(payMe, [...holders, ...owedForJobs(payMe, managed)]);
 	const history = view.history.map(historyText);
 	const content = ['**Payouts** (read-only)', ...owedLines(view), '**Payout history**', ...(history.length ? history : ['No Payouts yet.'])].join(
 		'\n'
@@ -98,6 +98,15 @@ export function showPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[
 
 function holdsAnyJob(member: Actor, jobs: readonly Job[]): boolean {
 	return jobs.some((job) => member.roleIds.includes(job.employeeRoleId));
+}
+
+function owedForJobs(payMe: PayMe, jobs: readonly Job[]): string[] {
+	const { storage } = payMe;
+	const locked = selectPayoutsInState(storage, 'open').flatMap((payout) => payout.lines.map((line) => line.requestNumber));
+	return [...selectUnpaidRequests(storage).map((request) => request.number), ...locked]
+		.map((number) => getPaymentRequest(payMe, number)!)
+		.filter((request) => jobs.some((job) => request.eligibleJobIds.includes(job.id)))
+		.map((request) => request.employeeUserId);
 }
 
 function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
