@@ -49,10 +49,10 @@ export function selectOpenPayout(storage: Storage, employeeUserId: string): Payo
 	return row ? toPayout(storage, row) : null;
 }
 
-export function selectPayoutsInState(storage: Storage, state: PayoutState): Payout[] {
+export function selectPayoutsInState(storage: Storage, ...states: PayoutState[]): Payout[] {
 	return storage.db
-		.prepare('SELECT * FROM payouts WHERE state = ? ORDER BY number DESC')
-		.all(state)
+		.prepare(`SELECT * FROM payouts WHERE state IN (${states.map(() => '?').join(', ')}) ORDER BY number DESC`)
+		.all(...states)
 		.map((row) => toPayout(storage, row));
 }
 

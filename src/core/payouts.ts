@@ -11,10 +11,10 @@ import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
 import type { Effect, PayoutAction } from './effects';
 import { getEmployee } from './employees';
-import { getJob } from './jobs';
+import { allJobs, getJob } from './jobs';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import { requireLeadership } from './permissions';
+import { isLeadership, requireLeadership } from './permissions';
 import { formatAmount } from './rates';
 import { getPaymentRequest, requestLabel, updateReviewCopies } from './requests';
 import { getTask } from './tasks';
@@ -53,7 +53,7 @@ export interface EmployeeOwed {
 
 export interface PayoutsView {
 	owed: EmployeeOwed[];
-	/** Paid Payouts, newest first. */
+	/** Paid and Discarded Payouts, newest first. */
 	history: Payout[];
 }
 
@@ -80,15 +80,30 @@ export function payoutsView(payMe: PayMe, employeeUserIds?: readonly string[]): 
 		};
 	});
 	owed.sort((a, b) => a.minecraftName.localeCompare(b.minecraftName));
-	return { owed, history: selectPayoutsInState(storage, 'paid').filter(inScope) };
+	return { owed, history: selectPayoutsInState(storage, 'paid', 'discarded').filter(inScope) };
 }
 
-export function viewPayouts(payMe: PayMe, actor: Actor): Outcome<PayoutsView> {
-	const refused = requireLeadership(payMe, actor);
-	if (refused) return refused;
+/**
+ * Leadership sees everyone, with buttons. A Manager sees, read-only, the `members` holding Jobs they manage,
+ * plus their Payout history. `members` are the server's members, as the Discord layer sees them now.
+ */
+export function viewPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[]): Outcome<PayoutsView> {
+	if (isLeadership(payMe, actor)) return leadershipView(payMe);
 
+	const managed = allJobs(payMe).filter((job) => job.managerRoleIds.some((roleId) => actor.roleIds.includes(roleId)));
+	if (managed.length === 0) return fail({ code: 'not-permitted' });
+
+	const team = members.filter((member) => managed.some((job) => member.roleIds.includes(job.employeeRoleId))).map((member) => member.userId);
+	const view = payoutsView(payMe, team);
+	const history = view.history.map(historyText);
+	const content = ['**Payouts** (read-only)', ...owedLines(view), '**Payout history**', ...(history.length ? history : ['No Payouts yet.'])].join(
+		'\n'
+	);
+	return succeed([{ type: 'show-payouts', content, actions: [] }], view);
+}
+
+function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
 	const view = payoutsView(payMe);
-	const lines = view.owed.map((employee) => `<@${employee.employeeUserId}> (${employee.minecraftName}): ${owedText(employee)}`);
 	const actions = view.owed.map((employee): PayoutAction =>
 		employee.openPayout
 			? {
@@ -98,8 +113,19 @@ export function viewPayouts(payMe: PayMe, actor: Actor): Outcome<PayoutsView> {
 				}
 			: { kind: 'generate', employeeUserId: employee.employeeUserId, label: `Generate for ${employee.minecraftName}` }
 	);
-	const content = ['**Payouts**', ...(lines.length ? lines : ['Nobody is owed anything.'])].join('\n');
+	const content = ['**Payouts**', ...owedLines(view)].join('\n');
 	return succeed([{ type: 'show-payouts', content, actions }], view);
+}
+
+function owedLines(view: PayoutsView): string[] {
+	if (view.owed.length === 0) return ['Nobody is owed anything.'];
+	return view.owed.map((employee) => `<@${employee.employeeUserId}> (${employee.minecraftName}): ${owedText(employee)}`);
+}
+
+function historyText(payout: Payout): string {
+	const date = (payout.settledAt ?? payout.generatedAt).slice(0, 10);
+	const { number, employeeUserId, minecraftName, total, state } = payout;
+	return `**${payoutLabel(number)}** for <@${employeeUserId}> (${minecraftName}): ${formatAmount(total)}, ${payoutStateName(state)} on ${date}`;
 }
 
 export function viewPayout(payMe: PayMe, actor: Actor, number: number): Outcome<Payout> {
