@@ -10,7 +10,15 @@ export type PayMeError =
 	| { code: 'too-many-tasks'; job: string }
 	| { code: 'already-employee' }
 	| { code: 'invalid-minecraft-name'; name: string }
-	| { code: 'employee-channel-taken'; channelId: string };
+	| { code: 'employee-channel-taken'; channelId: string }
+	| { code: 'not-hired' }
+	| { code: 'no-jobs' }
+	| { code: 'no-tasks' }
+	| { code: 'task-not-offered' }
+	| { code: 'notes-required' }
+	| { code: 'invalid-link'; link: string }
+	| { code: 'evidence-required' }
+	| { code: 'no-requests-thread' };
 
 export function describeError(error: PayMeError): string {
 	switch (error.code) {
@@ -38,5 +46,21 @@ export function describeError(error: PayMeError): string {
 			return `${error.name} is not a valid Minecraft Name. Use 3 to 16 letters, digits or underscores.`;
 		case 'employee-channel-taken':
 			return `<#${error.channelId}> is already another Employee's channel.`;
+		case 'not-hired':
+			return "You haven't been hired yet. Ask Leadership to hire you.";
+		case 'no-jobs':
+			return "You don't hold any Jobs, so there is nothing to request pay for.";
+		case 'no-tasks':
+			return 'Your Jobs have no active Tasks to request pay for. Ask Leadership to add some.';
+		case 'task-not-offered':
+			return 'That Task is not an active Task in any of your Jobs.';
+		case 'notes-required':
+			return 'Add some notes about the work.';
+		case 'invalid-link':
+			return `${error.link} is not a web link. Use one starting with https://.`;
+		case 'evidence-required':
+			return 'Add a link or at least one file as Evidence.';
+		case 'no-requests-thread':
+			return 'Your Requests Thread is not set up yet. Ask Leadership to /link you to your Employee Channel.';
 	}
 }

@@ -1,4 +1,10 @@
-export type Effect = PrivateReply | CreateEmployeeChannel | StartRequestsThread | GrantChannelAccess | PostToRequestsThread;
+export type Effect =
+	PrivateReply | CreateEmployeeChannel | StartRequestsThread | GrantChannelAccess | PostToRequestsThread | PostRequestEntry | PostReviewMessage;
+
+export interface EvidenceFile {
+	name: string;
+	url: string;
+}
 
 export interface PrivateReply {
 	type: 'private-reply';
@@ -41,4 +47,31 @@ export interface PostToRequestsThread {
 	employeeUserId: string;
 	content: string;
 	ping: boolean;
+}
+
+/**
+ * Post a request's entry for this submission round to the Employee's current Requests Thread (reopening it if archived),
+ * re-uploading the files, then report the message back with `recordRequestMessage` (`jobId: null`).
+ */
+export interface PostRequestEntry {
+	type: 'post-request-entry';
+	requestNumber: number;
+	round: number;
+	employeeUserId: string;
+	content: string;
+	files: EvidenceFile[];
+}
+
+/**
+ * Post a review copy in a Job's Review Channel, re-uploading the files and linking to the round's Requests Thread entry
+ * (see `requestEntry`), then report the message back with `recordRequestMessage`.
+ */
+export interface PostReviewMessage {
+	type: 'post-review-message';
+	requestNumber: number;
+	round: number;
+	jobId: number;
+	channelId: string;
+	content: string;
+	files: EvidenceFile[];
 }
