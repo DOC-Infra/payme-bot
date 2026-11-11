@@ -48,6 +48,13 @@ export function updateRequestState(storage: Storage, number: number, change: Omi
 	return true;
 }
 
+export function selectRequestNumbers(storage: Storage, employeeUserId: string, states: readonly RequestState[]): number[] {
+	return storage.db
+		.prepare(`SELECT number FROM payment_requests WHERE employee_user_id = ? AND state IN (${states.map(() => '?').join(', ')}) ORDER BY number`)
+		.all(employeeUserId, ...states)
+		.map((row) => Number(row.number));
+}
+
 export function insertMessage(storage: Storage, number: number, message: RequestMessage) {
 	storage.db
 		.prepare('INSERT OR REPLACE INTO payment_request_messages (message_id, request_number, round, job_id, channel_id) VALUES (?, ?, ?, ?, ?)')

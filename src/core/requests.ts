@@ -175,7 +175,7 @@ function latestChange(request: PaymentRequest): string {
 	return `**${stateName(change.to)}** by <@${change.actorUserId}>${reason}`;
 }
 
-function requestTitle(number: number, task: Task): string {
+export function requestTitle(number: number, task: Task): string {
 	return `**${requestLabel(number)}** ${task.name}`;
 }
 
