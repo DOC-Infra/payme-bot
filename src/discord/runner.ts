@@ -1,5 +1,6 @@
 import { container } from '@sapphire/framework';
 import {
+	ActionRowBuilder,
 	ButtonBuilder,
 	ButtonStyle,
 	ChannelType,
@@ -15,6 +16,7 @@ import {
 	describeError,
 	getEmployee,
 	getPaymentRequest,
+	getPayout,
 	recordRequestMessage,
 	recordRequestsThread,
 	requestEntry,
@@ -22,6 +24,7 @@ import {
 	type EvidenceFile,
 	type Outcome
 } from '../core';
+import { buttonRows, payoutActionButtons, settleButtons } from './payouts';
 import { reviewButtons, reviewRow } from './review';
 
 type Handler<T extends Effect> = (effect: T, interaction: RepliableInteraction | null) => Promise<unknown>;
@@ -102,7 +105,13 @@ const handlers: Handlers = {
 			if (!channel?.isTextBased()) throw new Error(`Review Channel ${copy.channelId} is not a text channel`);
 			await channel.messages.edit(copy.messageId, { content: effect.content, components, allowedMentions: { parse: [] } });
 		}
-	}
+	},
+	'show-payout': async (effect, interaction) => {
+		const open = getPayout(container.payMe, effect.payoutNumber)?.state === 'open';
+		return interaction && replyPrivately(interaction, effect.content, buttonRows(open ? settleButtons(effect.payoutNumber) : []));
+	},
+	'show-payouts': async (effect, interaction) =>
+		interaction && replyPrivately(interaction, effect.content, buttonRows(payoutActionButtons(effect.actions)))
 };
 
 function entryLink(requestNumber: number, round: number): ButtonBuilder[] {
@@ -151,8 +160,9 @@ function uploads(files: readonly EvidenceFile[]) {
 	return files.map((file) => ({ attachment: file.url, name: file.name }));
 }
 
-function replyPrivately(interaction: RepliableInteraction, content: string) {
-	if (interaction.replied) return interaction.followUp({ content, flags: MessageFlags.Ephemeral });
-	if (interaction.deferred) return interaction.editReply({ content });
-	return interaction.reply({ content, flags: MessageFlags.Ephemeral });
+function replyPrivately(interaction: RepliableInteraction, content: string, components: ActionRowBuilder<ButtonBuilder>[] = []) {
+	const message = { content, components, allowedMentions: { parse: [] } };
+	if (interaction.replied) return interaction.followUp({ ...message, flags: MessageFlags.Ephemeral });
+	if (interaction.deferred) return interaction.editReply(message);
+	return interaction.reply({ ...message, flags: MessageFlags.Ephemeral });
 }
