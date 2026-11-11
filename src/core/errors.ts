@@ -25,7 +25,10 @@ export type PayMeError =
 	| { code: 'request-not-found' }
 	| { code: 'own-request' }
 	| { code: 'not-a-reviewer' }
-	| { code: 'reason-required' };
+	| { code: 'reason-required' }
+	| { code: 'not-your-request' }
+	| { code: 'cannot-amend'; number: number; state: RequestState }
+	| { code: 'cannot-withdraw'; number: number; state: RequestState };
 
 export function describeError(error: PayMeError): string {
 	switch (error.code) {
@@ -79,5 +82,11 @@ export function describeError(error: PayMeError): string {
 			return 'Only Managers of the Jobs this request was submitted for, or Leadership, can review it.';
 		case 'reason-required':
 			return 'Give a reason so the Employee knows why.';
+		case 'not-your-request':
+			return 'Only the Employee who submitted this Payment Request can do that.';
+		case 'cannot-amend':
+			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Rejected requests can be amended.`;
+		case 'cannot-withdraw':
+			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Pending or Rejected requests can be withdrawn.`;
 	}
 }

@@ -48,6 +48,10 @@ export function updateRequestState(storage: Storage, number: number, change: Omi
 	return true;
 }
 
+export function startNextRound(storage: Storage, number: number) {
+	storage.db.prepare('UPDATE payment_requests SET round = round + 1 WHERE number = ?').run(number);
+}
+
 export function insertMessage(storage: Storage, number: number, message: RequestMessage) {
 	storage.db
 		.prepare('INSERT OR REPLACE INTO payment_request_messages (message_id, request_number, round, job_id, channel_id) VALUES (?, ?, ?, ?, ?)')

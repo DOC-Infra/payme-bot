@@ -100,12 +100,13 @@ describe('Rejecting and denying a Payment Request', () => {
 describe('What a decision posts', () => {
 	const copy = '**R-1** Deliver Parcel from <@user-alex> (Alex_42)\nNotes: Done';
 
-	it('updates every review copy with the outcome and reviewer, and logs an approval without pinging the Employee', () => {
+	it('updates every review copy with the outcome and reviewer, removes the Withdraw button, and logs an approval without pinging the Employee', () => {
 		const { payMe } = pendingParcel();
 
 		expect(approveRequest(payMe, courierManager, 1)).toMatchObject({
 			effects: [
 				{ type: 'update-review-copies', requestNumber: 1, round: 1, content: `${copy}\n**Approved** by <@user-casey>` },
+				{ type: 'update-entry-actions', requestNumber: 1, round: 1, actions: [] },
 				{
 					type: 'post-to-requests-thread',
 					employeeUserId: 'user-alex',
@@ -117,13 +118,14 @@ describe('What a decision posts', () => {
 		});
 	});
 
-	it('pings the Employee with the reason when their request is Rejected or Denied', () => {
+	it('pings the Employee with the reason when their request is Rejected or Denied, and offers Amend only when Rejected', () => {
 		const { payMe } = pendingParcel();
 		created(submitRequest(payMe, member('user-alex', 'role-courier'), { taskId: 1, notes: 'Done', link: null, files: [screenshot] }));
 
 		expect(rejectRequest(payMe, courierManager, 1, 'Blurry screenshot')).toMatchObject({
 			effects: [
 				{ type: 'update-review-copies', content: `${copy}\n**Rejected** by <@user-casey>: Blurry screenshot` },
+				{ type: 'update-entry-actions', requestNumber: 1, actions: ['amend', 'withdraw'] },
 				{ type: 'post-to-requests-thread', content: '**R-1** Deliver Parcel: **Rejected** by <@user-casey>: Blurry screenshot', ping: true },
 				{ type: 'private-reply', content: 'Rejected R-1.' }
 			]
@@ -131,6 +133,7 @@ describe('What a decision posts', () => {
 		expect(denyRequest(payMe, courierManager, 2, 'Duplicate')).toMatchObject({
 			effects: [
 				{ type: 'update-review-copies', requestNumber: 2 },
+				{ type: 'update-entry-actions', requestNumber: 2, actions: [] },
 				{ type: 'post-to-requests-thread', content: '**R-2** Deliver Parcel: **Denied** by <@user-casey>: Duplicate', ping: true },
 				{ type: 'private-reply', content: 'Denied R-2.' }
 			]

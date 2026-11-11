@@ -6,7 +6,11 @@ export type Effect =
 	| PostToRequestsThread
 	| PostRequestEntry
 	| PostReviewMessage
-	| UpdateReviewCopies;
+	| UpdateReviewCopies
+	| UpdateEntryActions;
+
+/** A button the Employee gets on a request's Requests Thread entry. */
+export type EntryAction = 'amend' | 'withdraw';
 
 export interface EvidenceFile {
 	name: string;
@@ -67,6 +71,15 @@ export interface PostRequestEntry {
 	employeeUserId: string;
 	content: string;
 	files: EvidenceFile[];
+	actions: EntryAction[];
+}
+
+/** Replace the buttons on this round's Requests Thread entry. */
+export interface UpdateEntryActions {
+	type: 'update-entry-actions';
+	requestNumber: number;
+	round: number;
+	actions: EntryAction[];
 }
 
 /**
