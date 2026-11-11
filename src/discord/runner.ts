@@ -1,6 +1,5 @@
 import { container } from '@sapphire/framework';
 import {
-	ActionRowBuilder,
 	ButtonBuilder,
 	ButtonStyle,
 	ChannelType,
@@ -15,6 +14,7 @@ import {
 import {
 	describeError,
 	getEmployee,
+	getPaymentRequest,
 	recordRequestMessage,
 	recordRequestsThread,
 	requestEntry,
@@ -22,6 +22,7 @@ import {
 	type EvidenceFile,
 	type Outcome
 } from '../core';
+import { reviewButtons, reviewRow } from './review';
 
 type Handler<T extends Effect> = (effect: T, interaction: RepliableInteraction | null) => Promise<unknown>;
 type Handlers = { [K in Effect['type']]: Handler<Extract<Effect, { type: K }>> };
@@ -83,17 +84,7 @@ const handlers: Handlers = {
 		const channel = await container.client.channels.fetch(effect.channelId);
 		if (!channel?.isSendable()) throw new Error(`Review Channel ${effect.channelId} is not a channel PayMe can send to`);
 
-		const entry = requestEntry(container.payMe, effect.requestNumber, effect.round);
-		const components = entry
-			? [
-					new ActionRowBuilder<ButtonBuilder>().addComponents(
-						new ButtonBuilder()
-							.setStyle(ButtonStyle.Link)
-							.setLabel('Open in Requests Thread')
-							.setURL(messageLink(entry.channelId, entry.messageId, container.config.guildId))
-					)
-				]
-			: [];
+		const components = reviewRow([...entryLink(effect.requestNumber, effect.round), ...reviewButtons(effect.requestNumber)]);
 		const message = await channel.send({ content: effect.content, files: uploads(effect.files), components, allowedMentions: { parse: [] } });
 		recordRequestMessage(container.payMe, effect.requestNumber, {
 			round: effect.round,
@@ -101,8 +92,25 @@ const handlers: Handlers = {
 			channelId: channel.id,
 			messageId: message.id
 		});
+	},
+	'update-review-copies': async (effect) => {
+		const copies = getPaymentRequest(container.payMe, effect.requestNumber)?.messages ?? [];
+		const components = reviewRow(entryLink(effect.requestNumber, effect.round));
+		for (const copy of copies) {
+			if (copy.jobId === null || copy.round !== effect.round) continue;
+			const channel = await container.client.channels.fetch(copy.channelId);
+			if (!channel?.isTextBased()) throw new Error(`Review Channel ${copy.channelId} is not a text channel`);
+			await channel.messages.edit(copy.messageId, { content: effect.content, components, allowedMentions: { parse: [] } });
+		}
 	}
 };
+
+function entryLink(requestNumber: number, round: number): ButtonBuilder[] {
+	const entry = requestEntry(container.payMe, requestNumber, round);
+	if (!entry) return [];
+	const url = messageLink(entry.channelId, entry.messageId, container.config.guildId);
+	return [new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open in Requests Thread').setURL(url)];
+}
 
 export async function runOutcome(interaction: RepliableInteraction, outcome: Outcome<unknown>): Promise<void> {
 	if (!outcome.ok) {
