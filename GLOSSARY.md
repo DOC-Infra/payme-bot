@@ -25,7 +25,7 @@ The single thread in an Employee Channel, started from a pinned message, that is
 _Avoid_: Log, history, request thread (one per request)
 
 **Manager**:
-A server member who manages one or more Jobs, determined by that Job's manager roles. Managers review Payment Requests for Tasks in Jobs that they manage and that the requesting Employee holds, and can view Payouts but not create or settle them. A Manager may not review their own Payment Request.
+A server member who manages one or more Jobs, determined by that Job's manager roles. Managers review Payment Requests for Tasks in Jobs that they manage and that the requesting Employee holds, can submit Payment Requests on behalf of Employees under those Jobs, and can view Payouts but not create or settle them. A Manager may not review their own Payment Request, but may review one they submitted on an Employee's behalf.
 _Avoid_: Reviewer, approver, mod
 
 **Leadership**:
@@ -51,7 +51,7 @@ A Task that can no longer be requested but still exists so that past Payment Req
 _Avoid_: Deleted task, archived task
 
 **Payment Request**:
-An Employee's claim to be paid for exactly one completion of one Task, backed by Evidence.
+An Employee's claim to be paid for exactly one completion of one Task, backed by Evidence. A Manager of one of the Employee's Jobs, or Leadership, can submit it on the Employee's behalf; it still belongs to the Employee, who alone can amend or withdraw it.
 _Avoid_: Claim, submission, ticket, invoice
 
 **Review Channel**:

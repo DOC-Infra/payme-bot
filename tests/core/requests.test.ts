@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addManagerRole,
+	approveRequest,
 	addTask,
 	addTaskToJob,
 	claimTicket,
@@ -11,6 +12,7 @@ import {
 	recordRequestsThread,
 	requestEntry,
 	requestForm,
+	requestJobs,
 	retireTask,
 	submitRequest,
 	ticketTaskName,
@@ -408,5 +410,127 @@ describe('Claiming a DOC ticket', () => {
 		expect(claimTicket(payMe, alex, '12345')).toEqual({ ok: false, error: { code: 'no-ticket-task', name: ticketTaskName } });
 		task(payMe, ticketTaskName, job(payMe, 'Support').id);
 		expect(claimTicket(payMe, alex, '12345')).toEqual({ ok: false, error: { code: 'task-not-offered' } });
+	});
+});
+
+describe('Requesting payment on behalf of an Employee', () => {
+	function courierAndMiner() {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		const miner = job(payMe, 'Miner');
+		const parcel = task(payMe, 'Deliver Parcel', courier.id);
+		const ore = task(payMe, 'Mine Ore', miner.id);
+		const cart = task(payMe, 'Load Cart', courier.id, miner.id);
+		hire(payMe, 'user-alex');
+		const alex = member('user-alex', 'role-courier', 'role-miner');
+		const courierManager = member('user-sam', 'role-courier-manager');
+		return { payMe, courier, miner, parcel, ore, cart, alex, courierManager };
+	}
+
+	it('offers a Manager only the Tasks of Jobs they manage that the Employee holds', () => {
+		const { payMe, alex, courierManager } = courierAndMiner();
+
+		const form = created(requestForm(payMe, courierManager, null, alex));
+
+		expect(form.map((offered) => offered.name)).toEqual(['Deliver Parcel', 'Load Cart']);
+		expect(requestJobs(payMe, courierManager, alex).map((held) => held.name)).toEqual(['Courier']);
+	});
+
+	it('offers Leadership the Tasks of every Job the Employee holds', () => {
+		const { payMe, alex } = courierAndMiner();
+
+		const form = created(requestForm(payMe, leadership(), null, alex));
+
+		expect(form.map((offered) => offered.name)).toEqual(['Deliver Parcel', 'Load Cart', 'Mine Ore']);
+	});
+
+	it('files the request for the Employee, recording the Manager as its submitter', () => {
+		const { payMe, courier, miner, cart, alex, courierManager } = courierAndMiner();
+
+		const outcome = submitRequest(payMe, courierManager, { taskId: cart.id, notes: 'Saw it done', link: null, files: [screenshot] }, alex);
+
+		expect(outcome).toMatchObject({
+			ok: true,
+			value: {
+				employeeUserId: 'user-alex',
+				state: 'pending',
+				eligibleJobIds: [courier.id, miner.id],
+				history: [{ from: null, to: 'pending', actorUserId: 'user-sam', reason: null }]
+			},
+			effects: [
+				{
+					type: 'post-request-entry',
+					employeeUserId: 'user-alex',
+					card: { description: 'Submitted by <@user-sam> for <@user-alex>, Pending review.' }
+				},
+				{ type: 'post-review-message', jobId: courier.id },
+				{ type: 'post-review-message', jobId: miner.id },
+				{ type: 'private-reply', card: { description: 'Submitted R-1 for Load Cart on behalf of <@user-alex>.' } }
+			]
+		});
+	});
+
+	it("still requires the Task's Evidence", () => {
+		const { payMe, parcel, alex, courierManager } = courierAndMiner();
+
+		expect(submitRequest(payMe, courierManager, { taskId: parcel.id, notes: 'Saw it done', link: null, files: [] }, alex)).toEqual({
+			ok: false,
+			error: { code: 'evidence-required' }
+		});
+	});
+
+	it('refuses a Task outside the Jobs the Manager manages', () => {
+		const { payMe, ore, alex, courierManager } = courierAndMiner();
+
+		expect(submitRequest(payMe, courierManager, { taskId: ore.id, notes: 'Done', link: null, files: [screenshot] }, alex)).toEqual({
+			ok: false,
+			error: { code: 'task-not-offered' }
+		});
+	});
+
+	it("refuses a member who manages none of the Employee's Jobs", () => {
+		const { payMe, alex } = courierAndMiner();
+		job(payMe, 'Logistics');
+
+		expect(requestForm(payMe, member('user-sam', 'role-logistics-manager'), null, alex)).toEqual({
+			ok: false,
+			error: { code: 'not-their-manager' }
+		});
+		expect(requestForm(payMe, member('user-bo', 'role-courier'), null, alex)).toEqual({ ok: false, error: { code: 'not-their-manager' } });
+	});
+
+	it('refuses a picked Job the Manager does not manage', () => {
+		const { payMe, miner, alex, courierManager } = courierAndMiner();
+
+		expect(requestForm(payMe, courierManager, miner.id, alex)).toEqual({ ok: false, error: { code: 'not-their-manager' } });
+	});
+
+	it('says when the member is not an Employee or has no Requests Thread', () => {
+		const { payMe, courierManager } = courierAndMiner();
+		created(hireEmployee(payMe, leadership(), member('user-jo'), 'Jo_7'));
+
+		expect(requestForm(payMe, courierManager, null, member('user-kim', 'role-courier'))).toEqual({
+			ok: false,
+			error: { code: 'employee-not-found' }
+		});
+		expect(requestForm(payMe, courierManager, null, member('user-jo', 'role-courier'))).toEqual({
+			ok: false,
+			error: { code: 'employee-no-requests-thread' }
+		});
+	});
+
+	it('lets the filing Manager review the request', () => {
+		const { payMe, parcel, alex, courierManager } = courierAndMiner();
+		submitRequest(payMe, courierManager, { taskId: parcel.id, notes: 'Done', link: null, files: [screenshot] }, alex);
+
+		expect(approveRequest(payMe, courierManager, 1)).toMatchObject({ ok: true, value: { state: 'approved' } });
+	});
+
+	it('leaves withdrawing to the Employee', () => {
+		const { payMe, parcel, alex, courierManager } = courierAndMiner();
+		submitRequest(payMe, courierManager, { taskId: parcel.id, notes: 'Done', link: null, files: [screenshot] }, alex);
+
+		expect(withdrawRequest(payMe, courierManager, 1)).toEqual({ ok: false, error: { code: 'not-your-request' } });
+		expect(withdrawRequest(payMe, alex, 1)).toMatchObject({ ok: true, value: { state: 'withdrawn' } });
 	});
 });

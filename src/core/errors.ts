@@ -39,6 +39,8 @@ export type PayMeError =
 	| { code: 'payout-already-open'; number: number }
 	| { code: 'nothing-owed' }
 	| { code: 'employee-not-found' }
+	| { code: 'employee-no-requests-thread' }
+	| { code: 'not-their-manager' }
 	| { code: 'payout-not-open'; number: number; state: PayoutState }
 	| { code: 'not-your-request' }
 	| { code: 'cannot-amend'; number: number; state: RequestState }
@@ -83,9 +85,9 @@ export function describeError(error: PayMeError): string {
 		case 'no-jobs':
 			return "You don't hold any Jobs, so there is nothing to request pay for.";
 		case 'no-tasks':
-			return 'Your Jobs have no active Tasks to request pay for. Ask Leadership to add some.';
+			return 'There are no active Tasks to request pay for in those Jobs. Ask Leadership to add some.';
 		case 'task-not-offered':
-			return 'That Task is not an active Task in any of your Jobs.';
+			return 'That Task is not an active Task in any Job you can request pay under.';
 		case 'pick-a-job':
 			return 'Your Jobs have more Tasks than one form can list. Run /request and pick a Job.';
 		case 'job-not-held':
@@ -124,6 +126,10 @@ export function describeError(error: PayMeError): string {
 			return 'This Employee has no Approved requests waiting to be paid.';
 		case 'employee-not-found':
 			return 'That member is not an Employee.';
+		case 'employee-no-requests-thread':
+			return "That Employee's Requests Thread is not set up yet. Ask Leadership to /link them to their Employee Channel.";
+		case 'not-their-manager':
+			return 'You can only request payment for an Employee under a Job they hold and you manage.';
 		case 'payout-not-open':
 			return `${payoutLabel(error.number)} is no longer Open: it is ${payoutStateName(error.state)}.`;
 		case 'not-your-request':

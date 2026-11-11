@@ -1,10 +1,9 @@
 import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
-import { getJob } from './jobs';
+import { getJob, managesJob } from './jobs';
 import type { RequestState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import { isLeadership } from './permissions';
 import { getPaymentRequest, logStateChange, updateEntryActions, updateReviewCopies, type PaymentRequest } from './requests';
 
 export function approveRequest(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
@@ -36,8 +35,10 @@ export function checkReviewer(payMe: PayMe, actor: Actor, number: number): Outco
 }
 
 function canReview(payMe: PayMe, actor: Actor, request: PaymentRequest): boolean {
-	if (isLeadership(payMe, actor)) return true;
-	return request.eligibleJobIds.some((jobId) => getJob(payMe, jobId)?.managerRoleIds.some((roleId) => actor.roleIds.includes(roleId)));
+	return request.eligibleJobIds.some((jobId) => {
+		const job = getJob(payMe, jobId);
+		return job !== null && managesJob(payMe, actor, job);
+	});
 }
 
 function decide(payMe: PayMe, actor: Actor, number: number, to: RequestState, reason: string | null): Outcome<PaymentRequest> {

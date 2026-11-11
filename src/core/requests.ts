@@ -3,7 +3,7 @@ import { selectTaskIdByName } from '../storage/tasks';
 import type { Actor } from './actor';
 import { notice, type Card, type CardField, type Effect, type EntryAction, type EvidenceFile } from './effects';
 import { getEmployee, type Employee } from './employees';
-import { getJob, jobsHeldBy, type Job } from './jobs';
+import { getJob, jobsHeldBy, managesJob, type Job } from './jobs';
 import { requestLabel, stateName, stateTone, type RequestState } from './labels';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
@@ -56,36 +56,58 @@ export function getPaymentRequest(payMe: PayMe, number: number): PaymentRequest 
 	return selectRequest(payMe.storage, number);
 }
 
-export function requestForm(payMe: PayMe, actor: Actor, jobId: number | null = null): Outcome<Task[]> {
-	const requester = findRequester(payMe, actor);
+/** The Tasks to offer on the request form. `employee` is who the request is for: the actor, or an Employee the actor files for. */
+export function requestForm(payMe: PayMe, actor: Actor, jobId: number | null = null, employee: Actor = actor): Outcome<Task[]> {
+	const requester = findRequester(payMe, actor, employee);
 	if ('ok' in requester) return requester;
 
-	const heldJobIds = requester.jobs.map((job) => job.id);
-	if (jobId !== null && !heldJobIds.includes(jobId)) return fail({ code: 'job-not-held' });
+	const offeredJobIds = requester.offeredJobs.map((job) => job.id);
+	if (jobId !== null && !offeredJobIds.includes(jobId)) return fail({ code: onBehalf(actor, employee) ? 'not-their-manager' : 'job-not-held' });
 
-	const tasks = activeTasksForJobs(payMe, jobId === null ? heldJobIds : [jobId]);
+	const tasks = activeTasksForJobs(payMe, jobId === null ? offeredJobIds : [jobId]);
 	if (tasks.length === 0) return fail({ code: 'no-tasks' });
 	if (tasks.length > maxTasksPerJob) return fail({ code: 'pick-a-job' });
 	return succeed([], tasks);
 }
 
-function findRequester(payMe: PayMe, actor: Actor): Failure | { employee: Employee; jobs: Job[] } {
-	const employee = getEmployee(payMe, actor.userId);
-	if (!employee) return fail({ code: 'not-hired' });
-	if (!employee.threadId) return fail({ code: 'no-requests-thread' });
+/** The Jobs the actor can request pay under for `employee`, to choose from when their Tasks don't fit on one form. */
+export function requestJobs(payMe: PayMe, actor: Actor, employee: Actor = actor): Job[] {
+	const requester = findRequester(payMe, actor, employee);
+	return 'ok' in requester ? [] : requester.offeredJobs;
+}
 
-	const jobs = jobsHeldBy(payMe, actor);
-	if (jobs.length === 0) return fail({ code: 'no-jobs' });
-	return { employee, jobs };
+interface Requester {
+	employee: Employee;
+	/** Every active Job the Employee holds. */
+	heldJobs: Job[];
+	/** The held Jobs the actor may request pay under: all of them for the Employee, those they manage for anyone else. */
+	offeredJobs: Job[];
+}
+
+function findRequester(payMe: PayMe, actor: Actor, member: Actor): Failure | Requester {
+	const forOther = onBehalf(actor, member);
+	const employee = getEmployee(payMe, member.userId);
+	if (!employee) return fail({ code: forOther ? 'employee-not-found' : 'not-hired' });
+	if (!employee.threadId) return fail({ code: forOther ? 'employee-no-requests-thread' : 'no-requests-thread' });
+
+	const heldJobs = jobsHeldBy(payMe, member);
+	const offeredJobs = forOther ? heldJobs.filter((job) => managesJob(payMe, actor, job)) : heldJobs;
+	if (offeredJobs.length === 0) return fail({ code: forOther ? 'not-their-manager' : 'no-jobs' });
+	return { employee, heldJobs, offeredJobs };
+}
+
+function onBehalf(actor: Actor, employee: Actor): boolean {
+	return actor.userId !== employee.userId;
 }
 
 export const ticketTaskName = 'DOC Ticket Assistance';
 
-export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentRequest): Outcome<PaymentRequest> {
+/** Submits a Payment Request for `employee`: the actor, or an Employee holding a Job the actor manages. */
+export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentRequest, employee: Actor = actor): Outcome<PaymentRequest> {
 	const invalid = checkLink(input);
 	if (invalid) return invalid;
 
-	return fileRequest(payMe, actor, input, (task) => {
+	return fileRequest(payMe, actor, employee, input, (task) => {
 		if (task.notesRequired && !input.notes.trim()) return fail({ code: 'notes-required' });
 		if (task.evidenceRequired && !input.link && input.files.length === 0) return fail({ code: 'evidence-required' });
 		return null;
@@ -99,41 +121,45 @@ export function claimTicket(payMe: PayMe, actor: Actor, ticket: string): Outcome
 	if (taskId === null) return fail({ code: 'no-ticket-task', name: ticketTaskName });
 
 	const notes = `Ticket ${ticket}`;
-	return fileRequest(payMe, actor, { taskId, notes, link: null, files: [] }, (task) =>
+	return fileRequest(payMe, actor, actor, { taskId, notes, link: null, files: [] }, (task) =>
 		ticketClaimed(payMe.storage, actor.userId, task.id, notes) ? fail({ code: 'ticket-claimed', ticket }) : null
 	);
 }
 
-function fileRequest(payMe: PayMe, actor: Actor, input: NewPaymentRequest, check: (task: Task) => Failure | null): Outcome<PaymentRequest> {
+function fileRequest(
+	payMe: PayMe,
+	actor: Actor,
+	member: Actor,
+	input: NewPaymentRequest,
+	check: (task: Task) => Failure | null
+): Outcome<PaymentRequest> {
 	const { storage } = payMe;
 	return storage.transaction(() => {
-		const requester = findRequester(payMe, actor);
+		const requester = findRequester(payMe, actor, member);
 		if ('ok' in requester) return requester;
 
-		const { jobs } = requester;
+		const { employee, heldJobs, offeredJobs } = requester;
 		const task = activeTasksForJobs(
 			payMe,
-			jobs.map((job) => job.id)
+			offeredJobs.map((job) => job.id)
 		).find((offered) => offered.id === input.taskId);
 		if (!task) return fail({ code: 'task-not-offered' });
 		const refused = check(task);
 		if (refused) return refused;
 
 		const number = insertRequest(storage, {
-			employeeUserId: actor.userId,
+			employeeUserId: employee.userId,
+			submittedBy: actor.userId,
 			taskId: task.id,
-			eligibleJobIds: jobs.filter((job) => task.jobIds.includes(job.id)).map((job) => job.id),
+			eligibleJobIds: heldJobs.filter((job) => task.jobIds.includes(job.id)).map((job) => job.id),
 			evidence: evidenceFor(input, 1)
 		});
 
 		const request = selectRequest(storage, number)!;
-		return succeed(
-			[
-				...roundEffects(payMe, request, `Submitted by <@${actor.userId}>, Pending review.`),
-				{ type: 'private-reply', card: notice(`Submitted ${requestLabel(number)} for ${task.name}.`) }
-			],
-			request
-		);
+		const forOther = onBehalf(actor, member);
+		const submitted = forOther ? `Submitted by <@${actor.userId}> for <@${employee.userId}>` : `Submitted by <@${actor.userId}>`;
+		const reply = `Submitted ${requestLabel(number)} for ${task.name}${forOther ? ` on behalf of <@${employee.userId}>` : ''}.`;
+		return succeed([...roundEffects(payMe, request, `${submitted}, Pending review.`), { type: 'private-reply', card: notice(reply) }], request);
 	});
 }
 

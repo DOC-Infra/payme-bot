@@ -9,6 +9,8 @@ type HistoryRow = typeof paymentRequestHistory.$inferSelect;
 
 export interface NewRequestRow {
 	employeeUserId: string;
+	/** Who filed it: the Employee, or a Manager or Leadership on their behalf. */
+	submittedBy: string;
 	taskId: number;
 	eligibleJobIds: readonly number[];
 	evidence: readonly Evidence[];
@@ -28,7 +30,7 @@ export function insertRequest(storage: Storage, request: NewRequestRow): number 
 			.run();
 	}
 	insertEvidence(storage, number, request.evidence);
-	insertHistory(storage, number, { from: null, to: 'pending', actorUserId: employeeUserId, reason: null });
+	insertHistory(storage, number, { from: null, to: 'pending', actorUserId: request.submittedBy, reason: null });
 	return number;
 }
 

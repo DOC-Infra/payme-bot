@@ -9,12 +9,16 @@ import {
 	StringSelectMenuBuilder,
 	TextInputBuilder,
 	TextInputStyle,
+	MessageFlags,
 	type ButtonInteraction,
-	type ChatInputCommandInteraction
+	type ChatInputCommandInteraction,
+	type StringSelectMenuInteraction,
+	type UserContextMenuCommandInteraction
 } from 'discord.js';
-import { formatAmount, requestForm, type Actor, type Task } from '../core';
+import { formatAmount, requestForm, requestJobs, type Actor, type Job, type Task } from '../core';
 
 export const requestModalId = 'request';
+export const requestJobSelectId = 'request-job';
 export const requestButtonId = 'request-payment';
 export const claimTicketButtonId = 'claim-ticket';
 export const claimTicketModalId = 'claim-ticket';
@@ -43,17 +47,51 @@ export function buildClaimTicketModal(): ModalBuilder {
 		);
 }
 
-/** Shows the actor the Payment Request form, or returns why they can't have one. */
-export function openRequestForm(interaction: ChatInputCommandInteraction | ButtonInteraction, jobId: number | null) {
+type FormInteraction = ChatInputCommandInteraction | ButtonInteraction | StringSelectMenuInteraction | UserContextMenuCommandInteraction;
+
+/**
+ * Shows the actor the Payment Request form for `employee` (the actor themselves when null), or returns why they can't have one.
+ * When filing for someone whose Tasks don't fit on one form, asks the actor to pick a Job first.
+ */
+export function openRequestForm(interaction: FormInteraction, jobId: number | null, employee: Actor | null = null) {
 	return async (actor: Actor) => {
-		const form = requestForm(container.payMe, actor, jobId);
+		const other = employee && employee.userId !== actor.userId ? employee : null;
+		const form = requestForm(container.payMe, actor, jobId, other ?? actor);
+		if (!form.ok && form.error.code === 'pick-a-job' && other) {
+			await askForJob(interaction, other.userId, requestJobs(container.payMe, actor, other));
+			return null;
+		}
 		if (!form.ok) return form;
-		await interaction.showModal(buildRequestModal(form.value));
+		await interaction.showModal(buildRequestModal(form.value, other?.userId ?? null));
 		return null;
 	};
 }
 
-export function buildRequestModal(tasks: readonly Task[]): ModalBuilder {
+/** The custom ID carries the Employee a form or Job picker is for, so the submission can file for them. */
+export function forEmployee(baseId: string, employeeUserId: string | null): string {
+	return employeeUserId ? `${baseId}:${employeeUserId}` : baseId;
+}
+
+/** The Employee user ID from a custom ID made by forEmployee, null for the actor's own request, or undefined if it isn't `baseId`. */
+export function parseForEmployee(baseId: string, customId: string): string | null | undefined {
+	if (customId === baseId) return null;
+	return customId.startsWith(`${baseId}:`) ? customId.slice(baseId.length + 1) : undefined;
+}
+
+async function askForJob(interaction: FormInteraction, employeeUserId: string, jobs: readonly Job[]) {
+	const select = new StringSelectMenuBuilder()
+		.setCustomId(forEmployee(requestJobSelectId, employeeUserId))
+		.setPlaceholder('Choose a Job')
+		.addOptions(jobs.slice(0, 25).map((job) => ({ label: job.name, value: String(job.id) })));
+	await interaction.reply({
+		content: `<@${employeeUserId}> has more Tasks than one form can list. Pick the Job to request payment under.`,
+		components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
+		flags: MessageFlags.Ephemeral,
+		allowedMentions: { parse: [] }
+	});
+}
+
+export function buildRequestModal(tasks: readonly Task[], employeeUserId: string | null = null): ModalBuilder {
 	const taskSelect = new StringSelectMenuBuilder()
 		.setCustomId(fieldIds.task)
 		.setPlaceholder('Choose a Task')
@@ -73,8 +111,8 @@ export function buildRequestModal(tasks: readonly Task[]): ModalBuilder {
 	const files = new FileUploadBuilder().setCustomId(fieldIds.files).setRequired(false).setMaxValues(10);
 
 	return new ModalBuilder()
-		.setCustomId(requestModalId)
-		.setTitle('Payment Request')
+		.setCustomId(forEmployee(requestModalId, employeeUserId))
+		.setTitle(employeeUserId ? 'Payment Request for an Employee' : 'Payment Request')
 		.addLabelComponents(
 			new LabelBuilder().setLabel('Task').setStringSelectMenuComponent(taskSelect),
 			new LabelBuilder().setLabel('Notes').setDescription(notesHint).setTextInputComponent(notes),
