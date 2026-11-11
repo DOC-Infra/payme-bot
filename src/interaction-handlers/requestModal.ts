@@ -1,10 +1,9 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ModalSubmitInteraction } from 'discord.js';
-import { fail, submitRequest } from '../core';
-import { toActor } from '../discord/actor';
+import { submitRequest } from '../core';
 import { fieldIds, requestModalId } from '../discord/requestModal';
-import { runOutcome } from '../discord/runner';
+import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.ModalSubmit
@@ -20,8 +19,7 @@ export class ModalHandler extends InteractionHandler {
 			link: fields.getTextInputValue(fieldIds.link).trim() || null,
 			files: [...files].map((file) => ({ name: file.name, url: file.url }))
 		};
-		const actor = toActor(interaction);
-		await runOutcome(interaction, actor ? submitRequest(this.container.payMe, actor, input) : fail({ code: 'not-hired' }));
+		await runAsActor(interaction, { code: 'not-hired' }, (actor) => submitRequest(this.container.payMe, actor, input));
 	}
 
 	public override parse(interaction: ModalSubmitInteraction) {

@@ -1,10 +1,9 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { ActionRowBuilder, MessageFlags, type ButtonBuilder, type ButtonInteraction } from 'discord.js';
-import { checkAmend, checkWithdraw, fail, requestLabel, withdrawRequest } from '../core';
-import { toActor } from '../discord/actor';
+import { checkAmend, checkWithdraw, requestLabel, withdrawRequest } from '../core';
 import { buildAmendModal, confirmWithdrawButton, parseEntryButton } from '../discord/entry';
-import { runOutcome } from '../discord/runner';
+import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
@@ -12,26 +11,27 @@ import { runOutcome } from '../discord/runner';
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction, { action, requestNumber }: InteractionHandler.ParseResult<this>) {
 		const { payMe } = this.container;
-		const actor = toActor(interaction);
-		if (!actor) return runOutcome(interaction, fail({ code: 'not-your-request' }));
+		return runAsActor(interaction, { code: 'not-your-request' }, async (actor) => {
+			if (action === 'confirm-withdraw') {
+				await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+				return withdrawRequest(payMe, actor, requestNumber);
+			}
 
-		if (action === 'confirm-withdraw') {
-			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-			return runOutcome(interaction, withdrawRequest(payMe, actor, requestNumber));
-		}
+			if (action === 'amend') {
+				const checked = checkAmend(payMe, actor, requestNumber);
+				if (!checked.ok) return checked;
+				await interaction.showModal(buildAmendModal(requestNumber));
+				return null;
+			}
 
-		if (action === 'amend') {
-			const checked = checkAmend(payMe, actor, requestNumber);
-			if (!checked.ok) return runOutcome(interaction, checked);
-			return interaction.showModal(buildAmendModal(requestNumber));
-		}
-
-		const checked = checkWithdraw(payMe, actor, requestNumber);
-		if (!checked.ok) return runOutcome(interaction, checked);
-		return interaction.reply({
-			content: `Withdraw ${requestLabel(requestNumber)}? It can't be amended or resubmitted afterwards.`,
-			components: [new ActionRowBuilder<ButtonBuilder>().addComponents(confirmWithdrawButton(requestNumber))],
-			flags: MessageFlags.Ephemeral
+			const checked = checkWithdraw(payMe, actor, requestNumber);
+			if (!checked.ok) return checked;
+			await interaction.reply({
+				content: `Withdraw ${requestLabel(requestNumber)}? It can't be amended or resubmitted afterwards.`,
+				components: [new ActionRowBuilder<ButtonBuilder>().addComponents(confirmWithdrawButton(requestNumber))],
+				flags: MessageFlags.Ephemeral
+			});
+			return null;
 		});
 	}
 

@@ -1,9 +1,9 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import { fail, jobsHeldBy, requestForm } from '../core';
+import { jobsHeldBy, requestForm } from '../core';
 import { toActor } from '../discord/actor';
 import { buildRequestModal } from '../discord/requestModal';
-import { runOutcome } from '../discord/runner';
+import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<Command.Options>({
 	description: 'Submit a Payment Request for a Task you completed'
@@ -21,11 +21,13 @@ export class UserCommand extends Command {
 	}
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
-		const actor = toActor(interaction);
 		const jobId = interaction.options.getInteger('job');
-		const form = actor ? requestForm(this.container.payMe, actor, jobId) : fail({ code: 'not-hired' });
-		if (!form.ok) return runOutcome(interaction, form);
-		return interaction.showModal(buildRequestModal(form.value));
+		return runAsActor(interaction, { code: 'not-hired' }, async (actor) => {
+			const form = requestForm(this.container.payMe, actor, jobId);
+			if (!form.ok) return form;
+			await interaction.showModal(buildRequestModal(form.value));
+			return null;
+		});
 	}
 
 	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {

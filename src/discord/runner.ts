@@ -14,16 +14,20 @@ import {
 } from 'discord.js';
 import {
 	describeError,
+	fail,
 	getEmployee,
 	getPaymentRequest,
 	getPayout,
 	recordRequestMessage,
 	recordRequestsThread,
 	requestEntry,
+	type Actor,
 	type Effect,
 	type EvidenceFile,
-	type Outcome
+	type Outcome,
+	type PayMeError
 } from '../core';
+import { toActor } from './actor';
 import { entryButtons } from './entry';
 import { buttonRows, payoutActionButtons, settleButtons } from './payouts';
 import { reviewButtons, reviewRow } from './review';
@@ -145,6 +149,15 @@ export async function runOutcome(interaction: RepliableInteraction, outcome: Out
 		return;
 	}
 	await runEffects(outcome.effects, interaction);
+}
+
+type Step = Outcome<unknown> | null;
+
+/** Runs `op` as the acting member, or replies with `refusal` outside a guild. `op` returns null when it has replied itself. */
+export async function runAsActor(interaction: RepliableInteraction, refusal: PayMeError, op: (actor: Actor) => Step | Promise<Step>): Promise<void> {
+	const actor = toActor(interaction);
+	const outcome = actor ? await op(actor) : fail(refusal);
+	if (outcome) await runOutcome(interaction, outcome);
 }
 
 /** Runs effects that have no interaction to reply to, such as those from listeners. Private replies are dropped. */

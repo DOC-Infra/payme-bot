@@ -1,21 +1,8 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import type { SlashCommandIntegerOption } from 'discord.js';
-import {
-	addTask,
-	addTaskToJob,
-	allJobs,
-	allTasks,
-	changeRate,
-	fail,
-	listTasks,
-	removeTaskFromJob,
-	retireTask,
-	type Actor,
-	type Outcome
-} from '../core';
-import { toActor } from '../discord/actor';
-import { runOutcome } from '../discord/runner';
+import { addTask, addTaskToJob, allJobs, allTasks, changeRate, listTasks, removeTaskFromJob, retireTask, type Actor, type Outcome } from '../core';
+import { runAsActor, runOutcome } from '../discord/runner';
 
 const extraJobOptions = ['job-2', 'job-3', 'job-4', 'job-5'];
 
@@ -81,9 +68,7 @@ export class UserCommand extends Command {
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
 		if (interaction.options.getSubcommand() === 'list') return runOutcome(interaction, listTasks(this.container.payMe));
 
-		const actor = toActor(interaction);
-		const outcome = actor ? this.run(interaction, actor) : fail({ code: 'not-permitted' });
-		return runOutcome(interaction, outcome);
+		return runAsActor(interaction, { code: 'not-permitted' }, (actor) => this.run(interaction, actor));
 	}
 
 	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {

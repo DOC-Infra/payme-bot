@@ -1,27 +1,27 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { approveRequest, checkReviewer, fail } from '../core';
-import { toActor } from '../discord/actor';
+import { approveRequest, checkReviewer } from '../core';
 import { buildReasonModal, parseReviewButton } from '../discord/review';
-import { runOutcome } from '../discord/runner';
+import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
 })
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction, { action, requestNumber }: InteractionHandler.ParseResult<this>) {
-		const actor = toActor(interaction);
-		if (!actor) return runOutcome(interaction, fail({ code: 'not-a-reviewer' }));
+		const { payMe } = this.container;
+		return runAsActor(interaction, { code: 'not-a-reviewer' }, async (actor) => {
+			if (action === 'approve') {
+				await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+				return approveRequest(payMe, actor, requestNumber);
+			}
 
-		if (action === 'approve') {
-			await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-			return runOutcome(interaction, approveRequest(this.container.payMe, actor, requestNumber));
-		}
-
-		const checked = checkReviewer(this.container.payMe, actor, requestNumber);
-		if (!checked.ok) return runOutcome(interaction, checked);
-		return interaction.showModal(buildReasonModal(action, requestNumber));
+			const checked = checkReviewer(payMe, actor, requestNumber);
+			if (!checked.ok) return checked;
+			await interaction.showModal(buildReasonModal(action, requestNumber));
+			return null;
+		});
 	}
 
 	public override parse(interaction: ButtonInteraction) {

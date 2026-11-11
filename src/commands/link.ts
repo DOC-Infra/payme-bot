@@ -1,9 +1,9 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import { ChannelType, MessageFlags } from 'discord.js';
-import { fail, linkEmployee } from '../core';
-import { memberToActor, toActor } from '../discord/actor';
-import { runOutcome } from '../discord/runner';
+import { linkEmployee } from '../core';
+import { memberToActor } from '../discord/actor';
+import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<Command.Options>({
 	description: 'Link a member to their channel and Minecraft Name, or change them (Leadership only)'
@@ -25,11 +25,11 @@ export class UserCommand extends Command {
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 		const { options } = interaction;
-		const actor = toActor(interaction);
 		const linked = memberToActor(options.getUser('user', true).id, options.getMember('user'));
-		const outcome = actor
-			? linkEmployee(this.container.payMe, actor, linked, options.getString('minecraft', true), options.getChannel('channel', true).id)
-			: fail({ code: 'not-permitted' });
-		await runOutcome(interaction, outcome);
+		const minecraftName = options.getString('minecraft', true);
+		const channelId = options.getChannel('channel', true).id;
+		await runAsActor(interaction, { code: 'not-permitted' }, (actor) =>
+			linkEmployee(this.container.payMe, actor, linked, minecraftName, channelId)
+		);
 	}
 }

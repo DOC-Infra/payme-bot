@@ -1,10 +1,9 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { discardPayout, fail, generatePayout, markPayoutPaid, showPayout, type Actor } from '../core';
-import { toActor } from '../discord/actor';
+import { discardPayout, generatePayout, markPayoutPaid, showPayout, type Actor } from '../core';
 import { parsePayoutButton, type PayoutButton } from '../discord/payouts';
-import { runOutcome } from '../discord/runner';
+import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
@@ -12,8 +11,7 @@ import { runOutcome } from '../discord/runner';
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction, button: InteractionHandler.ParseResult<this>) {
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-		const actor = toActor(interaction);
-		await runOutcome(interaction, actor ? this.press(actor, button) : fail({ code: 'not-permitted' }));
+		await runAsActor(interaction, { code: 'not-permitted' }, (actor) => this.press(actor, button));
 	}
 
 	public override parse(interaction: ButtonInteraction) {

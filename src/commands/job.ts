@@ -1,9 +1,8 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import { ChannelType, MessageFlags, type SlashCommandIntegerOption, type SlashCommandRoleOption } from 'discord.js';
-import { addManagerRole, allJobs, createJob, editJob, fail, getJob, listJobs, removeManagerRole, retireJob, type Actor, type Outcome } from '../core';
-import { toActor } from '../discord/actor';
-import { runOutcome } from '../discord/runner';
+import { addManagerRole, allJobs, createJob, editJob, getJob, listJobs, removeManagerRole, retireJob, type Actor, type Outcome } from '../core';
+import { runAsActor } from '../discord/runner';
 
 const jobOption = (option: SlashCommandIntegerOption) => option.setName('job').setDescription('The Job').setRequired(true).setAutocomplete(true);
 const managerRoleOption = (option: SlashCommandRoleOption) => option.setName('role').setDescription('The manager role').setRequired(true);
@@ -60,9 +59,7 @@ export class UserCommand extends Command {
 
 	public override async chatInputRun(interaction: Command.ChatInputCommandInteraction) {
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-		const actor = toActor(interaction);
-		const outcome = actor ? await this.run(interaction, actor) : fail({ code: 'not-permitted' });
-		await runOutcome(interaction, outcome);
+		await runAsActor(interaction, { code: 'not-permitted' }, (actor) => this.run(interaction, actor));
 	}
 
 	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {
