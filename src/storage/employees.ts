@@ -1,46 +1,32 @@
+import { asc, eq } from 'drizzle-orm';
 import type { Employee, RequestsThreadIds } from '../core/employees';
+import { employees } from './schema';
 import type { Storage } from './storage';
 
 export function selectEmployee(storage: Storage, userId: string): Employee | null {
-	const row = storage.db.prepare('SELECT * FROM employees WHERE user_id = ?').get(userId);
-	return row ? toEmployee(row) : null;
+	return storage.db.select().from(employees).where(eq(employees.userId, userId)).get() ?? null;
 }
 
 export function selectEmployees(storage: Storage): Employee[] {
-	return storage.db.prepare('SELECT * FROM employees ORDER BY user_id').all().map(toEmployee);
-}
-
-function toEmployee(row: Record<string, unknown>): Employee {
-	return {
-		userId: String(row.user_id),
-		minecraftName: String(row.minecraft_name),
-		channelId: nullableString(row.channel_id),
-		threadId: nullableString(row.thread_id),
-		pinnedMessageId: nullableString(row.pinned_message_id)
-	};
+	return storage.db.select().from(employees).orderBy(asc(employees.userId)).all();
 }
 
 export function selectEmployeeIdByChannel(storage: Storage, channelId: string): string | null {
-	const row = storage.db.prepare('SELECT user_id FROM employees WHERE channel_id = ?').get(channelId);
-	return row ? String(row.user_id) : null;
+	const row = storage.db.select({ userId: employees.userId }).from(employees).where(eq(employees.channelId, channelId)).get();
+	return row?.userId ?? null;
 }
 
 export function saveEmployee(storage: Storage, employee: Employee) {
+	const { userId, minecraftName, channelId, threadId, pinnedMessageId } = employee;
+	const details = { minecraftName, channelId, threadId, pinnedMessageId };
 	storage.db
-		.prepare(
-			`INSERT INTO employees (user_id, minecraft_name, channel_id, thread_id, pinned_message_id) VALUES (?, ?, ?, ?, ?)
-			ON CONFLICT (user_id) DO UPDATE SET minecraft_name = excluded.minecraft_name, channel_id = excluded.channel_id,
-				thread_id = excluded.thread_id, pinned_message_id = excluded.pinned_message_id`
-		)
-		.run(employee.userId, employee.minecraftName, employee.channelId, employee.threadId, employee.pinnedMessageId);
+		.insert(employees)
+		.values({ userId, ...details })
+		.onConflictDoUpdate({ target: employees.userId, set: details })
+		.run();
 }
 
 export function updateRequestsThread(storage: Storage, userId: string, ids: RequestsThreadIds) {
-	storage.db
-		.prepare('UPDATE employees SET channel_id = ?, pinned_message_id = ?, thread_id = ? WHERE user_id = ?')
-		.run(ids.channelId, ids.pinnedMessageId, ids.threadId, userId);
-}
-
-function nullableString(value: unknown): string | null {
-	return value === null ? null : String(value);
+	const { channelId, pinnedMessageId, threadId } = ids;
+	storage.db.update(employees).set({ channelId, pinnedMessageId, threadId }).where(eq(employees.userId, userId)).run();
 }

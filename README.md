@@ -36,7 +36,7 @@ PayMe works with roles and channels that already exist. Before starting it:
 
 ## Running it
 
-You need Node 24 (PayMe uses the built-in `node:sqlite` module) and pnpm.
+You need Node 24 and pnpm. PayMe stores data in SQLite through `better-sqlite3`, a native module that pnpm builds on install.
 
 ```sh
 pnpm install
@@ -70,7 +70,7 @@ pnpm lint        # Prettier check (pnpm format to fix)
 Code layout:
 
 - `src/core/` is the PayMe domain core and has no Discord imports. Each operation takes the acting member as plain data and returns an outcome describing the Discord effects to carry out, or a typed error.
-- `src/storage/` holds the SQLite queries and versioned migrations.
+- `src/storage/` holds the Drizzle schema (`schema.ts`), the queries built on it, and the versioned SQL migrations. A schema change needs both a new migration and a matching edit to `schema.ts`.
 - `src/discord/` contains the runner, which carries out effects, plus shared Discord helpers.
 - `src/commands/`, `src/interaction-handlers/` and `src/listeners/` are thin Sapphire pieces that call the core.
 

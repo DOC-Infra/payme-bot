@@ -13,20 +13,20 @@ describe('storage', () => {
 	it('applies migrations in order to an in-memory database', () => {
 		const storage = openStorage(':memory:', migrations);
 
-		storage.db.prepare('INSERT INTO widgets (name) VALUES (?)').run('gear');
+		storage.db.$client.prepare('INSERT INTO widgets (name) VALUES (?)').run('gear');
 
-		expect(storage.db.prepare('SELECT name, colour FROM widgets').all()).toEqual([{ name: 'gear', colour: 'red' }]);
+		expect(storage.db.$client.prepare('SELECT name, colour FROM widgets').all()).toEqual([{ name: 'gear', colour: 'red' }]);
 	});
 
 	it('applies only pending migrations when an existing database is reopened', () => {
 		const path = join(mkdtempSync(join(tmpdir(), 'payme-')), 'payme.db');
 		const first = openStorage(path, migrations.slice(0, 1));
-		first.db.prepare('INSERT INTO widgets (name) VALUES (?)').run('gear');
+		first.db.$client.prepare('INSERT INTO widgets (name) VALUES (?)').run('gear');
 		first.close();
 
 		const second = openStorage(path, migrations);
 
-		expect(second.db.prepare('SELECT name, colour FROM widgets').all()).toEqual([{ name: 'gear', colour: 'red' }]);
+		expect(second.db.$client.prepare('SELECT name, colour FROM widgets').all()).toEqual([{ name: 'gear', colour: 'red' }]);
 		second.close();
 	});
 
@@ -35,11 +35,11 @@ describe('storage', () => {
 
 		expect(() =>
 			storage.transaction(() => {
-				storage.db.prepare('INSERT INTO widgets (name) VALUES (?)').run('gear');
+				storage.db.$client.prepare('INSERT INTO widgets (name) VALUES (?)').run('gear');
 				throw new Error('boom');
 			})
 		).toThrow('boom');
 
-		expect(storage.db.prepare('SELECT name FROM widgets').all()).toEqual([]);
+		expect(storage.db.$client.prepare('SELECT name FROM widgets').all()).toEqual([]);
 	});
 });

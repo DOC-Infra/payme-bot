@@ -1,8 +1,10 @@
+import { and, asc, desc, eq, inArray, min, notInArray, sql } from 'drizzle-orm';
 import type { PayoutState } from '../core/labels';
 import type { Payout, PayoutLine } from '../core/payouts';
+import { paymentRequestJobs, paymentRequests, payoutLines, payouts } from './schema';
 import type { Storage } from './storage';
 
-type Row = Record<string, unknown>;
+type PayoutRow = typeof payouts.$inferSelect;
 
 export interface NewPayoutRow {
 	employeeUserId: string;
@@ -20,87 +22,92 @@ export interface UnpaidRequestRow {
 
 export function insertPayout(storage: Storage, payout: NewPayoutRow): number {
 	const { db } = storage;
-	const total = payout.lines.reduce((sum, line) => sum + line.rate, 0);
-	const result = db
-		.prepare("INSERT INTO payouts (employee_user_id, minecraft_name, total, state, generated_by) VALUES (?, ?, ?, 'open', ?)")
-		.run(payout.employeeUserId, payout.minecraftName, total, payout.generatedBy);
-	const number = Number(result.lastInsertRowid);
-	const addLine = db.prepare('INSERT INTO payout_lines (payout_number, request_number, task_id, job_id, rate) VALUES (?, ?, ?, ?, ?)');
-	for (const line of payout.lines) addLine.run(number, line.requestNumber, line.taskId, line.jobId, line.rate);
+	const { employeeUserId, minecraftName, generatedBy, lines } = payout;
+	const total = lines.reduce((sum, line) => sum + line.rate, 0);
+	const { number } = db
+		.insert(payouts)
+		.values({ employeeUserId, minecraftName, total, state: 'open', generatedBy })
+		.returning({ number: payouts.number })
+		.get();
+	if (lines.length > 0) {
+		db.insert(payoutLines)
+			.values(lines.map(({ requestNumber, taskId, jobId, rate }) => ({ payoutNumber: number, requestNumber, taskId, jobId, rate })))
+			.run();
+	}
 	return number;
 }
 
 /** Moves an Open Payout to `to`, recording who settled it. False if it was no longer Open. */
 export function settlePayout(storage: Storage, number: number, to: Exclude<PayoutState, 'open'>, actorUserId: string): boolean {
 	const { changes } = storage.db
-		.prepare(
-			"UPDATE payouts SET state = ?, settled_by = ?, settled_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE number = ? AND state = 'open'"
-		)
-		.run(to, actorUserId, number);
-	return Number(changes) > 0;
+		.update(payouts)
+		.set({ state: to, settledBy: actorUserId, settledAt: sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` })
+		.where(and(eq(payouts.number, number), eq(payouts.state, 'open')))
+		.run();
+	return changes > 0;
 }
 
 export function selectPayout(storage: Storage, number: number): Payout | null {
-	const row = storage.db.prepare('SELECT * FROM payouts WHERE number = ?').get(number);
+	const row = storage.db.select().from(payouts).where(eq(payouts.number, number)).get();
 	return row ? toPayout(storage, row) : null;
 }
 
 export function selectOpenPayout(storage: Storage, employeeUserId: string): Payout | null {
-	const row = storage.db.prepare("SELECT * FROM payouts WHERE employee_user_id = ? AND state = 'open'").get(employeeUserId);
+	const row = storage.db
+		.select()
+		.from(payouts)
+		.where(and(eq(payouts.employeeUserId, employeeUserId), eq(payouts.state, 'open')))
+		.get();
 	return row ? toPayout(storage, row) : null;
 }
 
 export function selectPayoutsInState(storage: Storage, ...states: PayoutState[]): Payout[] {
 	return storage.db
-		.prepare(`SELECT * FROM payouts WHERE state IN (${states.map(() => '?').join(', ')}) ORDER BY number DESC`)
-		.all(...states)
+		.select()
+		.from(payouts)
+		.where(inArray(payouts.state, states))
+		.orderBy(desc(payouts.number))
+		.all()
 		.map((row) => toPayout(storage, row));
 }
 
 /** Approved requests that are not locked in an Open Payout, oldest first, each with its first eligible Job. */
 export function selectUnpaidRequests(storage: Storage, employeeUserId: string | null = null): UnpaidRequestRow[] {
-	return storage.db
-		.prepare(
-			`SELECT number, employee_user_id, task_id,
-				(SELECT MIN(job_id) FROM payment_request_jobs WHERE request_number = number) AS job_id
-			FROM payment_requests
-			WHERE state = 'approved'
-				AND (? IS NULL OR employee_user_id = ?)
-				AND number NOT IN (
-					SELECT request_number FROM payout_lines JOIN payouts ON payouts.number = payout_lines.payout_number
-					WHERE payouts.state = 'open'
-				)
-			ORDER BY number`
+	const { db } = storage;
+	const firstJob = db
+		.select({ jobId: min(paymentRequestJobs.jobId) })
+		.from(paymentRequestJobs)
+		.where(eq(paymentRequestJobs.requestNumber, paymentRequests.number));
+	const locked = db
+		.select({ requestNumber: payoutLines.requestNumber })
+		.from(payoutLines)
+		.innerJoin(payouts, eq(payouts.number, payoutLines.payoutNumber))
+		.where(eq(payouts.state, 'open'));
+	return db
+		.select({
+			number: paymentRequests.number,
+			employeeUserId: paymentRequests.employeeUserId,
+			taskId: paymentRequests.taskId,
+			jobId: sql<number>`(${firstJob})`
+		})
+		.from(paymentRequests)
+		.where(
+			and(
+				eq(paymentRequests.state, 'approved'),
+				employeeUserId === null ? undefined : eq(paymentRequests.employeeUserId, employeeUserId),
+				notInArray(paymentRequests.number, locked)
+			)
 		)
-		.all(employeeUserId, employeeUserId)
-		.map((row) => ({
-			number: Number(row.number),
-			employeeUserId: String(row.employee_user_id),
-			taskId: Number(row.task_id),
-			jobId: Number(row.job_id)
-		}));
+		.orderBy(asc(paymentRequests.number))
+		.all();
 }
 
-function toPayout(storage: Storage, row: Row): Payout {
-	const number = Number(row.number);
-	return {
-		number,
-		employeeUserId: String(row.employee_user_id),
-		minecraftName: String(row.minecraft_name),
-		total: Number(row.total),
-		state: row.state as PayoutState,
-		lines: storage.db
-			.prepare('SELECT * FROM payout_lines WHERE payout_number = ? ORDER BY request_number')
-			.all(number)
-			.map((line) => ({
-				requestNumber: Number(line.request_number),
-				taskId: Number(line.task_id),
-				jobId: Number(line.job_id),
-				rate: Number(line.rate)
-			})),
-		generatedBy: String(row.generated_by),
-		generatedAt: String(row.generated_at),
-		settledBy: row.settled_by === null ? null : String(row.settled_by),
-		settledAt: row.settled_at === null ? null : String(row.settled_at)
-	};
+function toPayout(storage: Storage, row: PayoutRow): Payout {
+	const lines = storage.db
+		.select({ requestNumber: payoutLines.requestNumber, taskId: payoutLines.taskId, jobId: payoutLines.jobId, rate: payoutLines.rate })
+		.from(payoutLines)
+		.where(eq(payoutLines.payoutNumber, row.number))
+		.orderBy(asc(payoutLines.requestNumber))
+		.all();
+	return { ...row, lines };
 }

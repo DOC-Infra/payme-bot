@@ -1,8 +1,11 @@
+import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { RequestState } from '../core/labels';
 import type { Evidence, PaymentRequest, RequestHistoryEntry, RequestMessage } from '../core/requests';
+import { paymentRequestEvidence, paymentRequestHistory, paymentRequestJobs, paymentRequestMessages, paymentRequests } from './schema';
 import type { Storage } from './storage';
 
-type Row = Record<string, unknown>;
+type EvidenceRow = typeof paymentRequestEvidence.$inferSelect;
+type HistoryRow = typeof paymentRequestHistory.$inferSelect;
 
 export interface NewRequestRow {
 	employeeUserId: string;
@@ -13,119 +16,151 @@ export interface NewRequestRow {
 
 export function insertRequest(storage: Storage, request: NewRequestRow): number {
 	const { db } = storage;
-	const result = db
-		.prepare("INSERT INTO payment_requests (employee_user_id, task_id, state) VALUES (?, ?, 'pending')")
-		.run(request.employeeUserId, request.taskId);
-	const number = Number(result.lastInsertRowid);
-	const addJob = db.prepare('INSERT INTO payment_request_jobs (request_number, job_id) VALUES (?, ?)');
-	for (const jobId of request.eligibleJobIds) addJob.run(number, jobId);
+	const { employeeUserId, taskId } = request;
+	const { number } = db
+		.insert(paymentRequests)
+		.values({ employeeUserId, taskId, state: 'pending' })
+		.returning({ number: paymentRequests.number })
+		.get();
+	if (request.eligibleJobIds.length > 0) {
+		db.insert(paymentRequestJobs)
+			.values(request.eligibleJobIds.map((jobId) => ({ requestNumber: number, jobId })))
+			.run();
+	}
 	insertEvidence(storage, number, request.evidence);
-	insertHistory(storage, number, { from: null, to: 'pending', actorUserId: request.employeeUserId, reason: null });
+	insertHistory(storage, number, { from: null, to: 'pending', actorUserId: employeeUserId, reason: null });
 	return number;
 }
 
 export function insertEvidence(storage: Storage, number: number, evidence: readonly Evidence[]) {
-	const add = storage.db.prepare('INSERT INTO payment_request_evidence (request_number, round, kind, value, name) VALUES (?, ?, ?, ?, ?)');
-	for (const entry of evidence) {
-		if (entry.kind === 'notes') add.run(number, entry.round, entry.kind, entry.text, null);
-		else if (entry.kind === 'link') add.run(number, entry.round, entry.kind, entry.url, null);
-		else add.run(number, entry.round, entry.kind, entry.url, entry.name);
-	}
+	if (evidence.length === 0) return;
+	storage.db
+		.insert(paymentRequestEvidence)
+		.values(evidence.map((entry) => ({ requestNumber: number, ...evidenceColumns(entry) })))
+		.run();
+}
+
+function evidenceColumns(entry: Evidence) {
+	const { round, kind } = entry;
+	if (entry.kind === 'notes') return { round, kind, value: entry.text, name: null };
+	if (entry.kind === 'link') return { round, kind, value: entry.url, name: null };
+	return { round, kind, value: entry.url, name: entry.name };
 }
 
 export function insertHistory(storage: Storage, number: number, entry: Omit<RequestHistoryEntry, 'at'>) {
 	storage.db
-		.prepare('INSERT INTO payment_request_history (request_number, from_state, to_state, actor_user_id, reason) VALUES (?, ?, ?, ?, ?)')
-		.run(number, entry.from, entry.to, entry.actorUserId, entry.reason);
+		.insert(paymentRequestHistory)
+		.values({ requestNumber: number, fromState: entry.from, toState: entry.to, actorUserId: entry.actorUserId, reason: entry.reason })
+		.run();
 }
 
 /** Moves the request to `to` only if it is still in `from`, and records it in the history. False if its state had already changed. */
 export function updateRequestState(storage: Storage, number: number, change: Omit<RequestHistoryEntry, 'at'> & { from: RequestState }): boolean {
 	const { changes } = storage.db
-		.prepare('UPDATE payment_requests SET state = ? WHERE number = ? AND state = ?')
-		.run(change.to, number, change.from);
-	if (Number(changes) === 0) return false;
+		.update(paymentRequests)
+		.set({ state: change.to })
+		.where(and(eq(paymentRequests.number, number), eq(paymentRequests.state, change.from)))
+		.run();
+	if (changes === 0) return false;
 	insertHistory(storage, number, change);
 	return true;
 }
 
 export function startNextRound(storage: Storage, number: number) {
-	storage.db.prepare('UPDATE payment_requests SET round = round + 1 WHERE number = ?').run(number);
+	storage.db
+		.update(paymentRequests)
+		.set({ round: sql`${paymentRequests.round} + 1` })
+		.where(eq(paymentRequests.number, number))
+		.run();
 }
 
 export function selectRequestNumbers(storage: Storage, employeeUserId: string, states: readonly RequestState[]): number[] {
 	return storage.db
-		.prepare(`SELECT number FROM payment_requests WHERE employee_user_id = ? AND state IN (${states.map(() => '?').join(', ')}) ORDER BY number`)
-		.all(employeeUserId, ...states)
-		.map((row) => Number(row.number));
+		.select({ number: paymentRequests.number })
+		.from(paymentRequests)
+		.where(and(eq(paymentRequests.employeeUserId, employeeUserId), inArray(paymentRequests.state, states)))
+		.orderBy(asc(paymentRequests.number))
+		.all()
+		.map((row) => row.number);
 }
 
 /** Whether the Employee already has a request for the Task, not Denied or Withdrawn, with these notes. */
 export function ticketClaimed(storage: Storage, employeeUserId: string, taskId: number, notes: string): boolean {
 	const row = storage.db
-		.prepare(
-			`SELECT 1 FROM payment_requests
-			JOIN payment_request_evidence ON payment_request_evidence.request_number = payment_requests.number
-			WHERE payment_requests.employee_user_id = ?
-				AND payment_requests.task_id = ?
-				AND payment_requests.state NOT IN ('denied', 'withdrawn')
-				AND payment_request_evidence.kind = 'notes'
-				AND payment_request_evidence.value = ?`
+		.select({ number: paymentRequests.number })
+		.from(paymentRequests)
+		.innerJoin(paymentRequestEvidence, eq(paymentRequestEvidence.requestNumber, paymentRequests.number))
+		.where(
+			and(
+				eq(paymentRequests.employeeUserId, employeeUserId),
+				eq(paymentRequests.taskId, taskId),
+				notInArray(paymentRequests.state, ['denied', 'withdrawn']),
+				eq(paymentRequestEvidence.kind, 'notes'),
+				eq(paymentRequestEvidence.value, notes)
+			)
 		)
-		.get(employeeUserId, taskId, notes);
+		.get();
 	return row !== undefined;
 }
 
+/** Records the message, replacing any earlier record of the same message (which moves it to the end of the request's messages). */
 export function insertMessage(storage: Storage, number: number, message: RequestMessage) {
-	storage.db
-		.prepare('INSERT OR REPLACE INTO payment_request_messages (message_id, request_number, round, job_id, channel_id) VALUES (?, ?, ?, ?, ?)')
-		.run(message.messageId, number, message.round, message.jobId, message.channelId);
+	const { round, jobId, channelId, messageId } = message;
+	storage.db.transaction((tx) => {
+		tx.delete(paymentRequestMessages).where(eq(paymentRequestMessages.messageId, messageId)).run();
+		tx.insert(paymentRequestMessages).values({ requestNumber: number, round, jobId, channelId, messageId }).run();
+	});
 }
 
 export function selectRequest(storage: Storage, number: number): PaymentRequest | null {
 	const { db } = storage;
-	const row = db.prepare('SELECT * FROM payment_requests WHERE number = ?').get(number);
+	const row = db.select().from(paymentRequests).where(eq(paymentRequests.number, number)).get();
 	if (!row) return null;
 
-	const byRequest = (sql: string) => db.prepare(sql).all(number);
 	return {
-		number,
-		employeeUserId: String(row.employee_user_id),
-		taskId: Number(row.task_id),
-		state: row.state as RequestState,
-		round: Number(row.round),
-		eligibleJobIds: byRequest('SELECT job_id FROM payment_request_jobs WHERE request_number = ? ORDER BY job_id').map((job) =>
-			Number(job.job_id)
-		),
-		evidence: byRequest('SELECT * FROM payment_request_evidence WHERE request_number = ? ORDER BY id').map(toEvidence),
-		history: byRequest('SELECT * FROM payment_request_history WHERE request_number = ? ORDER BY id').map(toHistoryEntry),
-		messages: byRequest('SELECT * FROM payment_request_messages WHERE request_number = ? ORDER BY rowid').map(toMessage)
+		...row,
+		eligibleJobIds: db
+			.select({ jobId: paymentRequestJobs.jobId })
+			.from(paymentRequestJobs)
+			.where(eq(paymentRequestJobs.requestNumber, number))
+			.orderBy(asc(paymentRequestJobs.jobId))
+			.all()
+			.map((job) => job.jobId),
+		evidence: db
+			.select()
+			.from(paymentRequestEvidence)
+			.where(eq(paymentRequestEvidence.requestNumber, number))
+			.orderBy(asc(paymentRequestEvidence.id))
+			.all()
+			.map(toEvidence),
+		history: db
+			.select()
+			.from(paymentRequestHistory)
+			.where(eq(paymentRequestHistory.requestNumber, number))
+			.orderBy(asc(paymentRequestHistory.id))
+			.all()
+			.map(toHistoryEntry),
+		messages: db
+			.select({
+				round: paymentRequestMessages.round,
+				jobId: paymentRequestMessages.jobId,
+				channelId: paymentRequestMessages.channelId,
+				messageId: paymentRequestMessages.messageId
+			})
+			.from(paymentRequestMessages)
+			.where(eq(paymentRequestMessages.requestNumber, number))
+			.orderBy(sql`rowid`)
+			.all()
 	};
 }
 
-function toEvidence(row: Row): Evidence {
-	const round = Number(row.round);
-	const value = String(row.value);
+function toEvidence(row: EvidenceRow): Evidence {
+	const { round, value } = row;
 	if (row.kind === 'notes') return { round, kind: 'notes', text: value };
 	if (row.kind === 'link') return { round, kind: 'link', url: value };
 	return { round, kind: 'attachment', name: String(row.name), url: value };
 }
 
-function toHistoryEntry(row: Row): RequestHistoryEntry {
-	return {
-		from: row.from_state === null ? null : (row.from_state as RequestState),
-		to: row.to_state as RequestState,
-		actorUserId: String(row.actor_user_id),
-		reason: row.reason === null ? null : String(row.reason),
-		at: String(row.at)
-	};
-}
-
-function toMessage(row: Row): RequestMessage {
-	return {
-		round: Number(row.round),
-		jobId: row.job_id === null ? null : Number(row.job_id),
-		channelId: String(row.channel_id),
-		messageId: String(row.message_id)
-	};
+function toHistoryEntry(row: HistoryRow): RequestHistoryEntry {
+	return { from: row.fromState, to: row.toState, actorUserId: row.actorUserId, reason: row.reason, at: row.at };
 }

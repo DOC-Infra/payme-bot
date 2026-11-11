@@ -1,23 +1,27 @@
+import { and, asc, count, eq, inArray, notExists } from 'drizzle-orm';
 import type { Task } from '../core/tasks';
+import { jobs, taskJobs, tasks } from './schema';
 import type { Storage } from './storage';
 
-type Row = Record<string, unknown>;
+type TaskRow = typeof tasks.$inferSelect;
 
 export function selectTask(storage: Storage, id: number): Task | null {
-	const row = storage.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+	const row = storage.db.select().from(tasks).where(eq(tasks.id, id)).get();
 	return row ? toTask(storage, row) : null;
 }
 
 export function selectTasks(storage: Storage): Task[] {
 	return storage.db
-		.prepare('SELECT * FROM tasks ORDER BY name')
+		.select()
+		.from(tasks)
+		.orderBy(asc(tasks.name))
 		.all()
 		.map((row) => toTask(storage, row));
 }
 
 export function selectTaskIdByName(storage: Storage, name: string): number | null {
-	const row = storage.db.prepare('SELECT id FROM tasks WHERE name = ?').get(name);
-	return row ? Number(row.id) : null;
+	const row = storage.db.select({ id: tasks.id }).from(tasks).where(eq(tasks.name, name)).get();
+	return row?.id ?? null;
 }
 
 export interface TaskRequirements {
@@ -26,77 +30,77 @@ export interface TaskRequirements {
 }
 
 export function insertTask(storage: Storage, name: string, rate: number, requirements: TaskRequirements, jobIds: readonly number[]): number {
-	const result = storage.db
-		.prepare('INSERT INTO tasks (name, rate, evidence_required, notes_required) VALUES (?, ?, ?, ?)')
-		.run(name, rate, requirements.evidenceRequired ? 1 : 0, requirements.notesRequired ? 1 : 0);
-	const id = Number(result.lastInsertRowid);
+	const { evidenceRequired, notesRequired } = requirements;
+	const { id } = storage.db.insert(tasks).values({ name, rate, evidenceRequired, notesRequired }).returning({ id: tasks.id }).get();
 	for (const jobId of jobIds) insertTaskJob(storage, id, jobId);
 	return id;
 }
 
 export function insertTaskJob(storage: Storage, taskId: number, jobId: number) {
-	storage.db.prepare('INSERT OR IGNORE INTO task_jobs (task_id, job_id) VALUES (?, ?)').run(taskId, jobId);
+	storage.db.insert(taskJobs).values({ taskId, jobId }).onConflictDoNothing().run();
 }
 
 export function deleteTaskJob(storage: Storage, taskId: number, jobId: number) {
-	storage.db.prepare('DELETE FROM task_jobs WHERE task_id = ? AND job_id = ?').run(taskId, jobId);
+	storage.db
+		.delete(taskJobs)
+		.where(and(eq(taskJobs.taskId, taskId), eq(taskJobs.jobId, jobId)))
+		.run();
 }
 
 export function updateTaskRate(storage: Storage, id: number, rate: number) {
-	storage.db.prepare('UPDATE tasks SET rate = ? WHERE id = ?').run(rate, id);
+	updateTask(storage, id, { rate });
 }
 
 export function updateTaskEvidenceRequired(storage: Storage, id: number, evidenceRequired: boolean) {
-	storage.db.prepare('UPDATE tasks SET evidence_required = ? WHERE id = ?').run(evidenceRequired ? 1 : 0, id);
+	updateTask(storage, id, { evidenceRequired });
 }
 
 export function updateTaskNotesRequired(storage: Storage, id: number, notesRequired: boolean) {
-	storage.db.prepare('UPDATE tasks SET notes_required = ? WHERE id = ?').run(notesRequired ? 1 : 0, id);
+	updateTask(storage, id, { notesRequired });
+}
+
+export function setTaskRetired(storage: Storage, id: number, retired: boolean) {
+	updateTask(storage, id, { retired });
 }
 
 export function countActiveTasks(storage: Storage, jobId: number): number {
 	const row = storage.db
-		.prepare(
-			'SELECT COUNT(*) AS count FROM tasks JOIN task_jobs ON task_jobs.task_id = tasks.id WHERE task_jobs.job_id = ? AND tasks.retired = 0'
-		)
-		.get(jobId);
-	return Number(row?.count);
-}
-
-export function setTaskRetired(storage: Storage, id: number, retired: boolean) {
-	storage.db.prepare('UPDATE tasks SET retired = ? WHERE id = ?').run(retired ? 1 : 0, id);
+		.select({ count: count() })
+		.from(tasks)
+		.innerJoin(taskJobs, eq(taskJobs.taskId, tasks.id))
+		.where(and(eq(taskJobs.jobId, jobId), eq(tasks.retired, false)))
+		.get();
+	return row?.count ?? 0;
 }
 
 export function retireTasksWithNoActiveJob(storage: Storage, jobId: number) {
-	storage.db
-		.prepare(
-			`UPDATE tasks SET retired = 1
-			WHERE retired = 0
-				AND id IN (SELECT task_id FROM task_jobs WHERE job_id = ?)
-				AND NOT EXISTS (
-					SELECT 1 FROM task_jobs JOIN jobs ON jobs.id = task_jobs.job_id
-					WHERE task_jobs.task_id = tasks.id AND jobs.retired = 0
-				)`
-		)
-		.run(jobId);
+	const { db } = storage;
+	const tasksOfJob = db.select({ taskId: taskJobs.taskId }).from(taskJobs).where(eq(taskJobs.jobId, jobId));
+	const activeJobOfTask = db
+		.select()
+		.from(taskJobs)
+		.innerJoin(jobs, eq(jobs.id, taskJobs.jobId))
+		.where(and(eq(taskJobs.taskId, tasks.id), eq(jobs.retired, false)));
+	db.update(tasks)
+		.set({ retired: true })
+		.where(and(eq(tasks.retired, false), inArray(tasks.id, tasksOfJob), notExists(activeJobOfTask)))
+		.run();
 }
 
-function toTask(storage: Storage, row: Row): Task {
-	const id = Number(row.id);
-	return {
-		id,
-		name: String(row.name),
-		rate: Number(row.rate),
-		evidenceRequired: row.evidence_required === 1,
-		notesRequired: row.notes_required === 1,
-		jobIds: selectTaskJobIds(storage, id),
-		retired: row.retired === 1
-	};
+function updateTask(storage: Storage, id: number, changes: Partial<Omit<TaskRow, 'id'>>) {
+	storage.db.update(tasks).set(changes).where(eq(tasks.id, id)).run();
+}
+
+function toTask(storage: Storage, row: TaskRow): Task {
+	return { ...row, jobIds: selectTaskJobIds(storage, row.id) };
 }
 
 function selectTaskJobIds(storage: Storage, taskId: number): number[] {
 	return storage.db
-		.prepare('SELECT job_id FROM task_jobs WHERE task_id = ? ORDER BY job_id')
-		.all(taskId)
-		.map((row) => Number(row.job_id));
+		.select({ jobId: taskJobs.jobId })
+		.from(taskJobs)
+		.where(eq(taskJobs.taskId, taskId))
+		.orderBy(asc(taskJobs.jobId))
+		.all()
+		.map((row) => row.jobId);
 }
