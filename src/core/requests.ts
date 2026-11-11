@@ -3,11 +3,10 @@ import type { Actor } from './actor';
 import type { Effect, EntryAction, EvidenceFile } from './effects';
 import { getEmployee, type Employee } from './employees';
 import { getJob, jobsHeldBy, type Job } from './jobs';
+import { requestLabel, stateName, type RequestState } from './labels';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { activeTasksForJobs, getTask, maxTasksPerJob, type Task } from './tasks';
-
-export type RequestState = 'pending' | 'approved' | 'rejected' | 'denied' | 'withdrawn' | 'paid';
 
 export type Evidence =
 	| { round: number; kind: 'notes'; text: string }
@@ -162,14 +161,6 @@ export function recordRequestMessage(payMe: PayMe, number: number, message: Requ
 export function requestEntry(payMe: PayMe, number: number, round: number): RequestMessage | null {
 	const entry = getPaymentRequest(payMe, number)?.messages.find((message) => message.round === round && message.jobId === null);
 	return entry ?? null;
-}
-
-export function requestLabel(number: number): string {
-	return `R-${number}`;
-}
-
-export function stateName(state: RequestState): string {
-	return state[0].toUpperCase() + state.slice(1);
 }
 
 /** Rewrites every review copy of the request's current round to show its latest state change, without review buttons. */

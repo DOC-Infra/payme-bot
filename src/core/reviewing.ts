@@ -1,19 +1,11 @@
 import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
 import { getJob } from './jobs';
+import { requestLabel, stateName, type RequestState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership } from './permissions';
-import {
-	getPaymentRequest,
-	logStateChange,
-	requestLabel,
-	stateName,
-	updateEntryActions,
-	updateReviewCopies,
-	type PaymentRequest,
-	type RequestState
-} from './requests';
+import { getPaymentRequest, logStateChange, updateEntryActions, updateReviewCopies, type PaymentRequest } from './requests';
 
 export function approveRequest(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
 	return decide(payMe, actor, number, 'approved', null);

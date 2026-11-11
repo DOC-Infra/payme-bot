@@ -5,7 +5,8 @@ import { estimateOwed } from './estimates';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { formatAmount } from './rates';
-import { requestTitle, stateName, type PaymentRequest } from './requests';
+import { stateName } from './labels';
+import { requestTitle, type PaymentRequest } from './requests';
 import { getTask } from './tasks';
 
 export interface MyRequests {

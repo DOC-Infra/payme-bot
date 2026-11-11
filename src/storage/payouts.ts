@@ -1,4 +1,5 @@
-import type { Payout, PayoutLine, PayoutState } from '../core/payouts';
+import type { PayoutState } from '../core/labels';
+import type { Payout, PayoutLine } from '../core/payouts';
 import type { Storage } from './storage';
 
 type Row = Record<string, unknown>;

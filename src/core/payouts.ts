@@ -12,14 +12,13 @@ import type { Actor } from './actor';
 import type { Effect, PayoutAction } from './effects';
 import { getEmployee } from './employees';
 import { allJobs, getJob } from './jobs';
+import { payoutLabel, payoutStateName, requestLabel, type PayoutState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership, requireLeadership } from './permissions';
 import { formatAmount } from './rates';
-import { getPaymentRequest, requestLabel, updateReviewCopies } from './requests';
+import { getPaymentRequest, updateReviewCopies } from './requests';
 import { getTask } from './tasks';
-
-export type PayoutState = 'open' | 'paid' | 'discarded';
 
 /** One Payment Request in a Payout, with its Task, Job and Rate frozen at generation. */
 export interface PayoutLine {
@@ -222,10 +221,6 @@ function notOpen(payMe: PayMe, number: number) {
 	return fail({ code: 'payout-not-open', number, state: payout.state });
 }
 
-export function payoutLabel(number: number): string {
-	return `P-${number}`;
-}
-
 export function payCommand(payout: Payout): string {
 	return `/gov payout GovCommerce ${payout.minecraftName} ${formatAmount(payout.total)} PayMe ${payoutLabel(payout.number)}`;
 }
@@ -250,8 +245,4 @@ function breakdown(payMe: PayMe, payout: Payout): string[] {
 
 function lineText(payMe: PayMe, line: PayoutLine): string {
 	return `**${requestLabel(line.requestNumber)}** ${getTask(payMe, line.taskId)!.name}: ${formatAmount(line.rate)}`;
-}
-
-export function payoutStateName(state: PayoutState): string {
-	return state[0].toUpperCase() + state.slice(1);
 }

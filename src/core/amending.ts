@@ -1,5 +1,6 @@
 import { insertEvidence, startNextRound, updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
+import { requestLabel } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import {
@@ -7,7 +8,6 @@ import {
 	evidenceFor,
 	getPaymentRequest,
 	logStateChange,
-	requestLabel,
 	roundEffects,
 	updateEntryActions,
 	updateReviewCopies,

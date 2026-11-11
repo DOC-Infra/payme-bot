@@ -1,5 +1,4 @@
-import { payoutLabel, payoutStateName, type PayoutState } from './payouts';
-import { requestLabel, stateName, type RequestState } from './requests';
+import { payoutLabel, payoutStateName, requestLabel, stateName, type PayoutState, type RequestState } from './labels';
 
 export type PayMeError =
 	| { code: 'not-permitted' }

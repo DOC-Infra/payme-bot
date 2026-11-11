@@ -1,4 +1,5 @@
-import type { Evidence, PaymentRequest, RequestHistoryEntry, RequestMessage, RequestState } from '../core/requests';
+import type { RequestState } from '../core/labels';
+import type { Evidence, PaymentRequest, RequestHistoryEntry, RequestMessage } from '../core/requests';
 import type { Storage } from './storage';
 
 type Row = Record<string, unknown>;
