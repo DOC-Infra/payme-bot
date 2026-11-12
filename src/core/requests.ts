@@ -38,6 +38,8 @@ export interface PaymentRequest {
 	taskId: number;
 	state: RequestState;
 	round: number;
+	/** The DOC ticket number, for a ticket claim. */
+	ticket: string | null;
 	eligibleJobIds: number[];
 	evidence: Evidence[];
 	history: RequestHistoryEntry[];
@@ -155,9 +157,9 @@ export function claimTicket(payMe: PayMe, actor: Actor, ticket: string): Outcome
 	const taskId = selectTaskIdByName(payMe.storage, ticketTaskName);
 	if (taskId === null) return fail({ code: 'no-ticket-task', name: ticketTaskName });
 
-	const notes = `Ticket ${ticket}`;
-	return fileRequest(payMe, actor, actor, { taskId, notes, link: null, files: [] }, (task) =>
-		payMe.requests.ticketClaimed(actor.userId, task.id, notes) ? fail({ code: 'ticket-claimed', ticket }) : null
+	const input = { taskId, notes: `Ticket ${ticket}`, link: null, files: [], ticket };
+	return fileRequest(payMe, actor, actor, input, () =>
+		payMe.requests.ticketClaimed(actor.userId, ticket) ? fail({ code: 'ticket-claimed', ticket }) : null
 	);
 }
 
@@ -165,7 +167,7 @@ function fileRequest(
 	payMe: PayMe,
 	actor: Actor,
 	member: Actor,
-	input: NewPaymentRequest,
+	input: NewPaymentRequest & { ticket?: string },
 	check: (task: Task) => Failure | null
 ): Outcome<PaymentRequest> {
 	const { storage } = payMe;
@@ -186,7 +188,8 @@ function fileRequest(
 			employeeUserId: employee.userId,
 			taskId: task.id,
 			eligibleJobIds: heldJobs.filter((job) => task.jobIds.includes(job.id)).map((job) => job.id),
-			evidence: evidenceItems(input)
+			evidence: evidenceItems(input),
+			ticket: input.ticket
 		});
 		const { number } = request;
 		const forOther = onBehalf(actor, member);

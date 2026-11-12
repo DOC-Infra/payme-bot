@@ -43,6 +43,7 @@ describe('The Payment Request store', () => {
 			taskId: task.id,
 			state: 'pending',
 			round: 1,
+			ticket: null,
 			eligibleJobIds: [courier.id, miner.id],
 			evidence: [{ round: 1, kind: 'notes', text: 'Hauled' }],
 			history: [{ from: null, to: 'pending', actorUserId: 'user-alex', reason: null, at: expect.any(String) }],
