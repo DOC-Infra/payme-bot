@@ -7,12 +7,10 @@ import {
 	createJob,
 	discardPayout,
 	generatePayout,
-	getPaymentRequest,
 	getPayout,
 	markPayoutPaid,
 	payCommand,
 	hireEmployee,
-	recordRequestMessage,
 	recordRequestsThread,
 	retireJob,
 	retireTask,
@@ -150,9 +148,9 @@ describe('Marking a Payout paid', () => {
 		approved(payMe, alex, mail.id);
 
 		expect(markPayoutPaid(payMe, leadership('user-lin'), 1)).toMatchObject({ ok: true, value: { state: 'paid', settledBy: 'user-lin' } });
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('paid');
-		expect(getPaymentRequest(payMe, 1)?.history.at(-1)).toMatchObject({ from: 'approved', to: 'paid', actorUserId: 'user-lin' });
-		expect(getPaymentRequest(payMe, 2)?.state).toBe('approved');
+		expect(payMe.requests.load(1)?.state).toBe('paid');
+		expect(payMe.requests.load(1)?.history.at(-1)).toMatchObject({ from: 'approved', to: 'paid', actorUserId: 'user-lin' });
+		expect(payMe.requests.load(2)?.state).toBe('approved');
 		expect(getPayout(payMe, 1)?.lines.map((line) => line.requestNumber)).toEqual([1]);
 	});
 
@@ -172,8 +170,8 @@ describe('Marking a Payout paid', () => {
 		const { payMe, courier, parcel, mail } = courierAlex();
 		approved(payMe, alex, parcel.id);
 		approved(payMe, alex, mail.id);
-		recordRequestMessage(payMe, 1, { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'entry-1' });
-		recordRequestMessage(payMe, 1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-1' });
+		payMe.requests.recordMessage(1, { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'entry-1' });
+		payMe.requests.recordMessage(1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-1' });
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 
 		expect(markPayoutPaid(payMe, leadership('user-lin'), 1)).toMatchObject({
@@ -284,7 +282,7 @@ describe('Discarding a Payout', () => {
 				}
 			]
 		});
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('approved');
+		expect(payMe.requests.load(1)?.state).toBe('approved');
 		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({ ok: true, value: { number: 2, total: 120000 } });
 	});
 
@@ -295,7 +293,7 @@ describe('Discarding a Payout', () => {
 		created(markPayoutPaid(payMe, leadership(), 1));
 
 		expect(discardPayout(payMe, leadership(), 1)).toEqual({ ok: false, error: { code: 'payout-not-open', number: 1, state: 'paid' } });
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('paid');
+		expect(payMe.requests.load(1)?.state).toBe('paid');
 	});
 });
 
@@ -309,7 +307,7 @@ describe('Retired Tasks and Jobs', () => {
 
 		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({ ok: true, value: { total: 150025 } });
 		expect(markPayoutPaid(payMe, leadership(), 1)).toMatchObject({ ok: true });
-		expect([getPaymentRequest(payMe, 1)?.state, getPaymentRequest(payMe, 2)?.state]).toEqual(['paid', 'paid']);
+		expect([payMe.requests.load(1)?.state, payMe.requests.load(2)?.state]).toEqual(['paid', 'paid']);
 	});
 });
 

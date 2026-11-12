@@ -1,4 +1,3 @@
-import { selectRequest, selectRequestNumbers } from '../storage/requests';
 import type { Actor } from './actor';
 import { notice, type Card } from './effects';
 import { getEmployee } from './employees';
@@ -18,10 +17,7 @@ export interface MyRequests {
 export function myRequests(payMe: PayMe, actor: Actor): Outcome<MyRequests> {
 	if (!getEmployee(payMe, actor.userId)) return fail({ code: 'not-hired' });
 
-	const { storage } = payMe;
-	const requests = selectRequestNumbers(storage, actor.userId, ['pending', 'rejected', 'approved']).map((number) =>
-		selectRequest(storage, number)!
-	);
+	const requests = payMe.requests.loadMany({ employeeUserId: actor.userId, states: ['pending', 'rejected', 'approved'] });
 	const estimatedOwed = totalOwed(owedTo(payMe, actor.userId));
 	if (requests.length === 0)
 		return succeed([{ type: 'private-reply', card: notice('You have no open Payment Requests.', 'neutral') }], { requests, estimatedOwed });

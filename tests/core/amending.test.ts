@@ -5,9 +5,7 @@ import {
 	amendForm,
 	amendRequest,
 	createJob,
-	getPaymentRequest,
 	hireEmployee,
-	recordRequestMessage,
 	recordRequestsThread,
 	rejectRequest,
 	setNotesRequired,
@@ -59,14 +57,14 @@ describe('Amending a Rejected Payment Request', () => {
 		const outcome = amendRequest(payMe, alex, 1, { notes: ' Retook it ', link: 'https://example.com/more', files: [clearer] });
 
 		expect(outcome).toMatchObject({ ok: true, value: { state: 'pending', round: 2 } });
-		expect(getPaymentRequest(payMe, 1)?.evidence).toEqual([
+		expect(payMe.requests.load(1)?.evidence).toEqual([
 			{ round: 1, kind: 'notes', text: 'Done' },
 			{ round: 1, kind: 'attachment', ...screenshot },
 			{ round: 2, kind: 'notes', text: 'Retook it' },
 			{ round: 2, kind: 'link', url: 'https://example.com/more' },
 			{ round: 2, kind: 'attachment', ...clearer }
 		]);
-		expect(getPaymentRequest(payMe, 1)?.history.at(-1)).toMatchObject({
+		expect(payMe.requests.load(1)?.history.at(-1)).toMatchObject({
 			from: 'rejected',
 			to: 'pending',
 			actorUserId: 'user-alex',
@@ -88,7 +86,7 @@ describe('Amending a Rejected Payment Request', () => {
 describe('Amending a request for a Task that needs no notes', () => {
 	it('accepts blank notes alongside a link or file, but not an empty amendment', () => {
 		const { payMe } = rejectedParcel();
-		created(setNotesRequired(payMe, leadership(), getPaymentRequest(payMe, 1)!.taskId, false));
+		created(setNotesRequired(payMe, leadership(), payMe.requests.load(1)!.taskId, false));
 
 		expect(amendRequest(payMe, alex, 1, { notes: ' ', link: null, files: [] })).toEqual({ ok: false, error: { code: 'amendment-empty' } });
 		expect(created(amendRequest(payMe, alex, 1, { notes: ' ', link: null, files: [clearer] })).state).toBe('pending');
@@ -100,7 +98,7 @@ describe('Opening the amend form', () => {
 		const { payMe } = rejectedParcel();
 
 		expect(amendForm(payMe, alex, 1)).toMatchObject({ ok: true, value: { notesRequired: true, notesHint: 'What did you change or add?' } });
-		created(setNotesRequired(payMe, leadership(), getPaymentRequest(payMe, 1)!.taskId, false));
+		created(setNotesRequired(payMe, leadership(), payMe.requests.load(1)!.taskId, false));
 		expect(amendForm(payMe, alex, 1)).toMatchObject({
 			ok: true,
 			value: { notesRequired: false, notesHint: 'What did you change or add? Optional.' }
@@ -160,7 +158,7 @@ describe('Withdrawing a Payment Request', () => {
 
 		expect(withdrawRequest(payMe, alex, 1)).toEqual({
 			ok: true,
-			value: getPaymentRequest(payMe, 1),
+			value: payMe.requests.load(1),
 			effects: [
 				{
 					type: 'update-request-entry',
@@ -178,16 +176,16 @@ describe('Withdrawing a Payment Request', () => {
 				{ type: 'delete-review-copies', requestNumber: 1, messages: [] }
 			]
 		});
-		expect(getPaymentRequest(payMe, 1)?.history.at(-1)).toMatchObject({ from: 'pending', to: 'withdrawn', actorUserId: 'user-alex' });
+		expect(payMe.requests.load(1)?.history.at(-1)).toMatchObject({ from: 'pending', to: 'withdrawn', actorUserId: 'user-alex' });
 	});
 
 	it('deletes the review copies of every round, keeping the Requests Thread entries', () => {
 		const { payMe, courier } = rejectedParcel();
-		recordRequestMessage(payMe, 1, { round: 1, jobId: null, channelId: 'thread-alex', messageId: 'entry-1' });
-		recordRequestMessage(payMe, 1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-1' });
+		payMe.requests.recordMessage(1, { round: 1, jobId: null, channelId: 'thread-alex', messageId: 'entry-1' });
+		payMe.requests.recordMessage(1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-1' });
 		created(amendRequest(payMe, alex, 1, { notes: 'Retook it', link: null, files: [clearer] }));
-		recordRequestMessage(payMe, 1, { round: 2, jobId: null, channelId: 'thread-alex', messageId: 'entry-2' });
-		recordRequestMessage(payMe, 1, { round: 2, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-2' });
+		payMe.requests.recordMessage(1, { round: 2, jobId: null, channelId: 'thread-alex', messageId: 'entry-2' });
+		payMe.requests.recordMessage(1, { round: 2, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-2' });
 
 		expect(withdrawRequest(payMe, alex, 1)).toMatchObject({
 			effects: expect.arrayContaining([

@@ -1,3 +1,4 @@
+import { requestStore, type RequestStore } from '../storage/requests';
 import type { Storage } from '../storage/storage';
 
 export interface PayMeConfig {
@@ -6,9 +7,11 @@ export interface PayMeConfig {
 
 export interface PayMe {
 	storage: Storage;
+	/** Where Payment Requests are loaded from and saved to. */
+	requests: RequestStore;
 	config: PayMeConfig;
 }
 
 export function createPayMe(storage: Storage, config: PayMeConfig): PayMe {
-	return { storage, config };
+	return { storage, requests: requestStore(storage), config };
 }

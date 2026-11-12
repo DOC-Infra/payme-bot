@@ -5,9 +5,7 @@ import {
 	addTaskToJob,
 	claimTicket,
 	createJob,
-	getPaymentRequest,
 	hireEmployee,
-	recordRequestMessage,
 	recordRequestsThread,
 	requestEntry,
 	requestForm,
@@ -261,7 +259,7 @@ describe('Submitting a Payment Request', () => {
 		const second = created(submitRequest(payMe, alex, { taskId: parcel.id, notes: 'Again', link: 'https://example.com/proof', files: [] }));
 
 		expect([first.number, second.number]).toEqual([1, 2]);
-		expect(getPaymentRequest(payMe, 1)).toMatchObject({
+		expect(payMe.requests.load(1)).toMatchObject({
 			number: 1,
 			employeeUserId: 'user-alex',
 			taskId: parcel.id,
@@ -275,7 +273,7 @@ describe('Submitting a Payment Request', () => {
 			history: [{ from: null, to: 'pending', actorUserId: 'user-alex', reason: null }],
 			messages: []
 		});
-		expect(getPaymentRequest(payMe, 2)?.evidence).toEqual([
+		expect(payMe.requests.load(2)?.evidence).toEqual([
 			{ round: 1, kind: 'notes', text: 'Again' },
 			{ round: 1, kind: 'link', url: 'https://example.com/proof' }
 		]);
@@ -337,10 +335,10 @@ describe('Submitting a Payment Request', () => {
 		hire(payMe, 'user-alex');
 		submit(payMe, member('user-alex', 'role-courier'), task(payMe, 'Deliver Parcel', courier.id).id);
 
-		recordRequestMessage(payMe, 1, { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'message-entry' });
-		recordRequestMessage(payMe, 1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'message-review' });
+		payMe.requests.recordMessage(1, { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'message-entry' });
+		payMe.requests.recordMessage(1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'message-review' });
 
-		expect(getPaymentRequest(payMe, 1)?.messages).toEqual([
+		expect(payMe.requests.load(1)?.messages).toEqual([
 			{ round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'message-entry' },
 			{ round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'message-review' }
 		]);
@@ -373,7 +371,7 @@ describe('Submitting a Payment Request', () => {
 		addTaskToJob(payMe, leadership(), cart.id, job(payMe, 'Farmer').id);
 		submit(payMe, member('user-alex', 'role-logistics', 'role-farmer'), cart.id);
 
-		expect(getPaymentRequest(payMe, 1)?.eligibleJobIds).toEqual([courier.id, miner.id]);
+		expect(payMe.requests.load(1)?.eligibleJobIds).toEqual([courier.id, miner.id]);
 	});
 
 	it('refuses a submission with neither a link nor a file', () => {
@@ -385,7 +383,7 @@ describe('Submitting a Payment Request', () => {
 			ok: false,
 			error: { code: 'evidence-required' }
 		});
-		expect(getPaymentRequest(payMe, 1)).toBeNull();
+		expect(payMe.requests.load(1)).toBeNull();
 	});
 
 	it('accepts notes alone for a Task that needs no link or file', () => {

@@ -93,7 +93,7 @@ export interface PostToRequestsThread {
 
 /**
  * Post a request's entry for this submission round to the Employee's current Requests Thread (reopening it if archived),
- * re-uploading the files, then report the message back with `recordRequestMessage` (`jobId: null`).
+ * re-uploading the files, then report the message back with `payMe.requests.recordMessage` (`jobId: null`).
  */
 export interface PostRequestEntry {
 	type: 'post-request-entry';
@@ -140,7 +140,7 @@ export interface UpdateReviewCopies {
 
 /**
  * Post a review copy in a Job's Review Channel, re-uploading the files and linking to the round's Requests Thread entry
- * (see `requestEntry`), then report the message back with `recordRequestMessage`.
+ * (see `requestEntry`), then report the message back with `payMe.requests.recordMessage`.
  */
 export interface PostReviewMessage {
 	type: 'post-review-message';

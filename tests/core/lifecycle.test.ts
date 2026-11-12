@@ -6,7 +6,6 @@ import {
 	checkChange,
 	createJob,
 	entryActions,
-	getPaymentRequest,
 	hireEmployee,
 	submit,
 	type Actor,
@@ -120,7 +119,7 @@ describe('Changing the state of a Payment Request', () => {
 		const payMe = requestIn(from);
 
 		expect(changeState(payMe, actors[change], 1, change, reasons[change])).toMatchObject({ ok: true, value: { state: to } });
-		expect(getPaymentRequest(payMe, 1)?.history.at(-1)).toMatchObject({
+		expect(payMe.requests.load(1)?.history.at(-1)).toMatchObject({
 			from,
 			to,
 			actorUserId: actors[change].userId,
@@ -135,7 +134,7 @@ describe('Changing the state of a Payment Request', () => {
 			ok: false,
 			error: { code: refusals[change], number: 1, state: from }
 		});
-		expect(getPaymentRequest(payMe, 1)?.state).toBe(from);
+		expect(payMe.requests.load(1)?.state).toBe(from);
 	});
 });
 
@@ -150,7 +149,7 @@ describe('The buttons on the Requests Thread entry', () => {
 	};
 
 	it.each(states)('offer exactly the changes the Employee may make to a %s request', (state) => {
-		const request = getPaymentRequest(requestIn(state), 1)!;
+		const request = requestIn(state).requests.load(1)!;
 
 		expect(entryActions(request)).toEqual(buttons[state]);
 	});
@@ -158,7 +157,7 @@ describe('The buttons on the Requests Thread entry', () => {
 	it('are gone from the entry of an earlier round once the request is resubmitted', () => {
 		const payMe = requestIn('rejected');
 		created(changeState(payMe, alex, 1, 'amend'));
-		const request = { ...getPaymentRequest(payMe, 1)!, round: 2 };
+		const request = { ...payMe.requests.load(1)!, round: 2 };
 
 		expect(entryActions(request, 1)).toEqual([]);
 		expect(entryActions(request, 2)).toEqual(['withdraw']);
@@ -173,7 +172,7 @@ describe('Checking a change before asking for its form or confirmation', () => {
 		expect(checkChange(payMe, alex, 1, 'withdraw')).toMatchObject({ ok: true, value: { state: 'pending' } });
 		expect(checkChange(payMe, alex, 1, 'amend')).toEqual({ ok: false, error: { code: 'cannot-amend', number: 1, state: 'pending' } });
 		expect(checkChange(payMe, courierManager, 1, 'withdraw')).toEqual({ ok: false, error: { code: 'not-your-request' } });
-		expect(getPaymentRequest(payMe, 1)?.history).toHaveLength(1);
+		expect(payMe.requests.load(1)?.history).toHaveLength(1);
 
 		created(changeState(payMe, leadership(), 1, 'approve'));
 		expect(changeState(payMe, courierManager, 1, 'reject', 'Blurry')).toEqual({
@@ -191,10 +190,10 @@ describe('Reasons', () => {
 		for (const blank of [null, '  ']) {
 			expect(changeState(payMe, courierManager, 1, change, blank)).toEqual({ ok: false, error: { code: 'reason-required' } });
 		}
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('pending');
+		expect(payMe.requests.load(1)?.state).toBe('pending');
 
 		created(changeState(payMe, courierManager, 1, change, ' Blurry screenshot '));
-		expect(getPaymentRequest(payMe, 1)?.history.at(-1)?.reason).toBe('Blurry screenshot');
+		expect(payMe.requests.load(1)?.history.at(-1)?.reason).toBe('Blurry screenshot');
 	});
 });
 
@@ -208,7 +207,7 @@ describe('Who may change a Payment Request', () => {
 		for (const other of [courierManager, leadership(), sam]) {
 			expect(changeState(payMe, other, 1, change)).toEqual({ ok: false, error: { code: 'not-your-request' } });
 		}
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('rejected');
+		expect(payMe.requests.load(1)?.state).toBe('rejected');
 	});
 
 	it('leaves withdrawing to the Employee when a Manager filed the request for them', () => {
@@ -235,7 +234,7 @@ describe('Who may change a Payment Request', () => {
 		for (const other of [logisticsManager, sam]) {
 			expect(changeState(payMe, other, 1, change, 'Because')).toEqual({ ok: false, error: { code: 'not-a-reviewer' } });
 		}
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('pending');
+		expect(payMe.requests.load(1)?.state).toBe('pending');
 	});
 
 	it.each(['approve', 'reject', 'deny'] as const)(
@@ -253,7 +252,7 @@ describe('Who may change a Payment Request', () => {
 		for (const other of [alex, courierManager, sam]) {
 			expect(changeState(payMe, other, 1, 'pay')).toEqual({ ok: false, error: { code: 'not-permitted' } });
 		}
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('approved');
+		expect(payMe.requests.load(1)?.state).toBe('approved');
 	});
 
 	it('checks who is acting before the state', () => {

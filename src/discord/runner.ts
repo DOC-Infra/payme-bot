@@ -25,7 +25,6 @@ import {
 	pinnedMessageCard,
 	fail,
 	getEmployee,
-	recordRequestMessage,
 	recordRequestsThread,
 	requestEntry,
 	type Actor,
@@ -108,7 +107,7 @@ const handlers: Handlers = {
 			components: reviewRow(entryButtons(effect.requestNumber, effect.actions)),
 			allowedMentions: { parse: [] }
 		});
-		recordRequestMessage(container.payMe, effect.requestNumber, {
+		container.payMe.requests.recordMessage(effect.requestNumber, {
 			round: effect.round,
 			jobId: null,
 			channelId: thread.id,
@@ -126,7 +125,7 @@ const handlers: Handlers = {
 			components,
 			allowedMentions: { parse: [] }
 		});
-		recordRequestMessage(container.payMe, effect.requestNumber, {
+		container.payMe.requests.recordMessage(effect.requestNumber, {
 			round: effect.round,
 			jobId: effect.jobId,
 			channelId: channel.id,
