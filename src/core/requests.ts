@@ -243,19 +243,27 @@ export function updateEntryActions(request: PaymentRequest, round = request.roun
 
 /** Where the messages a round posted get recorded: the request's storage in production, a list in tests. */
 export interface RoundRecorder {
-	record(requestNumber: number, message: RequestMessage): void;
+	recordMessage(requestNumber: number, message: RequestMessage): void;
 }
 
-/** The messages Discord posted for a round, review copies only as far as it got. */
-export interface PostedRound {
-	entry: MessageRef;
-	reviewCopies: { jobId: number; message: MessageRef }[];
+/** Posts a round's messages in Discord: in production the bot, in tests a fake. */
+export interface RoundPoster {
+	postEntry(round: PostRound): Promise<MessageRef>;
+	postReviewCopy(round: PostRound, channelId: string, entry: MessageRef): Promise<MessageRef>;
 }
 
-export function recordRound(recorder: RoundRecorder, round: PostRound, posted: PostedRound) {
+/**
+ * Posts the round's Requests Thread entry, then a review copy linking to it in each Review Channel, recording each message as soon
+ * as it is posted so a decision made from an early review copy already sees it. Stops at the first message that fails to post.
+ */
+export async function carryOutRound(round: PostRound, poster: RoundPoster, recorder: RoundRecorder): Promise<void> {
 	const { requestNumber } = round;
-	recorder.record(requestNumber, { round: round.round, jobId: null, ...posted.entry });
-	for (const copy of posted.reviewCopies) recorder.record(requestNumber, { round: round.round, jobId: copy.jobId, ...copy.message });
+	const entry = await poster.postEntry(round);
+	recorder.recordMessage(requestNumber, { round: round.round, jobId: null, ...entry });
+	for (const review of round.reviewChannels) {
+		const copy = await poster.postReviewCopy(round, review.channelId, entry);
+		recorder.recordMessage(requestNumber, { round: round.round, jobId: review.jobId, ...copy });
+	}
 }
 
 export function requestEntry(payMe: PayMe, number: number, round: number): RequestMessage | null {

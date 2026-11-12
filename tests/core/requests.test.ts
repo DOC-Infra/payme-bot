@@ -7,7 +7,7 @@ import {
 	createJob,
 	hireEmployee,
 	recordRequestsThread,
-	recordRound,
+	carryOutRound,
 	requestEntry,
 	requestForm,
 	retireTask,
@@ -18,6 +18,7 @@ import {
 	type Outcome,
 	type PayMe,
 	type PostRound,
+	type RoundPoster,
 	type RequestForm
 } from '../../src/core';
 import { createTestPayMe, leadership, member, recordingRecorder } from '../support/payme';
@@ -331,7 +332,7 @@ describe('Submitting a Payment Request', () => {
 		]);
 	});
 
-	it("records the round's Requests Thread entry, then each review copy, once Discord has posted them", () => {
+	it("posts the round's Requests Thread entry, then each review copy linking to it, recording each message as soon as it is posted", async () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
 		const logistics = job(payMe, 'Logistics');
@@ -344,35 +345,53 @@ describe('Submitting a Payment Request', () => {
 			files: [screenshot]
 		});
 		const recorder = recordingRecorder();
+		const posts: string[] = [];
+		const poster: RoundPoster = {
+			postEntry: async () => {
+				posts.push(`entry after ${recorder.recorded.length} recorded`);
+				return { channelId: 'thread-user-alex', messageId: 'message-entry' };
+			},
+			postReviewCopy: async (_round, channelId, entry) => {
+				posts.push(`${channelId} linking ${entry.messageId} after ${recorder.recorded.length} recorded`);
+				return { channelId, messageId: `message-${channelId}` };
+			}
+		};
 
-		recordRound(recorder, postedRound(outcome), {
-			entry: { channelId: 'thread-user-alex', messageId: 'message-entry' },
-			reviewCopies: [
-				{ jobId: courier.id, message: { channelId: 'review-courier', messageId: 'message-courier' } },
-				{ jobId: logistics.id, message: { channelId: 'review-logistics', messageId: 'message-logistics' } }
-			]
-		});
+		await carryOutRound(postedRound(outcome), poster, recorder);
 
+		expect(posts).toEqual([
+			'entry after 0 recorded',
+			'review-courier linking message-entry after 1 recorded',
+			'review-logistics linking message-entry after 2 recorded'
+		]);
 		expect(recorder.recorded).toEqual([
 			{ requestNumber: 1, message: { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'message-entry' } },
-			{ requestNumber: 1, message: { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'message-courier' } },
-			{ requestNumber: 1, message: { round: 1, jobId: logistics.id, channelId: 'review-logistics', messageId: 'message-logistics' } }
+			{ requestNumber: 1, message: { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'message-review-courier' } },
+			{ requestNumber: 1, message: { round: 1, jobId: logistics.id, channelId: 'review-logistics', messageId: 'message-review-logistics' } }
 		]);
 	});
 
-	it('records only the Requests Thread entry when no review copy got posted', () => {
+	it('keeps the messages already posted recorded when a review copy fails to post, and posts no further copies', async () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
+		const logistics = job(payMe, 'Logistics');
+		const cart = task(payMe, 'Load Cart', courier.id, logistics.id);
 		hire(payMe, 'user-alex');
-		const outcome = submitRequest(payMe, member('user-alex', 'role-courier'), {
-			taskId: task(payMe, 'Deliver Parcel', courier.id).id,
+		const outcome = submitRequest(payMe, member('user-alex', 'role-courier', 'role-logistics'), {
+			taskId: cart.id,
 			notes: 'Done',
 			link: null,
 			files: [screenshot]
 		});
 		const recorder = recordingRecorder();
+		const poster: RoundPoster = {
+			postEntry: async () => ({ channelId: 'thread-user-alex', messageId: 'message-entry' }),
+			postReviewCopy: async () => {
+				throw new Error('Missing Access');
+			}
+		};
 
-		recordRound(recorder, postedRound(outcome), { entry: { channelId: 'thread-user-alex', messageId: 'message-entry' }, reviewCopies: [] });
+		await expect(carryOutRound(postedRound(outcome), poster, recorder)).rejects.toThrow('Missing Access');
 
 		expect(recorder.recorded).toEqual([
 			{ requestNumber: 1, message: { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'message-entry' } }

@@ -23,5 +23,5 @@ export interface RecordedMessage {
 /** A `RoundRecorder` that keeps what it is given, in order. */
 export function recordingRecorder(): RoundRecorder & { recorded: RecordedMessage[] } {
 	const recorded: RecordedMessage[] = [];
-	return { recorded, record: (requestNumber, message) => recorded.push({ requestNumber, message }) };
+	return { recorded, recordMessage: (requestNumber, message) => recorded.push({ requestNumber, message }) };
 }

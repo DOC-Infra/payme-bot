@@ -26,7 +26,7 @@ import {
 	fail,
 	getEmployee,
 	recordRequestsThread,
-	recordRound,
+	carryOutRound,
 	requestEntry,
 	type Actor,
 	type Card,
@@ -35,9 +35,8 @@ import {
 	type MessageRef,
 	type Outcome,
 	type PayMeError,
-	type PostedRound,
 	type PostRound,
-	type RoundRecorder
+	type RoundPoster
 } from '../core';
 import { toActor } from './actor';
 import { toEmbeds } from './embeds';
@@ -104,18 +103,7 @@ const handlers: Handlers = {
 		const content = effect.ping ? `<@${effect.employeeUserId}>` : undefined;
 		await thread.send({ content, embeds: toEmbeds(effect.card), allowedMentions: { users: effect.ping ? [effect.employeeUserId] : [] } });
 	},
-	'post-round': async (effect) => {
-		const entry = await postRequestEntry(effect);
-		const link = entryLinkButton(entry);
-		const reviewCopies: PostedRound['reviewCopies'] = [];
-		try {
-			for (const review of effect.reviewChannels) {
-				reviewCopies.push({ jobId: review.jobId, message: await postReviewCopy(effect, review.channelId, link) });
-			}
-		} finally {
-			recordRound(storedRounds, effect, { entry, reviewCopies });
-		}
-	},
+	'post-round': async (effect) => carryOutRound(effect, discordRounds, container.payMe.requests),
 	'update-review-copies': async (effect) => {
 		const components = reviewRow(entryLink(effect.requestNumber, effect.round));
 		for (const copy of effect.messages) {
@@ -166,8 +154,9 @@ const handlers: Handlers = {
 	}
 };
 
-const storedRounds: RoundRecorder = {
-	record: (requestNumber, message) => container.payMe.requests.recordMessage(requestNumber, message)
+const discordRounds: RoundPoster = {
+	postEntry: postRequestEntry,
+	postReviewCopy: (round, channelId, entry) => postReviewCopy(round, channelId, entryLinkButton(entry))
 };
 
 async function postRequestEntry(round: PostRound): Promise<MessageRef> {
