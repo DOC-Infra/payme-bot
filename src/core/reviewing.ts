@@ -1,6 +1,7 @@
 import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
-import { getJob, managesJob } from './jobs';
+import { managesJob } from './job-membership';
+import { getJob } from './jobs';
 import type { RequestState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';

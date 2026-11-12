@@ -3,7 +3,8 @@ import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
 import type { Card, Effect, PayoutAction } from './effects';
 import { getEmployee } from './employees';
-import { allJobs, getJob, type Job } from './jobs';
+import { jobsHeldBy, jobsManagedBy } from './job-membership';
+import { getJob, type Job } from './jobs';
 import { payoutLabel, payoutStateName, payoutTone, requestLabel, type PayoutState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
@@ -84,18 +85,18 @@ function owedAndHistory(payMe: PayMe, employeeUserIds?: readonly string[]): Payo
 export function showPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[]): Outcome<PayoutsView> {
 	if (isLeadership(payMe, actor)) return leadershipView(payMe);
 
-	const managed = allJobs(payMe).filter((job) => job.managerRoleIds.some((roleId) => actor.roleIds.includes(roleId)));
+	const managed = jobsManagedBy(payMe, actor);
 	if (managed.length === 0) return fail({ code: 'not-permitted' });
 
-	const holders = members.filter((member) => holdsAnyJob(member, managed)).map((member) => member.userId);
+	const holders = members.filter((member) => holdsAnyJob(payMe, member, managed)).map((member) => member.userId);
 	const view = owedAndHistory(payMe, [...holders, ...owedForJobs(payMe, managed)]);
 	const history = view.history.map(historyText);
 	const description = [...owedLines(view), '', '**Payout history**', ...(history.length ? history : ['No Payouts yet.'])].join('\n');
 	return succeed([{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts (read-only)', description }, actions: [] }], view);
 }
 
-function holdsAnyJob(member: Actor, jobs: readonly Job[]): boolean {
-	return jobs.some((job) => member.roleIds.includes(job.employeeRoleId));
+function holdsAnyJob(payMe: PayMe, member: Actor, jobs: readonly Job[]): boolean {
+	return jobsHeldBy(payMe, member).some((held) => jobs.some((job) => job.id === held.id));
 }
 
 function owedForJobs(payMe: PayMe, jobs: readonly Job[]): string[] {

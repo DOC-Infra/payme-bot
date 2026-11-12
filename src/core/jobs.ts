@@ -14,7 +14,7 @@ import type { Actor } from './actor';
 import { notice, type Card, type Effect } from './effects';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import { isLeadership, requireLeadership } from './permissions';
+import { requireLeadership } from './permissions';
 
 export interface JobDetails {
 	name: string;
@@ -34,15 +34,6 @@ export function getJob(payMe: PayMe, id: number): Job | null {
 
 export function allJobs(payMe: PayMe): Job[] {
 	return selectJobs(payMe.storage);
-}
-
-export function jobsHeldBy(payMe: PayMe, actor: Actor): Job[] {
-	return allJobs(payMe).filter((job) => !job.retired && actor.roleIds.includes(job.employeeRoleId));
-}
-
-/** Whether the actor can act as a Manager of the Job: they hold one of its manager roles, or they are Leadership. */
-export function managesJob(payMe: PayMe, actor: Actor, job: Job): boolean {
-	return isLeadership(payMe, actor) || job.managerRoleIds.some((roleId) => actor.roleIds.includes(roleId));
 }
 
 export function listJobs(payMe: PayMe, actor: Actor): Outcome<Job[]> {

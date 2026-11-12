@@ -513,6 +513,15 @@ describe("A Manager's payouts view", () => {
 		});
 	});
 
+	it('does not count a member as holding a Retired Job', () => {
+		const { payMe, courier, members } = courierAndLogistics();
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		created(markPayoutPaid(payMe, leadership(), 1));
+		created(retireJob(payMe, leadership(), courier.id));
+
+		expect(showPayouts(payMe, casey, members)).toMatchObject({ ok: true, value: { owed: [], history: [] } });
+	});
+
 	it('covers every Job the Manager manages, and Leadership still sees everyone', () => {
 		const { payMe, members } = courierAndLogistics();
 		const both = member('user-dana', 'role-courier-manager', 'role-logistics-manager');

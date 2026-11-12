@@ -1,7 +1,7 @@
 import { saveEmployee, selectEmployee, selectEmployeeIdByChannel, selectEmployees, updateRequestsThread } from '../storage/employees';
 import type { Actor } from './actor';
 import { notice, type Card, type Effect } from './effects';
-import { jobsHeldBy } from './jobs';
+import { channelViewerRoleIds } from './job-membership';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
@@ -55,7 +55,7 @@ export function hireEmployee(payMe: PayMe, actor: Actor, hiree: Actor, minecraft
 				employeeUserId: hiree.userId,
 				name: minecraftName.toLowerCase(),
 				viewerUserIds: [hiree.userId],
-				viewerRoleIds: viewerRoleIds(payMe, hiree),
+				viewerRoleIds: channelViewerRoleIds(payMe, hiree),
 				...requestsThreadStart(hiree.userId, minecraftName)
 			},
 			logEntry(hiree.userId, `Hired by <@${actor.userId}> with Minecraft Name ${minecraftName}.`),
@@ -83,7 +83,7 @@ export function linkEmployee(payMe: PayMe, actor: Actor, linked: Actor, minecraf
 		const effects: Effect[] = reuse
 			? []
 			: [
-					{ type: 'grant-channel-access', channelId, roleIds: viewerRoleIds(payMe, linked) },
+					{ type: 'grant-channel-access', channelId, roleIds: channelViewerRoleIds(payMe, linked) },
 					{ type: 'start-requests-thread', employeeUserId: userId, channelId, ...requestsThreadStart(userId, minecraftName) }
 				];
 		for (const change of linkChanges(existing, minecraftName, channelId, `<@${actor.userId}>`)) effects.push(logEntry(userId, change));
@@ -123,11 +123,6 @@ export function pinnedMessageCard(userId: string, minecraftName: string): Card {
 
 function logEntry(employeeUserId: string, text: string): Effect {
 	return { type: 'post-to-requests-thread', employeeUserId, card: notice(text, 'neutral'), ping: false };
-}
-
-function viewerRoleIds(payMe: PayMe, employee: Actor): string[] {
-	const managerRoleIds = jobsHeldBy(payMe, employee).flatMap((job) => job.managerRoleIds);
-	return [...new Set([payMe.config.leadershipRoleId, ...managerRoleIds])];
 }
 
 function isValidMinecraftName(name: string): boolean {
