@@ -10,7 +10,6 @@ import { runAsActor } from '../discord/runner';
 	interactionHandlerType: InteractionHandlerTypes.SelectMenu
 })
 export class MenuHandler extends InteractionHandler {
-	/** `employeeUserId` is null when the actor picked a Job to request payment for themselves. */
 	public async run(interaction: StringSelectMenuInteraction, employeeUserId: string | null) {
 		const jobId = Number(interaction.values[0]);
 		if (employeeUserId === null) return runAsActor(interaction, { code: 'not-hired' }, openRequestForm(interaction, jobId));

@@ -210,7 +210,8 @@ describe('Opening the request form', () => {
 				tasks: [{ name: 'Deliver Parcel', description: 'Rate 12.5' }],
 				notesRequired: true,
 				notesHint: 'What did you do?',
-				evidenceHint: 'A link or a file is required.'
+				linkHint: 'Optional. A link or a file is required.',
+				filesHint: 'Optional screenshots. A link or a file is required.'
 			});
 		});
 
@@ -227,7 +228,8 @@ describe('Opening the request form', () => {
 				],
 				notesRequired: false,
 				notesHint: 'What did you do? Required unless the Task says otherwise.',
-				evidenceHint: 'A link or a file is required unless the Task says otherwise.'
+				linkHint: 'Optional. A link or a file is required unless the Task says otherwise.',
+				filesHint: 'Optional screenshots. A link or a file is required unless the Task says otherwise.'
 			});
 		});
 

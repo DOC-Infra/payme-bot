@@ -67,7 +67,8 @@ export interface TaskForm {
 	tasks: FormTask[];
 	notesRequired: boolean;
 	notesHint: string;
-	evidenceHint: string;
+	linkHint: string;
+	filesHint: string;
 }
 
 export interface FormTask {
@@ -97,10 +98,17 @@ function taskForm(tasks: readonly Task[]): TaskForm {
 	const notesHint = notesRequired
 		? 'What did you do?'
 		: `What did you do? ${someNeedNotes ? 'Required unless the Task says otherwise.' : 'Optional.'}`;
-	const evidenceHint = tasks.every((task) => task.evidenceRequired)
+	const evidenceRule = tasks.every((task) => task.evidenceRequired)
 		? 'A link or a file is required.'
 		: 'A link or a file is required unless the Task says otherwise.';
-	return { kind: 'tasks', tasks: tasks.map(formTask), notesRequired, notesHint, evidenceHint };
+	return {
+		kind: 'tasks',
+		tasks: tasks.map(formTask),
+		notesRequired,
+		notesHint,
+		linkHint: `Optional. ${evidenceRule}`,
+		filesHint: `Optional screenshots. ${evidenceRule}`
+	};
 }
 
 function formTask(task: Task): FormTask {

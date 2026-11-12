@@ -98,9 +98,12 @@ describe('Opening the amend form', () => {
 	it("requires notes when the request's Task needs them, and not once Leadership drops the requirement", () => {
 		const { payMe } = rejectedParcel();
 
-		expect(amendForm(payMe, alex, 1)).toMatchObject({ ok: true, value: { notesRequired: true } });
+		expect(amendForm(payMe, alex, 1)).toMatchObject({ ok: true, value: { notesRequired: true, notesHint: 'What did you change or add?' } });
 		created(setNotesRequired(payMe, leadership(), getPaymentRequest(payMe, 1)!.taskId, false));
-		expect(amendForm(payMe, alex, 1)).toMatchObject({ ok: true, value: { notesRequired: false } });
+		expect(amendForm(payMe, alex, 1)).toMatchObject({
+			ok: true,
+			value: { notesRequired: false, notesHint: 'What did you change or add? Optional.' }
+		});
 	});
 
 	it('refuses a request that cannot be amended', () => {

@@ -17,13 +17,15 @@ import {
 
 export interface AmendForm {
 	notesRequired: boolean;
+	notesHint: string;
 }
 
 /** The amend form for the actor's request, once checked that they may amend it now. */
 export function amendForm(payMe: PayMe, actor: Actor, number: number): Outcome<AmendForm> {
 	const checked = checkChange(payMe, actor, number, 'amend');
 	if (!checked.ok) return checked;
-	return succeed([], { notesRequired: amendNeedsNotes(payMe, checked.value) });
+	const notesRequired = amendNeedsNotes(payMe, checked.value);
+	return succeed([], { notesRequired, notesHint: notesRequired ? 'What did you change or add?' : 'What did you change or add? Optional.' });
 }
 
 function amendNeedsNotes(payMe: PayMe, request: PaymentRequest): boolean {

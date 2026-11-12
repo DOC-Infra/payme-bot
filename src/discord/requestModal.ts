@@ -101,7 +101,7 @@ function buildRequestModal(form: TaskForm, employeeUserId: string | null): Modal
 		.addLabelComponents(
 			new LabelBuilder().setLabel('Task').setStringSelectMenuComponent(taskSelect),
 			new LabelBuilder().setLabel('Notes').setDescription(form.notesHint).setTextInputComponent(notes),
-			new LabelBuilder().setLabel('Link').setDescription(`Optional. ${form.evidenceHint}`).setTextInputComponent(link),
-			new LabelBuilder().setLabel('Files').setDescription(`Optional screenshots. ${form.evidenceHint}`).setFileUploadComponent(files)
+			new LabelBuilder().setLabel('Link').setDescription(form.linkHint).setTextInputComponent(link),
+			new LabelBuilder().setLabel('Files').setDescription(form.filesHint).setFileUploadComponent(files)
 		);
 }

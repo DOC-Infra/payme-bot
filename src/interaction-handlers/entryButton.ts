@@ -25,7 +25,7 @@ export class ButtonHandler extends InteractionHandler {
 			if (action === 'amend') {
 				const form = amendForm(payMe, actor, requestNumber);
 				if (!form.ok) return form;
-				await interaction.showModal(buildAmendModal(requestNumber, form.value.notesRequired));
+				await interaction.showModal(buildAmendModal(requestNumber, form.value));
 				return null;
 			}
 
