@@ -26,13 +26,18 @@ import {
 	fail,
 	getEmployee,
 	recordRequestsThread,
+	recordRound,
 	requestEntry,
 	type Actor,
 	type Card,
 	type Effect,
 	type EvidenceFile,
+	type MessageRef,
 	type Outcome,
-	type PayMeError
+	type PayMeError,
+	type PostedRound,
+	type PostRound,
+	type RoundRecorder
 } from '../core';
 import { toActor } from './actor';
 import { toEmbeds } from './embeds';
@@ -99,38 +104,17 @@ const handlers: Handlers = {
 		const content = effect.ping ? `<@${effect.employeeUserId}>` : undefined;
 		await thread.send({ content, embeds: toEmbeds(effect.card), allowedMentions: { users: effect.ping ? [effect.employeeUserId] : [] } });
 	},
-	'post-request-entry': async (effect) => {
-		const thread = await openRequestsThread(effect.employeeUserId);
-		const message = await thread.send({
-			embeds: toEmbeds(effect.card),
-			files: uploads(effect.files),
-			components: reviewRow(entryButtons(effect.requestNumber, effect.actions)),
-			allowedMentions: { parse: [] }
-		});
-		container.payMe.requests.recordMessage(effect.requestNumber, {
-			round: effect.round,
-			jobId: null,
-			channelId: thread.id,
-			messageId: message.id
-		});
-	},
-	'post-review-message': async (effect) => {
-		const channel = await container.client.channels.fetch(effect.channelId);
-		if (!channel?.isSendable()) throw new Error(`Review Channel ${effect.channelId} is not a channel PayMe can send to`);
-
-		const components = reviewRow([...entryLink(effect.requestNumber, effect.round), ...reviewButtons(effect.requestNumber)]);
-		const message = await channel.send({
-			embeds: toEmbeds(effect.card),
-			files: uploads(effect.files),
-			components,
-			allowedMentions: { parse: [] }
-		});
-		container.payMe.requests.recordMessage(effect.requestNumber, {
-			round: effect.round,
-			jobId: effect.jobId,
-			channelId: channel.id,
-			messageId: message.id
-		});
+	'post-round': async (effect) => {
+		const entry = await postRequestEntry(effect);
+		const link = entryLinkButton(entry);
+		const reviewCopies: PostedRound['reviewCopies'] = [];
+		try {
+			for (const review of effect.reviewChannels) {
+				reviewCopies.push({ jobId: review.jobId, message: await postReviewCopy(effect, review.channelId, link) });
+			}
+		} finally {
+			recordRound(storedRounds, effect, { entry, reviewCopies });
+		}
 	},
 	'update-review-copies': async (effect) => {
 		const components = reviewRow(entryLink(effect.requestNumber, effect.round));
@@ -182,11 +166,42 @@ const handlers: Handlers = {
 	}
 };
 
+const storedRounds: RoundRecorder = {
+	record: (requestNumber, message) => container.payMe.requests.recordMessage(requestNumber, message)
+};
+
+async function postRequestEntry(round: PostRound): Promise<MessageRef> {
+	const thread = await openRequestsThread(round.employeeUserId);
+	const message = await thread.send({
+		embeds: toEmbeds(round.entryCard),
+		files: uploads(round.files),
+		components: reviewRow(entryButtons(round.requestNumber, round.actions)),
+		allowedMentions: { parse: [] }
+	});
+	return { channelId: thread.id, messageId: message.id };
+}
+
+async function postReviewCopy(round: PostRound, channelId: string, link: ButtonBuilder): Promise<MessageRef> {
+	const channel = await container.client.channels.fetch(channelId);
+	if (!channel?.isSendable()) throw new Error(`Review Channel ${channelId} is not a channel PayMe can send to`);
+
+	const message = await channel.send({
+		embeds: toEmbeds(round.reviewCard),
+		files: uploads(round.files),
+		components: reviewRow([link, ...reviewButtons(round.requestNumber)]),
+		allowedMentions: { parse: [] }
+	});
+	return { channelId: channel.id, messageId: message.id };
+}
+
 function entryLink(requestNumber: number, round: number): ButtonBuilder[] {
 	const entry = requestEntry(container.payMe, requestNumber, round);
-	if (!entry) return [];
+	return entry ? [entryLinkButton(entry)] : [];
+}
+
+function entryLinkButton(entry: MessageRef): ButtonBuilder {
 	const url = messageLink(entry.channelId, entry.messageId, container.config.guildId);
-	return [new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open in Requests Thread').setURL(url)];
+	return new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open in Requests Thread').setURL(url);
 }
 
 /** Acknowledges a button, or a modal opened from one, whose result shows by updating its message. Anything else replies privately. */

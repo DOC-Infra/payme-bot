@@ -7,7 +7,7 @@ import {
 	checkLink,
 	deleteReviewCopies,
 	evidenceItems,
-	roundEffects,
+	postRound,
 	updateEntryActions,
 	updateRequestEntry,
 	type NewEvidence,
@@ -44,10 +44,7 @@ export function amendRequest(payMe: PayMe, actor: Actor, number: number, input: 
 	if (!amended.ok) return amended;
 	const request = amended.value;
 	return succeed(
-		[
-			updateEntryActions(request, request.round - 1),
-			...roundEffects(payMe, request, `Amended and resubmitted by <@${actor.userId}>, Pending review.`)
-		],
+		[updateEntryActions(request, request.round - 1), postRound(payMe, request, `Amended and resubmitted by <@${actor.userId}>, Pending review.`)],
 		request
 	);
 }

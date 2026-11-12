@@ -7,6 +7,7 @@ import {
 	createJob,
 	hireEmployee,
 	recordRequestsThread,
+	recordRound,
 	requestEntry,
 	requestForm,
 	retireTask,
@@ -16,9 +17,10 @@ import {
 	type Actor,
 	type Outcome,
 	type PayMe,
+	type PostRound,
 	type RequestForm
 } from '../../src/core';
-import { createTestPayMe, leadership, member } from '../support/payme';
+import { createTestPayMe, leadership, member, recordingRecorder } from '../support/payme';
 
 const screenshot = { name: 'proof.png', url: 'https://cdn.example/proof.png' };
 
@@ -57,6 +59,12 @@ function task(payMe: PayMe, name: string, ...jobIds: number[]) {
 function hire(payMe: PayMe, userId: string) {
 	created(hireEmployee(payMe, leadership(), member(userId), 'Alex_42'));
 	recordRequestsThread(payMe, userId, { channelId: `channel-${userId}`, pinnedMessageId: `pin-${userId}`, threadId: `thread-${userId}` });
+}
+
+function postedRound(outcome: Outcome<unknown>): PostRound {
+	const round = outcome.ok && outcome.effects.find((effect): effect is PostRound => effect.type === 'post-round');
+	if (!round) throw new Error('Expected a round to post');
+	return round;
 }
 
 function submit(payMe: PayMe, actor: Actor, taskId: number) {
@@ -279,7 +287,7 @@ describe('Submitting a Payment Request', () => {
 		]);
 	});
 
-	it('posts the request with its Evidence to the Requests Thread, then a review copy to each eligible Review Channel', () => {
+	it('posts the request with its Evidence as one round: an entry in the Requests Thread and a review copy for each eligible Review Channel', () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
 		const logistics = job(payMe, 'Logistics');
@@ -298,34 +306,76 @@ describe('Submitting a Payment Request', () => {
 			{ name: 'Notes', value: 'Loaded 64 crates' },
 			{ name: 'Link', value: 'https://example.com/proof' }
 		];
-		const review = (jobId: number, channelId: string) => ({
-			type: 'post-review-message',
-			requestNumber: 1,
-			round: 1,
-			jobId,
-			channelId,
-			card: { tone: 'info', title: 'R-1 · Load Cart', description: 'From <@user-alex> (Alex_42)', fields, footer: undefined },
-			files
-		});
 		expect(outcome.ok && outcome.effects).toEqual([
 			{
-				type: 'post-request-entry',
+				type: 'post-round',
 				requestNumber: 1,
 				round: 1,
 				employeeUserId: 'user-alex',
-				card: {
+				entryCard: {
 					tone: 'info',
 					title: 'R-1 · Load Cart',
 					description: 'Submitted by <@user-alex>, Pending review.',
 					fields,
 					footer: undefined
 				},
-				files,
-				actions: ['withdraw']
+				actions: ['withdraw'],
+				reviewCard: { tone: 'info', title: 'R-1 · Load Cart', description: 'From <@user-alex> (Alex_42)', fields, footer: undefined },
+				reviewChannels: [
+					{ jobId: courier.id, channelId: 'review-courier' },
+					{ jobId: logistics.id, channelId: 'review-logistics' }
+				],
+				files
 			},
-			review(courier.id, 'review-courier'),
-			review(logistics.id, 'review-logistics'),
 			{ type: 'private-reply', card: { tone: 'success', description: 'Submitted R-1 for Load Cart.' } }
+		]);
+	});
+
+	it("records the round's Requests Thread entry, then each review copy, once Discord has posted them", () => {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		const logistics = job(payMe, 'Logistics');
+		const cart = task(payMe, 'Load Cart', courier.id, logistics.id);
+		hire(payMe, 'user-alex');
+		const outcome = submitRequest(payMe, member('user-alex', 'role-courier', 'role-logistics'), {
+			taskId: cart.id,
+			notes: 'Done',
+			link: null,
+			files: [screenshot]
+		});
+		const recorder = recordingRecorder();
+
+		recordRound(recorder, postedRound(outcome), {
+			entry: { channelId: 'thread-user-alex', messageId: 'message-entry' },
+			reviewCopies: [
+				{ jobId: courier.id, message: { channelId: 'review-courier', messageId: 'message-courier' } },
+				{ jobId: logistics.id, message: { channelId: 'review-logistics', messageId: 'message-logistics' } }
+			]
+		});
+
+		expect(recorder.recorded).toEqual([
+			{ requestNumber: 1, message: { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'message-entry' } },
+			{ requestNumber: 1, message: { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'message-courier' } },
+			{ requestNumber: 1, message: { round: 1, jobId: logistics.id, channelId: 'review-logistics', messageId: 'message-logistics' } }
+		]);
+	});
+
+	it('records only the Requests Thread entry when no review copy got posted', () => {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		hire(payMe, 'user-alex');
+		const outcome = submitRequest(payMe, member('user-alex', 'role-courier'), {
+			taskId: task(payMe, 'Deliver Parcel', courier.id).id,
+			notes: 'Done',
+			link: null,
+			files: [screenshot]
+		});
+		const recorder = recordingRecorder();
+
+		recordRound(recorder, postedRound(outcome), { entry: { channelId: 'thread-user-alex', messageId: 'message-entry' }, reviewCopies: [] });
+
+		expect(recorder.recorded).toEqual([
+			{ requestNumber: 1, message: { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'message-entry' } }
 		]);
 	});
 
@@ -551,12 +601,11 @@ describe('Requesting payment on behalf of an Employee', () => {
 			},
 			effects: [
 				{
-					type: 'post-request-entry',
+					type: 'post-round',
 					employeeUserId: 'user-alex',
-					card: { description: 'Submitted by <@user-sam> for <@user-alex>, Pending review.' }
+					entryCard: { description: 'Submitted by <@user-sam> for <@user-alex>, Pending review.' },
+					reviewChannels: [{ jobId: courier.id }, { jobId: miner.id }]
 				},
-				{ type: 'post-review-message', jobId: courier.id },
-				{ type: 'post-review-message', jobId: miner.id },
 				{ type: 'private-reply', card: { description: 'Submitted R-1 for Load Cart on behalf of <@user-alex>.' } }
 			]
 		});
