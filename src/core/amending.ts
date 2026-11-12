@@ -9,7 +9,7 @@ import {
 	deleteReviewCopies,
 	evidenceFor,
 	getPaymentRequest,
-	roundEffects,
+	postRound,
 	updateEntryActions,
 	updateRequestEntry,
 	type NewEvidence,
@@ -51,7 +51,7 @@ export function amendRequest(payMe: PayMe, actor: Actor, number: number, input: 
 		insertEvidence(storage, number, evidenceFor(input, round + 1));
 		const request = getPaymentRequest(payMe, number)!;
 		return succeed(
-			[updateEntryActions(request, round), ...roundEffects(payMe, request, `Amended and resubmitted by <@${actor.userId}>, Pending review.`)],
+			[updateEntryActions(request, round), postRound(payMe, request, `Amended and resubmitted by <@${actor.userId}>, Pending review.`)],
 			request
 		);
 	});

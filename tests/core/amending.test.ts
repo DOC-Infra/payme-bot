@@ -115,7 +115,7 @@ describe('Opening the amend form', () => {
 });
 
 describe('What resubmitting posts', () => {
-	it('posts the added Evidence as a new entry in the Requests Thread and a new review copy in each eligible Review Channel', () => {
+	it('posts the added Evidence as one new round: an entry in the Requests Thread and a review copy for each eligible Review Channel', () => {
 		const { payMe, courier } = rejectedParcel();
 
 		const outcome = amendRequest(payMe, alex, 1, { notes: 'Retook it', link: 'https://example.com/more', files: [clearer] });
@@ -127,27 +127,26 @@ describe('What resubmitting posts', () => {
 		expect(outcome.ok && outcome.effects).toEqual([
 			{ type: 'update-entry-actions', requestNumber: 1, round: 1, actions: [] },
 			{
-				type: 'post-request-entry',
+				type: 'post-round',
 				requestNumber: 1,
 				round: 2,
 				employeeUserId: 'user-alex',
-				card: {
+				entryCard: {
 					tone: 'info',
 					title: 'R-1 · Deliver Parcel',
 					description: 'Amended and resubmitted by <@user-alex>, Pending review.',
 					fields,
 					footer: 'Resubmission 1'
 				},
-				files: [clearer],
-				actions: ['withdraw']
-			},
-			{
-				type: 'post-review-message',
-				requestNumber: 1,
-				round: 2,
-				jobId: courier.id,
-				channelId: 'review-courier',
-				card: { tone: 'info', title: 'R-1 · Deliver Parcel', description: 'From <@user-alex> (Alex_42)', fields, footer: 'Resubmission 1' },
+				actions: ['withdraw'],
+				reviewCard: {
+					tone: 'info',
+					title: 'R-1 · Deliver Parcel',
+					description: 'From <@user-alex> (Alex_42)',
+					fields,
+					footer: 'Resubmission 1'
+				},
+				reviewChannels: [{ jobId: courier.id, channelId: 'review-courier' }],
 				files: [clearer]
 			}
 		]);

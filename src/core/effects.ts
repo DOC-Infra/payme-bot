@@ -4,8 +4,7 @@ export type Effect =
 	| StartRequestsThread
 	| GrantChannelAccess
 	| PostToRequestsThread
-	| PostRequestEntry
-	| PostReviewMessage
+	| PostRound
 	| UpdateReviewCopies
 	| ShowPayout
 	| ShowPayouts
@@ -91,18 +90,27 @@ export interface PostToRequestsThread {
 	ping: boolean;
 }
 
+/** A Job's Review Channel that gets a review copy of a round. */
+export interface ReviewChannel {
+	jobId: number;
+	channelId: string;
+}
+
 /**
- * Post a request's entry for this submission round to the Employee's current Requests Thread (reopening it if archived),
- * re-uploading the files, then report the message back with `recordRequestMessage` (`jobId: null`).
+ * Post a round of a request, re-uploading the files to each message: first its entry in the Employee's current Requests Thread
+ * (reopening it if archived), then a review copy in each Review Channel linking to that entry.
+ * Report the posted messages back through a `RoundRecorder` with `recordRound`.
  */
-export interface PostRequestEntry {
-	type: 'post-request-entry';
+export interface PostRound {
+	type: 'post-round';
 	requestNumber: number;
 	round: number;
 	employeeUserId: string;
-	card: Card;
-	files: EvidenceFile[];
+	entryCard: Card;
 	actions: EntryAction[];
+	reviewCard: Card;
+	reviewChannels: ReviewChannel[];
+	files: EvidenceFile[];
 }
 
 /** Replace the buttons on this round's Requests Thread entry. */
@@ -136,20 +144,6 @@ export interface UpdateReviewCopies {
 	round: number;
 	messages: MessageRef[];
 	card: Card;
-}
-
-/**
- * Post a review copy in a Job's Review Channel, re-uploading the files and linking to the round's Requests Thread entry
- * (see `requestEntry`), then report the message back with `recordRequestMessage`.
- */
-export interface PostReviewMessage {
-	type: 'post-review-message';
-	requestNumber: number;
-	round: number;
-	jobId: number;
-	channelId: string;
-	card: Card;
-	files: EvidenceFile[];
 }
 
 /** Show a Payout privately to the actor, with Mark paid and Discard buttons when `settleButtons` is set. */

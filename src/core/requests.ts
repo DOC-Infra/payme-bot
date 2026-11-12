@@ -1,7 +1,7 @@
 import { insertMessage, selectRequest, ticketClaimed } from '../storage/requests';
 import { selectTaskIdByName } from '../storage/tasks';
 import type { Actor } from './actor';
-import { notice, type Card, type CardField, type Effect, type EvidenceFile, type MessageRef } from './effects';
+import { notice, type Card, type CardField, type Effect, type EvidenceFile, type MessageRef, type PostRound } from './effects';
 import { getEmployee, type Employee } from './employees';
 import { jobsHeldBy, managesJob } from './job-membership';
 import { getJob, type Job } from './jobs';
@@ -197,37 +197,26 @@ function fileRequest(
 		const forOther = onBehalf(actor, member);
 		const submitted = forOther ? `Submitted by <@${actor.userId}> for <@${employee.userId}>` : `Submitted by <@${actor.userId}>`;
 		const reply = `Submitted ${requestLabel(number)} for ${task.name}${forOther ? ` on behalf of <@${employee.userId}>` : ''}.`;
-		return succeed([...roundEffects(payMe, request, `${submitted}, Pending review.`), { type: 'private-reply', card: notice(reply) }], request);
+		return succeed([postRound(payMe, request, `${submitted}, Pending review.`), { type: 'private-reply', card: notice(reply) }], request);
 	});
 }
 
 /** Posts the Evidence of the request's current round as a new Requests Thread entry and a review copy for each eligible Job. */
-export function roundEffects(payMe: PayMe, request: PaymentRequest, heading: string): Effect[] {
-	const { number, round } = request;
+export function postRound(payMe: PayMe, request: PaymentRequest, heading: string): PostRound {
 	const task = getTask(payMe, request.taskId)!;
 	const employee = getEmployee(payMe, request.employeeUserId)!;
-	const evidence = request.evidence.filter((entry) => entry.round === round);
-	const files = evidenceFiles(evidence);
-	return [
-		{
-			type: 'post-request-entry',
-			requestNumber: number,
-			round,
-			employeeUserId: employee.userId,
-			card: entryCard(request, task, heading),
-			files,
-			actions: entryActions(request)
-		},
-		...request.eligibleJobIds.map((jobId): Effect => ({
-			type: 'post-review-message',
-			requestNumber: number,
-			round,
-			jobId,
-			channelId: getJob(payMe, jobId)!.reviewChannelId,
-			card: reviewCard(request, task, employee, evidence),
-			files
-		}))
-	];
+	const evidence = request.evidence.filter((entry) => entry.round === request.round);
+	return {
+		type: 'post-round',
+		requestNumber: request.number,
+		round: request.round,
+		employeeUserId: employee.userId,
+		entryCard: entryCard(request, task, heading),
+		actions: entryActions(request),
+		reviewCard: reviewCard(request, task, employee, evidence),
+		reviewChannels: request.eligibleJobIds.map((jobId) => ({ jobId, channelId: getJob(payMe, jobId)!.reviewChannelId })),
+		files: evidenceFiles(evidence)
+	};
 }
 
 function entryCard(request: PaymentRequest, task: Task, description: string): Card {
@@ -259,6 +248,23 @@ export function updateEntryActions(request: PaymentRequest, round = request.roun
 
 export function recordRequestMessage(payMe: PayMe, number: number, message: RequestMessage) {
 	insertMessage(payMe.storage, number, message);
+}
+
+/** Where the messages a round posted get recorded: the request's storage in production, a list in tests. */
+export interface RoundRecorder {
+	record(requestNumber: number, message: RequestMessage): void;
+}
+
+/** The messages Discord posted for a round, review copies only as far as it got. */
+export interface PostedRound {
+	entry: MessageRef;
+	reviewCopies: { jobId: number; message: MessageRef }[];
+}
+
+export function recordRound(recorder: RoundRecorder, round: PostRound, posted: PostedRound) {
+	const { requestNumber } = round;
+	recorder.record(requestNumber, { round: round.round, jobId: null, ...posted.entry });
+	for (const copy of posted.reviewCopies) recorder.record(requestNumber, { round: round.round, jobId: copy.jobId, ...copy.message });
 }
 
 export function requestEntry(payMe: PayMe, number: number, round: number): RequestMessage | null {
