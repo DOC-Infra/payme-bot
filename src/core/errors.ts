@@ -1,3 +1,4 @@
+import { maxFormOptions } from './tasks';
 import { payoutLabel, payoutStateName, requestLabel, stateName, type PayoutState, type RequestState } from './labels';
 
 export type PayMeError =
@@ -20,7 +21,6 @@ export type PayMeError =
 	| { code: 'no-jobs' }
 	| { code: 'no-tasks' }
 	| { code: 'task-not-offered' }
-	| { code: 'pick-a-job' }
 	| { code: 'job-not-held' }
 	| { code: 'notes-required' }
 	| { code: 'amendment-empty' }
@@ -71,7 +71,7 @@ export function describeError(error: PayMeError): string {
 		case 'task-needs-a-job':
 			return 'A Task must belong to at least one Job.';
 		case 'too-many-tasks':
-			return `The ${error.job} Job already has 25 active Tasks, the most a request form can list. Retire one first.`;
+			return `The ${error.job} Job already has ${maxFormOptions} active Tasks, the most a request form can list. Retire one first.`;
 		case 'invalid-rate':
 			return `${error.rate} is not a valid Rate. Use a plain number above zero with at most two decimal places and no currency symbol, like 1500 or 12.5.`;
 		case 'already-employee':
@@ -88,8 +88,6 @@ export function describeError(error: PayMeError): string {
 			return 'There are no active Tasks to request pay for in those Jobs. Ask Leadership to add some.';
 		case 'task-not-offered':
 			return 'That Task is not an active Task in any Job you can request pay under.';
-		case 'pick-a-job':
-			return 'Your Jobs have more Tasks than one form can list. Run /request and pick a Job.';
 		case 'job-not-held':
 			return "You don't hold that Job, or it is retired.";
 		case 'notes-required':

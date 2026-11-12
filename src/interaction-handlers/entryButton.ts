@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { ActionRowBuilder, MessageFlags, type ButtonBuilder, type ButtonInteraction } from 'discord.js';
-import { checkAmend, checkWithdraw, getTask, notice, requestLabel, withdrawRequest } from '../core';
+import { amendForm, checkWithdraw, notice, requestLabel, withdrawRequest } from '../core';
 import { toEmbeds } from '../discord/embeds';
 import { buildAmendModal, confirmWithdrawButton, parseEntryButton } from '../discord/entry';
 import { acknowledge, runAsActor, runOutcome } from '../discord/runner';
@@ -22,10 +22,9 @@ export class ButtonHandler extends InteractionHandler {
 			}
 
 			if (action === 'amend') {
-				const checked = checkAmend(payMe, actor, requestNumber);
-				if (!checked.ok) return checked;
-				const notesRequired = getTask(payMe, checked.value.taskId)?.notesRequired ?? true;
-				await interaction.showModal(buildAmendModal(requestNumber, notesRequired));
+				const form = amendForm(payMe, actor, requestNumber);
+				if (!form.ok) return form;
+				await interaction.showModal(buildAmendModal(requestNumber, form.value.notesRequired));
 				return null;
 			}
 

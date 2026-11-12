@@ -7,8 +7,9 @@ import { jobsHeldBy, managesJob } from './job-membership';
 import { getJob, type Job } from './jobs';
 import { requestLabel, stateName, stateTone, type RequestState } from './labels';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
+import { formatAmount } from './rates';
 import type { PayMe } from './payme';
-import { activeTasksForJobs, getTask, maxTasksPerJob, type Task } from './tasks';
+import { activeTasksForJobs, getTask, maxFormOptions, type Task } from './tasks';
 
 export type Evidence =
 	| { round: number; kind: 'notes'; text: string }
@@ -57,8 +58,26 @@ export function getPaymentRequest(payMe: PayMe, number: number): PaymentRequest 
 	return selectRequest(payMe.storage, number);
 }
 
-/** The Tasks to offer on the request form. `employee` is who the request is for: the actor, or an Employee the actor files for. */
-export function requestForm(payMe: PayMe, actor: Actor, jobId: number | null = null, employee: Actor = actor): Outcome<Task[]> {
+/** What the request form shows: its Tasks when they fit on one form, otherwise the Jobs to pick from first. */
+export type RequestForm = TaskForm | { kind: 'jobs'; jobs: Job[] };
+
+export interface TaskForm {
+	kind: 'tasks';
+	tasks: FormTask[];
+	notesRequired: boolean;
+	notesHint: string;
+	evidenceHint: string;
+}
+
+export interface FormTask {
+	id: number;
+	name: string;
+	/** The Task's Rate and any Evidence or notes it doesn't need. */
+	description: string;
+}
+
+/** The request form for `employee`: the actor, or an Employee the actor files for. */
+export function requestForm(payMe: PayMe, actor: Actor, jobId: number | null = null, employee: Actor = actor): Outcome<RequestForm> {
 	const requester = findRequester(payMe, actor, employee);
 	if ('ok' in requester) return requester;
 
@@ -67,14 +86,25 @@ export function requestForm(payMe: PayMe, actor: Actor, jobId: number | null = n
 
 	const tasks = activeTasksForJobs(payMe, jobId === null ? offeredJobIds : [jobId]);
 	if (tasks.length === 0) return fail({ code: 'no-tasks' });
-	if (tasks.length > maxTasksPerJob) return fail({ code: 'pick-a-job' });
-	return succeed([], tasks);
+	if (tasks.length > maxFormOptions) return succeed([], { kind: 'jobs', jobs: requester.offeredJobs.slice(0, maxFormOptions) });
+	return succeed([], taskForm(tasks));
 }
 
-/** The Jobs the actor can request pay under for `employee`, to choose from when their Tasks don't fit on one form. */
-export function requestJobs(payMe: PayMe, actor: Actor, employee: Actor = actor): Job[] {
-	const requester = findRequester(payMe, actor, employee);
-	return 'ok' in requester ? [] : requester.offeredJobs;
+function taskForm(tasks: readonly Task[]): TaskForm {
+	const notesRequired = tasks.every((task) => task.notesRequired);
+	const someNeedNotes = tasks.some((task) => task.notesRequired);
+	const notesHint = notesRequired
+		? 'What did you do?'
+		: `What did you do? ${someNeedNotes ? 'Required unless the Task says otherwise.' : 'Optional.'}`;
+	const evidenceHint = tasks.every((task) => task.evidenceRequired)
+		? 'A link or a file is required.'
+		: 'A link or a file is required unless the Task says otherwise.';
+	return { kind: 'tasks', tasks: tasks.map(formTask), notesRequired, notesHint, evidenceHint };
+}
+
+function formTask(task: Task): FormTask {
+	const exemptions = [!task.evidenceRequired && 'no link or file needed', !task.notesRequired && 'no notes needed'].filter(Boolean);
+	return { id: task.id, name: task.name, description: [`Rate ${formatAmount(task.rate)}`, ...exemptions].join(', ') };
 }
 
 interface Requester {

@@ -12,6 +12,21 @@ export function checkAmend(payMe: PayMe, actor: Actor, number: number): Outcome<
 	return fail({ code: 'cannot-amend', number, state: request.value.state });
 }
 
+export interface AmendForm {
+	notesRequired: boolean;
+}
+
+/** The amend form for the actor's request, once checked that they may amend it now. */
+export function amendForm(payMe: PayMe, actor: Actor, number: number): Outcome<AmendForm> {
+	const checked = checkAmend(payMe, actor, number);
+	if (!checked.ok) return checked;
+	return succeed([], { notesRequired: amendNeedsNotes(payMe, checked.value) });
+}
+
+function amendNeedsNotes(payMe: PayMe, request: PaymentRequest): boolean {
+	return getTask(payMe, request.taskId)?.notesRequired ?? true;
+}
+
 /** Checks that the actor may withdraw the request now, for example before asking them to confirm. */
 export function checkWithdraw(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
 	const request = findOwnRequest(payMe, actor, number);
@@ -55,7 +70,7 @@ export function amendRequest(payMe: PayMe, actor: Actor, number: number, input: 
 
 function checkAmendment(payMe: PayMe, request: PaymentRequest, input: NewEvidence): Failure | null {
 	const hasNotes = input.notes.trim() !== '';
-	if (getTask(payMe, request.taskId)?.notesRequired && !hasNotes) return fail({ code: 'notes-required' });
+	if (amendNeedsNotes(payMe, request) && !hasNotes) return fail({ code: 'notes-required' });
 	if (!hasNotes && !input.link && input.files.length === 0) return fail({ code: 'amendment-empty' });
 	return null;
 }

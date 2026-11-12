@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	addManagerRole,
 	addTask,
+	amendForm,
 	amendRequest,
 	approveRequest,
 	checkAmend,
@@ -115,6 +116,22 @@ describe('Amending a request for a Task that needs no notes', () => {
 
 		expect(amendRequest(payMe, alex, 1, { notes: ' ', link: null, files: [] })).toEqual({ ok: false, error: { code: 'amendment-empty' } });
 		expect(created(amendRequest(payMe, alex, 1, { notes: ' ', link: null, files: [clearer] })).state).toBe('pending');
+	});
+});
+
+describe('Opening the amend form', () => {
+	it("requires notes when the request's Task needs them, and not once Leadership drops the requirement", () => {
+		const { payMe } = rejectedParcel();
+
+		expect(amendForm(payMe, alex, 1)).toMatchObject({ ok: true, value: { notesRequired: true } });
+		created(setNotesRequired(payMe, leadership(), getPaymentRequest(payMe, 1)!.taskId, false));
+		expect(amendForm(payMe, alex, 1)).toMatchObject({ ok: true, value: { notesRequired: false } });
+	});
+
+	it('refuses a request that cannot be amended', () => {
+		const { payMe } = pendingParcel();
+
+		expect(amendForm(payMe, alex, 1)).toEqual({ ok: false, error: { code: 'cannot-amend', number: 1, state: 'pending' } });
 	});
 });
 

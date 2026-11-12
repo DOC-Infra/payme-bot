@@ -12,14 +12,14 @@ import {
 	recordRequestsThread,
 	requestEntry,
 	requestForm,
-	requestJobs,
 	retireTask,
 	submitRequest,
 	ticketTaskName,
 	withdrawRequest,
 	type Actor,
 	type Outcome,
-	type PayMe
+	type PayMe,
+	type RequestForm
 } from '../../src/core';
 import { createTestPayMe, leadership, member } from '../support/payme';
 
@@ -28,6 +28,22 @@ const screenshot = { name: 'proof.png', url: 'https://cdn.example/proof.png' };
 function created<T>(outcome: Outcome<T>): T {
 	if (!outcome.ok) throw new Error(`Expected success, got ${outcome.error.code}`);
 	return outcome.value;
+}
+
+function taskForm(outcome: Outcome<RequestForm>) {
+	const form = created(outcome);
+	if (form.kind !== 'tasks') throw new Error('Expected a form of Tasks, got a Job choice');
+	return form;
+}
+
+function taskNames(outcome: Outcome<RequestForm>): string[] {
+	return taskForm(outcome).tasks.map((offered) => offered.name);
+}
+
+function jobChoice(outcome: Outcome<RequestForm>): string[] {
+	const form = created(outcome);
+	if (form.kind !== 'jobs') throw new Error('Expected a Job choice, got a form of Tasks');
+	return form.jobs.map((offered) => offered.name);
 }
 
 function job(payMe: PayMe, name: string) {
@@ -77,9 +93,9 @@ describe('Opening the request form', () => {
 		retireTask(payMe, leadership(), task(payMe, 'Old Route', courier.id).id);
 		hire(payMe, 'user-alex');
 
-		const form = created(requestForm(payMe, member('user-alex', 'role-courier', 'role-logistics')));
+		const form = taskNames(requestForm(payMe, member('user-alex', 'role-courier', 'role-logistics')));
 
-		expect(form.map((offered) => offered.name)).toEqual(['Deliver Parcel', 'Load Cart', 'Stack Crates']);
+		expect(form).toEqual(['Deliver Parcel', 'Load Cart', 'Stack Crates']);
 	});
 
 	describe('when the Employee holds Jobs with more than 25 active Tasks between them', () => {
@@ -96,19 +112,31 @@ describe('Opening the request form', () => {
 			return { payMe, miner, outside, alex: member('user-alex', 'role-courier', 'role-miner') };
 		}
 
-		it('asks them to pick a Job', () => {
+		it('asks them to pick one of their Jobs instead of showing a form', () => {
 			const { payMe, alex } = twoFullJobs();
 
-			expect(requestForm(payMe, alex)).toEqual({ ok: false, error: { code: 'pick-a-job' } });
+			expect(jobChoice(requestForm(payMe, alex))).toEqual(['Courier', 'Miner']);
+		});
+
+		it('asks Leadership filing on their behalf to pick a Job too', () => {
+			const { payMe, alex } = twoFullJobs();
+
+			expect(jobChoice(requestForm(payMe, leadership(), null, alex))).toEqual(['Courier', 'Miner']);
+		});
+
+		it('shows a Manager filing on their behalf the form when the Jobs they manage fit on it', () => {
+			const { payMe, alex } = twoFullJobs();
+
+			expect(taskNames(requestForm(payMe, member('user-sam', 'role-miner-manager'), null, alex))).toHaveLength(20);
 		});
 
 		it("offers only the picked Job's active Tasks", () => {
 			const { payMe, miner, alex } = twoFullJobs();
 
-			const form = created(requestForm(payMe, alex, miner.id));
+			const form = taskNames(requestForm(payMe, alex, miner.id));
 
 			expect(form).toHaveLength(20);
-			expect(form.every((offered) => offered.name.startsWith('Miner Task'))).toBe(true);
+			expect(form.every((name) => name.startsWith('Miner Task'))).toBe(true);
 		});
 
 		it('refuses a Job they do not hold', () => {
@@ -120,12 +148,38 @@ describe('Opening the request form', () => {
 
 		it('accepts any active Task of their Jobs on submission, and no other', () => {
 			const { payMe, miner, outside, alex } = twoFullJobs();
-			const minerTask = created(requestForm(payMe, alex, miner.id))[19];
+			const minerTask = taskForm(requestForm(payMe, alex, miner.id)).tasks[19];
 			const evidence = { notes: 'Done', link: null, files: [screenshot] };
 
 			expect(submitRequest(payMe, alex, { taskId: minerTask.id, ...evidence })).toMatchObject({ ok: true, value: { taskId: minerTask.id } });
 			expect(submitRequest(payMe, alex, { taskId: outside.id, ...evidence })).toEqual({ ok: false, error: { code: 'task-not-offered' } });
 		});
+	});
+
+	it('shows the form with exactly 25 Tasks, and asks for a Job at 26', () => {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		const miner = job(payMe, 'Miner');
+		for (let i = 10; i < 35; i++) task(payMe, `Courier Task ${i}`, courier.id);
+		hire(payMe, 'user-alex');
+		const alex = member('user-alex', 'role-courier', 'role-miner');
+
+		expect(taskNames(requestForm(payMe, alex))).toHaveLength(25);
+		task(payMe, 'Mine Ore', miner.id);
+		expect(jobChoice(requestForm(payMe, alex))).toEqual(['Courier', 'Miner']);
+	});
+
+	it('lists at most 25 Jobs to pick from', () => {
+		const payMe = createTestPayMe();
+		const roles: string[] = [];
+		for (let i = 10; i < 40; i++) {
+			const held = job(payMe, `Job ${i}`);
+			task(payMe, `Task ${i}`, held.id);
+			roles.push(`role-job ${i}`);
+		}
+		hire(payMe, 'user-alex');
+
+		expect(jobChoice(requestForm(payMe, member('user-alex', ...roles)))).toHaveLength(25);
 	});
 
 	it("offers only a picked Job's Tasks when the Employee has 25 or fewer in total", () => {
@@ -136,9 +190,53 @@ describe('Opening the request form', () => {
 		task(payMe, 'Stack Crates', logistics.id);
 		hire(payMe, 'user-alex');
 
-		const form = created(requestForm(payMe, member('user-alex', 'role-courier', 'role-logistics'), logistics.id));
+		const form = taskNames(requestForm(payMe, member('user-alex', 'role-courier', 'role-logistics'), logistics.id));
 
-		expect(form.map((offered) => offered.name)).toEqual(['Stack Crates']);
+		expect(form).toEqual(['Stack Crates']);
+	});
+
+	describe("hints at each Task's Evidence and notes requirements", () => {
+		function courierWith(...tasks: { name: string; evidenceRequired: boolean; notesRequired: boolean }[]) {
+			const payMe = createTestPayMe();
+			const courier = job(payMe, 'Courier');
+			for (const input of tasks) created(addTask(payMe, leadership(), { ...input, rate: '12.5', jobIds: [courier.id] }));
+			hire(payMe, 'user-alex');
+			return taskForm(requestForm(payMe, member('user-alex', 'role-courier')));
+		}
+
+		it('requires notes and a link or file when every Task does', () => {
+			const form = courierWith({ name: 'Deliver Parcel', evidenceRequired: true, notesRequired: true });
+
+			expect(form).toMatchObject({
+				tasks: [{ name: 'Deliver Parcel', description: 'Rate 12.5' }],
+				notesRequired: true,
+				notesHint: 'What did you do?',
+				evidenceHint: 'A link or a file is required.'
+			});
+		});
+
+		it('leaves notes optional and names the exemptions on each Task when only some Tasks need them', () => {
+			const form = courierWith(
+				{ name: 'Deliver Parcel', evidenceRequired: true, notesRequired: true },
+				{ name: 'Scan Crate', evidenceRequired: false, notesRequired: false }
+			);
+
+			expect(form).toMatchObject({
+				tasks: [
+					{ name: 'Deliver Parcel', description: 'Rate 12.5' },
+					{ name: 'Scan Crate', description: 'Rate 12.5, no link or file needed, no notes needed' }
+				],
+				notesRequired: false,
+				notesHint: 'What did you do? Required unless the Task says otherwise.',
+				evidenceHint: 'A link or a file is required unless the Task says otherwise.'
+			});
+		});
+
+		it('says notes are optional when no Task needs them', () => {
+			const form = courierWith({ name: 'Attend Meeting', evidenceRequired: true, notesRequired: false });
+
+			expect(form).toMatchObject({ notesRequired: false, notesHint: 'What did you do? Optional.' });
+		});
 	});
 
 	it('tells an Employee whose Jobs have no active Tasks that there is nothing to request', () => {
@@ -430,18 +528,13 @@ describe('Requesting payment on behalf of an Employee', () => {
 	it('offers a Manager only the Tasks of Jobs they manage that the Employee holds', () => {
 		const { payMe, alex, courierManager } = courierAndMiner();
 
-		const form = created(requestForm(payMe, courierManager, null, alex));
-
-		expect(form.map((offered) => offered.name)).toEqual(['Deliver Parcel', 'Load Cart']);
-		expect(requestJobs(payMe, courierManager, alex).map((held) => held.name)).toEqual(['Courier']);
+		expect(taskNames(requestForm(payMe, courierManager, null, alex))).toEqual(['Deliver Parcel', 'Load Cart']);
 	});
 
 	it('offers Leadership the Tasks of every Job the Employee holds', () => {
 		const { payMe, alex } = courierAndMiner();
 
-		const form = created(requestForm(payMe, leadership(), null, alex));
-
-		expect(form.map((offered) => offered.name)).toEqual(['Deliver Parcel', 'Load Cart', 'Mine Ore']);
+		expect(taskNames(requestForm(payMe, leadership(), null, alex))).toEqual(['Deliver Parcel', 'Load Cart', 'Mine Ore']);
 	});
 
 	it('files the request for the Employee, recording the Manager as its submitter', () => {

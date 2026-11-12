@@ -21,7 +21,8 @@ import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
 import { formatAmount, parseRate } from './rates';
 
-export const maxTasksPerJob = 25;
+/** The most options a request form or Job picker can list, so also the most active Tasks a Job can have. */
+export const maxFormOptions = 25;
 
 export interface Task {
 	id: number;
@@ -186,6 +187,6 @@ function checkJob(storage: Storage, jobId: number, addsActiveTask: boolean): Fai
 	const job = selectJob(storage, jobId);
 	if (!job) return fail({ code: 'job-not-found' });
 	if (job.retired) return fail({ code: 'job-retired', name: job.name });
-	if (addsActiveTask && countActiveTasks(storage, jobId) >= maxTasksPerJob) return fail({ code: 'too-many-tasks', job: job.name });
+	if (addsActiveTask && countActiveTasks(storage, jobId) >= maxFormOptions) return fail({ code: 'too-many-tasks', job: job.name });
 	return job.name;
 }

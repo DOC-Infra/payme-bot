@@ -21,8 +21,8 @@ Vocabulary follows [GLOSSARY.md](GLOSSARY.md). Design decisions are in [docs/adr
 | `/hire user minecraft` | Leadership | Create the Employee Channel and Requests Thread, and record the Minecraft Name |
 | Right-click a member → Apps → **Hire as Employee** | Leadership | Same as `/hire`, asking for the Minecraft Name in a form |
 | `/link user minecraft channel` | Leadership | Bring in someone who already has a channel, or change their Minecraft Name or channel |
-| `/request [job]` | Employee | Submit a Payment Request. Pass `job` when your Jobs have more than 25 Tasks between them |
-| Right-click a member → Apps → **Request payment for** | Managers, Leadership | Submit a Payment Request on that Employee's behalf, for Tasks in Jobs they hold and you manage. The Employee still owns it, and the filing Manager can review it |
+| `/request [job]` | Employee | Submit a Payment Request. When your Jobs have more than 25 Tasks between them, PayMe asks you to pick a Job first; pass `job` to skip that step |
+| Right-click a member → Apps → **Request payment for** | Managers, Leadership | Submit a Payment Request on that Employee's behalf, for Tasks in Jobs they hold and you manage. As with `/request`, you pick a Job first when those Tasks don't fit on one form. The Employee still owns it, and the filing Manager can review it |
 | `/requests` | Employee | Show your open requests and an estimate of what you're owed |
 | `/payouts` | Leadership, Managers | Leadership generates, marks paid and discards Payouts. Managers get a read-only view of Employees in their Jobs |
 
