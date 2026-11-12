@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addManagerRole,
+	checkHire,
 	createJob,
 	getEmployee,
 	hireEmployee,
@@ -256,3 +257,27 @@ function hiredWithThread(payMe: PayMe, userId: string, minecraftName: string) {
 	const name = userId.replace('user-', '');
 	recordRequestsThread(payMe, userId, { channelId: `channel-${name}`, pinnedMessageId: `pin-${name}`, threadId: `thread-${name}` });
 }
+
+describe('Checking a hire before asking for a Minecraft Name', () => {
+	it('lets Leadership hire a member who is not an Employee yet', () => {
+		const payMe = createTestPayMe();
+
+		expect(checkHire(payMe, leadership(), member('user-alex'))).toBeNull();
+	});
+
+	it('refuses anyone outside Leadership', () => {
+		const payMe = createTestPayMe();
+
+		expect(checkHire(payMe, member('user-sam', 'role-courier-manager'), member('user-alex'))).toEqual({
+			ok: false,
+			error: { code: 'not-permitted' }
+		});
+	});
+
+	it('refuses a member who is already an Employee', () => {
+		const payMe = createTestPayMe();
+		created(hireEmployee(payMe, leadership(), member('user-alex'), 'Alex_42'));
+
+		expect(checkHire(payMe, leadership(), member('user-alex'))).toEqual({ ok: false, error: { code: 'already-employee' } });
+	});
+});

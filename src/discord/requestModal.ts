@@ -15,6 +15,7 @@ import {
 	type StringSelectMenuInteraction,
 	type UserContextMenuCommandInteraction
 } from 'discord.js';
+import { withUserId } from './customIds';
 import { formatAmount, requestForm, requestJobs, type Actor, type Job, type Task } from '../core';
 
 export const requestModalId = 'request';
@@ -67,20 +68,9 @@ export function openRequestForm(interaction: FormInteraction, jobId: number | nu
 	};
 }
 
-/** The custom ID carries the Employee a form or Job picker is for, so the submission can file for them. */
-export function forEmployee(baseId: string, employeeUserId: string | null): string {
-	return employeeUserId ? `${baseId}:${employeeUserId}` : baseId;
-}
-
-/** The Employee user ID from a custom ID made by forEmployee, null for the actor's own request, or undefined if it isn't `baseId`. */
-export function parseForEmployee(baseId: string, customId: string): string | null | undefined {
-	if (customId === baseId) return null;
-	return customId.startsWith(`${baseId}:`) ? customId.slice(baseId.length + 1) : undefined;
-}
-
 async function askForJob(interaction: FormInteraction, employeeUserId: string, jobs: readonly Job[]) {
 	const select = new StringSelectMenuBuilder()
-		.setCustomId(forEmployee(requestJobSelectId, employeeUserId))
+		.setCustomId(withUserId(requestJobSelectId, employeeUserId))
 		.setPlaceholder('Choose a Job')
 		.addOptions(jobs.slice(0, 25).map((job) => ({ label: job.name, value: String(job.id) })));
 	await interaction.reply({
@@ -111,7 +101,7 @@ export function buildRequestModal(tasks: readonly Task[], employeeUserId: string
 	const files = new FileUploadBuilder().setCustomId(fieldIds.files).setRequired(false).setMaxValues(10);
 
 	return new ModalBuilder()
-		.setCustomId(forEmployee(requestModalId, employeeUserId))
+		.setCustomId(withUserId(requestModalId, employeeUserId))
 		.setTitle(employeeUserId ? 'Payment Request for an Employee' : 'Payment Request')
 		.addLabelComponents(
 			new LabelBuilder().setLabel('Task').setStringSelectMenuComponent(taskSelect),

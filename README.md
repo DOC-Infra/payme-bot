@@ -19,6 +19,7 @@ Vocabulary follows [GLOSSARY.md](GLOSSARY.md). Design decisions are in [docs/adr
 | `/task add \| rate \| evidence \| notes \| jobs add \| jobs remove \| retire \| restore` | Leadership | Maintain the Rate Schedule |
 | `/task list` | Anyone | Show the Rate Schedule |
 | `/hire user minecraft` | Leadership | Create the Employee Channel and Requests Thread, and record the Minecraft Name |
+| Right-click a member → Apps → **Hire as Employee** | Leadership | Same as `/hire`, asking for the Minecraft Name in a form |
 | `/link user minecraft channel` | Leadership | Bring in someone who already has a channel, or change their Minecraft Name or channel |
 | `/request [job]` | Employee | Submit a Payment Request. Pass `job` when your Jobs have more than 25 Tasks between them |
 | Right-click a member → Apps → **Request payment for** | Managers, Leadership | Submit a Payment Request on that Employee's behalf, for Tasks in Jobs they hold and you manage. The Employee still owns it, and the filing Manager can review it |

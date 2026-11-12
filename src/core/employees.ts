@@ -2,7 +2,7 @@ import { saveEmployee, selectEmployee, selectEmployeeIdByChannel, selectEmployee
 import type { Actor } from './actor';
 import { notice, type Card, type Effect } from './effects';
 import { jobsHeldBy } from './jobs';
-import { fail, succeed, type Outcome } from './outcome';
+import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
 
@@ -30,6 +30,13 @@ export interface RequestsThreadIds {
 
 export function recordRequestsThread(payMe: PayMe, userId: string, ids: RequestsThreadIds) {
 	updateRequestsThread(payMe.storage, userId, ids);
+}
+
+/** Checks that the actor may hire the member, for example before asking them for a Minecraft Name. */
+export function checkHire(payMe: PayMe, actor: Actor, hiree: Actor): Failure | null {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	return getEmployee(payMe, hiree.userId) ? fail({ code: 'already-employee' }) : null;
 }
 
 export function hireEmployee(payMe: PayMe, actor: Actor, hiree: Actor, minecraftName: string): Outcome<Employee> {
