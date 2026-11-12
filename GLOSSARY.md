@@ -58,6 +58,10 @@ _Avoid_: Claim, submission, ticket, invoice
 A Job's channel where its Managers review Payment Requests. Each request appears there with a copy of its Evidence, so reviewers never need to open the Employee Channel.
 _Avoid_: Queue, approvals channel
 
+**DOC Ticket**:
+A support ticket in the server's DOC ticketing system, identified by a 5-digit number. An Employee who helped with one claims it with a Payment Request for the DOC Ticket Assistance Task, and can claim each DOC Ticket only once unless that request was Denied or Withdrawn.
+_Avoid_: Ticket on its own, when it could be confused with a Payment Request
+
 **Evidence**:
 Screenshots, links or notes attached to a Payment Request to show that the Task was completed.
 _Avoid_: Proof, attachments

@@ -53,7 +53,6 @@ export function getPayout(payMe: PayMe, number: number): Payout | null {
 	return selectPayout(payMe.storage, number);
 }
 
-/** What is owed, read in one go. */
 interface Owing {
 	approved: PaymentRequest[];
 	unpaid: PaymentRequest[];
@@ -82,6 +81,7 @@ function unpaidRequests(requests: readonly PaymentRequest[], openPayouts: readon
 
 /** A Payout line belongs to the lowest-numbered Job the request is eligible under. */
 function lineJobId(request: PaymentRequest): number {
+	if (request.eligibleJobIds.length === 0) throw new Error(`${requestLabel(request.number)} is eligible under no Job, so it has no Payout line`);
 	return Math.min(...request.eligibleJobIds);
 }
 
@@ -99,7 +99,7 @@ function sumOfRates(lines: readonly { rate: number }[]): number {
 }
 
 // Unpaid requests are estimated at current Rates; an Open Payout keeps its frozen total (ADR 0001).
-function owedBy(owing: Owing, employeeUserId: string): Owed {
+function owedFrom(owing: Owing, employeeUserId: string): Owed {
 	const unpaid = owing.unpaid.filter((request) => request.employeeUserId === employeeUserId);
 	return {
 		unpaidRequestNumbers: unpaid.map((request) => request.number),
@@ -109,7 +109,7 @@ function owedBy(owing: Owing, employeeUserId: string): Owed {
 }
 
 export function owedTo(payMe: PayMe, employeeUserId: string): Owed {
-	return owedBy(loadOwing(payMe, employeeUserId), employeeUserId);
+	return owedFrom(loadOwing(payMe, employeeUserId), employeeUserId);
 }
 
 export function totalOwed(owed: Owed): number {
@@ -122,7 +122,7 @@ function owedAndHistory(payMe: PayMe, owing: Owing, employeeUserIds?: readonly s
 	const owed = [...new Set(owingUserIds)].filter(inScope).map((userId) => ({
 		employeeUserId: userId,
 		minecraftName: getEmployee(payMe, userId)!.minecraftName,
-		...owedBy(owing, userId)
+		...owedFrom(owing, userId)
 	}));
 	owed.sort((a, b) => a.minecraftName.localeCompare(b.minecraftName));
 	const history = selectPayoutsInState(payMe.storage, 'paid', 'discarded').filter((payout) => inScope(payout.employeeUserId));

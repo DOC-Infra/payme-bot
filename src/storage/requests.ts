@@ -14,7 +14,6 @@ export interface NewRequest {
 	eligibleJobIds: readonly number[];
 	/** The Evidence of the first round. */
 	evidence: readonly EvidenceItem[];
-	/** The DOC ticket number, for a ticket claim. */
 	ticket?: string;
 }
 
