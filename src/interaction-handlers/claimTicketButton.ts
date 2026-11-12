@@ -1,7 +1,8 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ButtonInteraction } from 'discord.js';
-import { buildClaimTicketModal, claimTicketButtonId } from '../discord/requestModal';
+import { decodeCustomId } from '../discord/customIds';
+import { buildClaimTicketModal } from '../discord/requestModal';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
@@ -12,6 +13,6 @@ export class ButtonHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ButtonInteraction) {
-		return interaction.customId === claimTicketButtonId ? this.some() : this.none();
+		return decodeCustomId(interaction.customId)?.kind === 'claim-ticket-button' ? this.some() : this.none();
 	}
 }

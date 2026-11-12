@@ -1,7 +1,6 @@
 import { LabelBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
-import { withUserId } from './customIds';
+import { encodeCustomId } from './customIds';
 
-export const hireModalId = 'hire';
 export const minecraftFieldId = 'minecraft';
 
 export function buildHireModal(hireeUserId: string): ModalBuilder {
@@ -13,7 +12,7 @@ export function buildHireModal(hireeUserId: string): ModalBuilder {
 		.setMaxLength(16)
 		.setPlaceholder('Alex_42');
 	return new ModalBuilder()
-		.setCustomId(withUserId(hireModalId, hireeUserId))
+		.setCustomId(encodeCustomId({ kind: 'hire-modal', hireeUserId }))
 		.setTitle('Hire Employee')
 		.addLabelComponents(
 			new LabelBuilder()

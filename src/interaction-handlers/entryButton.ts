@@ -3,7 +3,8 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import { ActionRowBuilder, MessageFlags, type ButtonBuilder, type ButtonInteraction } from 'discord.js';
 import { amendForm, checkWithdraw, notice, requestLabel, withdrawRequest } from '../core';
 import { toEmbeds } from '../discord/embeds';
-import { buildAmendModal, confirmWithdrawButton, parseEntryButton } from '../discord/entry';
+import { decodeCustomId } from '../discord/customIds';
+import { buildAmendModal, confirmWithdrawButton } from '../discord/entry';
 import { acknowledge, runAsActor, runOutcome } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -40,7 +41,7 @@ export class ButtonHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ButtonInteraction) {
-		const parsed = parseEntryButton(interaction.customId);
-		return parsed ? this.some(parsed) : this.none();
+		const id = decodeCustomId(interaction.customId);
+		return id?.kind === 'entry-button' ? this.some(id) : this.none();
 	}
 }

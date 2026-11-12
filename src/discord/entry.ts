@@ -1,10 +1,7 @@
 import { ButtonBuilder, ButtonStyle, FileUploadBuilder, LabelBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { requestLabel, type EntryAction } from '../core';
+import { encodeCustomId, type EntryButton } from './customIds';
 
-export type EntryButton = EntryAction | 'confirm-withdraw';
-
-const buttonPrefix = 'entry';
-const modalPrefix = 'amend';
 export const amendFieldIds = { notes: 'notes', link: 'link', files: 'files' } as const;
 
 export function entryButtons(requestNumber: number, actions: readonly EntryAction[]): ButtonBuilder[] {
@@ -22,14 +19,7 @@ export function confirmWithdrawButton(requestNumber: number): ButtonBuilder {
 }
 
 function entryButton(action: EntryButton, requestNumber: number): ButtonBuilder {
-	return new ButtonBuilder().setCustomId(`${buttonPrefix}:${action}:${requestNumber}`);
-}
-
-export function parseEntryButton(customId: string): { action: EntryButton; requestNumber: number } | null {
-	const [prefix, action, number] = customId.split(':');
-	const known = (['amend', 'withdraw', 'confirm-withdraw'] as const).find((candidate) => candidate === action);
-	if (prefix !== buttonPrefix || !known || !/^\d+$/.test(number ?? '')) return null;
-	return { action: known, requestNumber: Number(number) };
+	return new ButtonBuilder().setCustomId(encodeCustomId({ kind: 'entry-button', action, requestNumber }));
 }
 
 export function buildAmendModal(requestNumber: number, notesRequired: boolean): ModalBuilder {
@@ -43,16 +33,11 @@ export function buildAmendModal(requestNumber: number, notesRequired: boolean): 
 	const files = new FileUploadBuilder().setCustomId(amendFieldIds.files).setRequired(false).setMaxValues(10);
 
 	return new ModalBuilder()
-		.setCustomId(`${modalPrefix}:${requestNumber}`)
+		.setCustomId(encodeCustomId({ kind: 'amend-modal', requestNumber }))
 		.setTitle(`Amend ${requestLabel(requestNumber)}`)
 		.addLabelComponents(
 			new LabelBuilder().setLabel('Notes').setDescription(notesHint).setTextInputComponent(notes),
 			new LabelBuilder().setLabel('Link').setDescription('Optional.').setTextInputComponent(link),
 			new LabelBuilder().setLabel('Files').setDescription('Optional screenshots.').setFileUploadComponent(files)
 		);
-}
-
-export function parseAmendModal(customId: string): number | null {
-	const [prefix, number] = customId.split(':');
-	return prefix === modalPrefix && /^\d+$/.test(number ?? '') ? Number(number) : null;
 }

@@ -2,7 +2,8 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ButtonInteraction } from 'discord.js';
 import { approveRequest, checkReviewer } from '../core';
-import { buildReasonModal, parseReviewButton } from '../discord/review';
+import { decodeCustomId } from '../discord/customIds';
+import { buildReasonModal } from '../discord/review';
 import { acknowledge, runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -25,7 +26,7 @@ export class ButtonHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ButtonInteraction) {
-		const parsed = parseReviewButton(interaction.customId);
-		return parsed ? this.some(parsed) : this.none();
+		const id = decodeCustomId(interaction.customId);
+		return id?.kind === 'review-button' ? this.some(id) : this.none();
 	}
 }

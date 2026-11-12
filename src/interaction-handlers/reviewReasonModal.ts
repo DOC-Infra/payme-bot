@@ -2,7 +2,8 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ModalSubmitInteraction } from 'discord.js';
 import { denyRequest, rejectRequest } from '../core';
-import { parseReasonModal, reasonFieldId } from '../discord/review';
+import { decodeCustomId } from '../discord/customIds';
+import { reasonFieldId } from '../discord/review';
 import { acknowledge, runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -17,7 +18,7 @@ export class ModalHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ModalSubmitInteraction) {
-		const parsed = parseReasonModal(interaction.customId);
-		return parsed ? this.some(parsed) : this.none();
+		const id = decodeCustomId(interaction.customId);
+		return id?.kind === 'reason-modal' ? this.some(id) : this.none();
 	}
 }
