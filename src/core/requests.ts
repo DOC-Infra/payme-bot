@@ -1,7 +1,7 @@
 import { insertMessage, selectRequest, ticketClaimed } from '../storage/requests';
 import { selectTaskIdByName } from '../storage/tasks';
 import type { Actor } from './actor';
-import { notice, type Card, type CardField, type Effect, type EvidenceFile } from './effects';
+import { notice, type Card, type CardField, type Effect, type EvidenceFile, type MessageRef } from './effects';
 import { getEmployee, type Employee } from './employees';
 import { jobsHeldBy, managesJob } from './job-membership';
 import { getJob, type Job } from './jobs';
@@ -267,11 +267,24 @@ export function updateReviewCopies(payMe: PayMe, request: PaymentRequest): Effec
 		type: 'update-review-copies',
 		requestNumber: request.number,
 		round: request.round,
+		messages: reviewCopies(request, request.round),
 		card: {
 			...reviewCard(request, task, employee, evidence),
 			fields: [...evidenceFields(evidence), { name: 'Status', value: latestChange(request) }]
 		}
 	};
+}
+
+/** Deletes the review copies of every round of the request. */
+export function deleteReviewCopies(request: PaymentRequest): Effect {
+	return { type: 'delete-review-copies', requestNumber: request.number, messages: reviewCopies(request) };
+}
+
+/** The request's review copies from `round`, or from every round. */
+function reviewCopies(request: PaymentRequest, round?: number): MessageRef[] {
+	return request.messages
+		.filter((message) => message.jobId !== null && (round === undefined || message.round === round))
+		.map(({ channelId, messageId }) => ({ channelId, messageId }));
 }
 
 /** Logs the request's latest state change in the Employee's Requests Thread. */

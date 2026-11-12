@@ -6,6 +6,7 @@ import type { PayMe } from './payme';
 import { getTask } from './tasks';
 import {
 	checkLink,
+	deleteReviewCopies,
 	evidenceFor,
 	getPaymentRequest,
 	roundEffects,
@@ -67,6 +68,6 @@ export function withdrawRequest(payMe: PayMe, actor: Actor, number: number): Out
 		if (!withdrawn.ok) return withdrawn;
 
 		const request = withdrawn.value;
-		return succeed([updateRequestEntry(payMe, request), { type: 'delete-review-copies', requestNumber: number }], request);
+		return succeed([updateRequestEntry(payMe, request), deleteReviewCopies(request)], request);
 	});
 }

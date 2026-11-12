@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
 	addManagerRole,
 	addTask,
+	amendRequest,
 	approveRequest,
 	createJob,
 	denyRequest,
 	getPaymentRequest,
 	hireEmployee,
+	recordRequestMessage,
 	recordRequestsThread,
 	rejectRequest,
 	submitRequest,
@@ -132,6 +134,70 @@ describe('What a decision posts', () => {
 					ping: true
 				}
 			]
+		});
+	});
+});
+
+describe('Which review copies a decision changes', () => {
+	const copy = (round: number, jobId: number | null, channelId: string) => ({
+		round,
+		jobId,
+		channelId,
+		messageId: `message-${channelId}-${round}`
+	});
+
+	/** R-1 for Load Cart, eligible under Courier and Logistics, with its round 1 entry and both review copies posted. */
+	function postedCart() {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		const logistics = job(payMe, 'Logistics');
+		const cart = created(addTask(payMe, leadership(), { name: 'Load Cart', rate: '100', jobIds: [courier.id, logistics.id] }));
+		hire(payMe, 'user-alex', 'Alex_42');
+		const alex = member('user-alex', 'role-courier', 'role-logistics');
+		created(submitRequest(payMe, alex, { taskId: cart.id, notes: 'Done', link: null, files: [screenshot] }));
+		for (const message of [copy(1, null, 'thread-user-alex'), copy(1, courier.id, 'review-courier'), copy(1, logistics.id, 'review-logistics')])
+			recordRequestMessage(payMe, 1, message);
+		return { payMe, courier, logistics, alex };
+	}
+
+	it.each([
+		['approves', (payMe: PayMe) => approveRequest(payMe, courierManager, 1)],
+		['rejects', (payMe: PayMe) => rejectRequest(payMe, courierManager, 1, 'Blurry')],
+		['denies', (payMe: PayMe) => denyRequest(payMe, courierManager, 1, 'Duplicate')]
+	])('edits every review copy of the round when a Manager %s, but not the Requests Thread entry', (_, decide) => {
+		const { payMe } = postedCart();
+
+		expect(decide(payMe)).toMatchObject({
+			effects: expect.arrayContaining([
+				expect.objectContaining({
+					type: 'update-review-copies',
+					messages: [
+						{ channelId: 'review-courier', messageId: 'message-review-courier-1' },
+						{ channelId: 'review-logistics', messageId: 'message-review-logistics-1' }
+					]
+				})
+			])
+		});
+	});
+
+	it('leaves the review copies of earlier rounds alone when deciding a resubmission', () => {
+		const { payMe, courier, logistics, alex } = postedCart();
+		created(rejectRequest(payMe, courierManager, 1, 'Blurry'));
+		created(amendRequest(payMe, alex, 1, { notes: 'Retook it', link: null, files: [] }));
+		for (const message of [copy(2, null, 'thread-user-alex'), copy(2, courier.id, 'review-courier'), copy(2, logistics.id, 'review-logistics')])
+			recordRequestMessage(payMe, 1, message);
+
+		expect(approveRequest(payMe, courierManager, 1)).toMatchObject({
+			effects: expect.arrayContaining([
+				expect.objectContaining({
+					type: 'update-review-copies',
+					round: 2,
+					messages: [
+						{ channelId: 'review-courier', messageId: 'message-review-courier-2' },
+						{ channelId: 'review-logistics', messageId: 'message-review-logistics-2' }
+					]
+				})
+			])
 		});
 	});
 });

@@ -25,8 +25,6 @@ import {
 	pinnedMessageCard,
 	fail,
 	getEmployee,
-	getPaymentRequest,
-	getPayout,
 	recordRequestMessage,
 	recordRequestsThread,
 	requestEntry,
@@ -135,19 +133,21 @@ const handlers: Handlers = {
 		});
 	},
 	'update-review-copies': async (effect) => {
-		const copies = getPaymentRequest(container.payMe, effect.requestNumber)?.messages ?? [];
 		const components = reviewRow(entryLink(effect.requestNumber, effect.round));
-		for (const copy of copies) {
-			if (copy.jobId === null || copy.round !== effect.round) continue;
+		for (const copy of effect.messages) {
 			const channel = await container.client.channels.fetch(copy.channelId);
 			if (!channel?.isTextBased()) throw new Error(`Review Channel ${copy.channelId} is not a text channel`);
 			await channel.messages.edit(copy.messageId, { content: null, embeds: toEmbeds(effect.card), components, allowedMentions: { parse: [] } });
 		}
 	},
 	'show-payout': async (effect, interaction) => {
-		const open = getPayout(container.payMe, effect.payoutNumber)?.state === 'open';
 		if (!interaction) return;
-		return replyPrivately(interaction, effect.card, open ? settleButtons(effect.payoutNumber) : [], acknowledged.has(interaction));
+		return replyPrivately(
+			interaction,
+			effect.card,
+			effect.settleButtons ? settleButtons(effect.payoutNumber) : [],
+			acknowledged.has(interaction)
+		);
 	},
 	'show-payouts': async (effect, interaction) => interaction && replyPrivately(interaction, effect.card, payoutActionButtons(effect.actions)),
 	'update-request-entry': async (effect) => {
@@ -163,9 +163,7 @@ const handlers: Handlers = {
 		});
 	},
 	'delete-review-copies': async (effect) => {
-		const copies = getPaymentRequest(container.payMe, effect.requestNumber)?.messages ?? [];
-		for (const copy of copies) {
-			if (copy.jobId === null) continue;
+		for (const copy of effect.messages) {
 			try {
 				const channel = await container.client.channels.fetch(copy.channelId);
 				if (channel?.isTextBased()) await channel.messages.delete(copy.messageId);

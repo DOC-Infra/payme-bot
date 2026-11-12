@@ -42,6 +42,12 @@ export function notice(description: string, tone: Tone = 'success'): Card {
 	return { tone, description };
 }
 
+/** A message PayMe posted in Discord. */
+export interface MessageRef {
+	channelId: string;
+	messageId: string;
+}
+
 export interface PrivateReply {
 	type: 'private-reply';
 	card: Card;
@@ -116,24 +122,26 @@ export interface UpdateRequestEntry {
 	actions: EntryAction[];
 }
 
-/** Delete every recorded review copy of the request, from every round. */
+/** Delete these review copies of the request. */
 export interface DeleteReviewCopies {
 	type: 'delete-review-copies';
 	requestNumber: number;
+	messages: MessageRef[];
+}
+
+/** Edit these review copies of this round in place: replace their card and remove the review buttons, keeping the link to the thread entry. */
+export interface UpdateReviewCopies {
+	type: 'update-review-copies';
+	requestNumber: number;
+	round: number;
+	messages: MessageRef[];
+	card: Card;
 }
 
 /**
  * Post a review copy in a Job's Review Channel, re-uploading the files and linking to the round's Requests Thread entry
  * (see `requestEntry`), then report the message back with `recordRequestMessage`.
  */
-/** Edit every recorded review copy of this round in place: replace its card and remove the review buttons, keeping the link to the thread entry. */
-export interface UpdateReviewCopies {
-	type: 'update-review-copies';
-	requestNumber: number;
-	round: number;
-	card: Card;
-}
-
 export interface PostReviewMessage {
 	type: 'post-review-message';
 	requestNumber: number;
@@ -144,11 +152,12 @@ export interface PostReviewMessage {
 	files: EvidenceFile[];
 }
 
-/** Show a Payout privately to the actor, with Mark paid and Discard buttons while it is Open. */
+/** Show a Payout privately to the actor, with Mark paid and Discard buttons when `settleButtons` is set. */
 export interface ShowPayout {
 	type: 'show-payout';
 	payoutNumber: number;
 	card: Card;
+	settleButtons: boolean;
 }
 
 export type PayoutAction = { kind: 'generate'; employeeUserId: string; label: string } | { kind: 'show'; payoutNumber: number; label: string };

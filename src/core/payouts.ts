@@ -235,6 +235,7 @@ function payoutEffect(payMe: PayMe, payout: Payout): Effect {
 	return {
 		type: 'show-payout',
 		payoutNumber: payout.number,
+		settleButtons: open,
 		card: {
 			tone: payoutTone(payout.state),
 			title: `${payoutLabel(payout.number)} · ${payout.minecraftName}`,
