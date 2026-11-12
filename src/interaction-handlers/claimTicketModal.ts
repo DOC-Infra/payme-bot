@@ -2,7 +2,8 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ModalSubmitInteraction } from 'discord.js';
 import { claimTicket } from '../core';
-import { claimTicketModalId, ticketFieldId } from '../discord/requestModal';
+import { decodeCustomId } from '../discord/customIds';
+import { ticketFieldId } from '../discord/requestModal';
 import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -16,6 +17,6 @@ export class ModalHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ModalSubmitInteraction) {
-		return interaction.customId === claimTicketModalId ? this.some() : this.none();
+		return decodeCustomId(interaction.customId)?.kind === 'claim-ticket-modal' ? this.some() : this.none();
 	}
 }

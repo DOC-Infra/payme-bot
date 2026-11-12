@@ -2,8 +2,8 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { StringSelectMenuInteraction } from 'discord.js';
 import { fetchActor } from '../discord/actor';
-import { userIdFrom } from '../discord/customIds';
-import { openRequestForm, requestJobSelectId } from '../discord/requestModal';
+import { decodeCustomId } from '../discord/customIds';
+import { openRequestForm } from '../discord/requestModal';
 import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -19,7 +19,7 @@ export class MenuHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: StringSelectMenuInteraction) {
-		const employeeUserId = userIdFrom(requestJobSelectId, interaction.customId);
-		return employeeUserId === undefined ? this.none() : this.some(employeeUserId);
+		const id = decodeCustomId(interaction.customId);
+		return id?.kind === 'request-job-select' ? this.some(id.employeeUserId) : this.none();
 	}
 }

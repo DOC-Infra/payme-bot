@@ -2,7 +2,7 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
 import { discardPayout, generatePayout, markPayoutPaid, showPayout, type Actor } from '../core';
-import { parsePayoutButton, type PayoutButton } from '../discord/payouts';
+import { decodeCustomId, type PayoutButton } from '../discord/customIds';
 import { acknowledge, runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -16,8 +16,8 @@ export class ButtonHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ButtonInteraction) {
-		const parsed = parsePayoutButton(interaction.customId);
-		return parsed ? this.some(parsed) : this.none();
+		const id = decodeCustomId(interaction.customId);
+		return id?.kind === 'payout-button' ? this.some(id) : this.none();
 	}
 
 	private press(actor: Actor, button: PayoutButton) {

@@ -40,7 +40,8 @@ import {
 import { toActor } from './actor';
 import { toEmbeds } from './embeds';
 import { entryButtons } from './entry';
-import { claimTicketButtonId, requestButtonRow } from './requestModal';
+import { decodeCustomId } from './customIds';
+import { requestButtonRow } from './requestModal';
 import { buttonRows, payoutActionButtons, settleButtons } from './payouts';
 import { reviewButtons, reviewRow } from './review';
 
@@ -239,7 +240,7 @@ export async function addMissingRequestButtons(): Promise<void> {
 			const rows = message.components.filter(
 				(component): component is ActionRow<MessageActionRowComponent> => component.type === ComponentType.ActionRow
 			);
-			if (rows.some((row) => row.components.some((button) => button.customId === claimTicketButtonId))) continue;
+			if (rows.some((row) => row.components.some((button) => decodeCustomId(button.customId ?? '')?.kind === 'claim-ticket-button'))) continue;
 			const card = pinnedMessageCard(employee.userId, employee.minecraftName);
 			await message.edit({ content: null, embeds: toEmbeds(card), components: [requestButtonRow()], allowedMentions: { parse: [] } });
 		} catch (error) {

@@ -3,8 +3,8 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import { MessageFlags, type ModalSubmitInteraction } from 'discord.js';
 import { submitRequest } from '../core';
 import { fetchActor } from '../discord/actor';
-import { userIdFrom } from '../discord/customIds';
-import { fieldIds, requestModalId } from '../discord/requestModal';
+import { decodeCustomId } from '../discord/customIds';
+import { fieldIds } from '../discord/requestModal';
 import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -26,7 +26,7 @@ export class ModalHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ModalSubmitInteraction) {
-		const employeeUserId = userIdFrom(requestModalId, interaction.customId);
-		return employeeUserId === undefined ? this.none() : this.some(employeeUserId);
+		const id = decodeCustomId(interaction.customId);
+		return id?.kind === 'request-modal' ? this.some(id.employeeUserId) : this.none();
 	}
 }

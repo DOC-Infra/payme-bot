@@ -1,28 +1,20 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import type { PayoutAction } from '../core';
-
-export type PayoutButton = { action: 'generate'; employeeUserId: string } | { action: 'show' | 'paid' | 'discard'; payoutNumber: number };
-
-const prefix = 'payout';
+import { encodeCustomId, type PayoutButton } from './customIds';
 
 export function payoutActionButtons(actions: readonly PayoutAction[]): ButtonBuilder[] {
 	return actions.map((action) =>
 		action.kind === 'generate'
-			? button(`generate:${action.employeeUserId}`, action.label, ButtonStyle.Primary)
-			: button(`show:${action.payoutNumber}`, action.label, ButtonStyle.Secondary)
+			? button({ action: 'generate', employeeUserId: action.employeeUserId }, action.label, ButtonStyle.Primary)
+			: button({ action: 'show', payoutNumber: action.payoutNumber }, action.label, ButtonStyle.Secondary)
 	);
 }
 
 export function settleButtons(payoutNumber: number): ButtonBuilder[] {
-	return [button(`paid:${payoutNumber}`, 'Mark paid', ButtonStyle.Success), button(`discard:${payoutNumber}`, 'Discard', ButtonStyle.Danger)];
-}
-
-export function parsePayoutButton(customId: string): PayoutButton | null {
-	const [idPrefix, action, id] = customId.split(':');
-	if (idPrefix !== prefix || !/^\d+$/.test(id ?? '')) return null;
-	if (action === 'generate') return { action, employeeUserId: id };
-	if (action === 'show' || action === 'paid' || action === 'discard') return { action, payoutNumber: Number(id) };
-	return null;
+	return [
+		button({ action: 'paid', payoutNumber }, 'Mark paid', ButtonStyle.Success),
+		button({ action: 'discard', payoutNumber }, 'Discard', ButtonStyle.Danger)
+	];
 }
 
 export function buttonRows(buttons: ButtonBuilder[]): ActionRowBuilder<ButtonBuilder>[] {
@@ -33,6 +25,9 @@ export function buttonRows(buttons: ButtonBuilder[]): ActionRowBuilder<ButtonBui
 	return rows;
 }
 
-function button(id: string, label: string, style: ButtonStyle): ButtonBuilder {
-	return new ButtonBuilder().setCustomId(`${prefix}:${id}`).setLabel(label).setStyle(style);
+function button(payout: PayoutButton, label: string, style: ButtonStyle): ButtonBuilder {
+	return new ButtonBuilder()
+		.setCustomId(encodeCustomId({ kind: 'payout-button', ...payout }))
+		.setLabel(label)
+		.setStyle(style);
 }

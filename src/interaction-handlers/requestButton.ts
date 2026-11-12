@@ -1,7 +1,8 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ButtonInteraction } from 'discord.js';
-import { openRequestForm, requestButtonId } from '../discord/requestModal';
+import { decodeCustomId } from '../discord/customIds';
+import { openRequestForm } from '../discord/requestModal';
 import { runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -13,6 +14,6 @@ export class ButtonHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ButtonInteraction) {
-		return interaction.customId === requestButtonId ? this.some() : this.none();
+		return decodeCustomId(interaction.customId)?.kind === 'request-button' ? this.some() : this.none();
 	}
 }

@@ -2,7 +2,8 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ModalSubmitInteraction } from 'discord.js';
 import { amendRequest } from '../core';
-import { amendFieldIds, parseAmendModal } from '../discord/entry';
+import { decodeCustomId } from '../discord/customIds';
+import { amendFieldIds } from '../discord/entry';
 import { acknowledge, runAsActor } from '../discord/runner';
 
 @ApplyOptions<InteractionHandler.Options>({
@@ -22,7 +23,7 @@ export class ModalHandler extends InteractionHandler {
 	}
 
 	public override parse(interaction: ModalSubmitInteraction) {
-		const requestNumber = parseAmendModal(interaction.customId);
-		return requestNumber === null ? this.none() : this.some(requestNumber);
+		const id = decodeCustomId(interaction.customId);
+		return id?.kind === 'amend-modal' ? this.some(id.requestNumber) : this.none();
 	}
 }
