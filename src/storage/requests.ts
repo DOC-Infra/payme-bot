@@ -33,7 +33,7 @@ export interface RequestStore {
 	load(number: number): PaymentRequest | null;
 	/** The matching requests in number order, loaded together in a fixed number of queries. */
 	loadMany(query: RequestQuery): PaymentRequest[];
-	create(request: NewRequest, submission: { state: RequestState; actorUserId: string }): PaymentRequest;
+	create(request: NewRequest, firstEntry: { state: RequestState; actorUserId: string }): PaymentRequest;
 	apply(number: number, change: StateChange): Applied;
 	/** Records the message, replacing any earlier record of the same message (which moves it to the end of the request's messages). */
 	recordMessage(number: number, message: RequestMessage): void;
@@ -46,7 +46,7 @@ export function requestStore(storage: Storage): RequestStore {
 	return {
 		load,
 		loadMany: (query) => loadWhere(storage, queryFilter(query)),
-		create: (request, submission) => storage.transaction(() => load(insertRequest(storage, request, submission))!),
+		create: (request, firstEntry) => storage.transaction(() => load(insertRequest(storage, request, firstEntry))!),
 		apply: (number, change) =>
 			storage.transaction((): Applied => {
 				if (!applyChange(storage, number, change)) return { saved: false, current: load(number) };
@@ -62,12 +62,12 @@ function queryFilter(query: RequestQuery): SQL | undefined {
 	return and(eq(paymentRequests.employeeUserId, query.employeeUserId), inArray(paymentRequests.state, query.states));
 }
 
-function insertRequest(storage: Storage, request: NewRequest, submission: { state: RequestState; actorUserId: string }): number {
+function insertRequest(storage: Storage, request: NewRequest, firstEntry: { state: RequestState; actorUserId: string }): number {
 	const { db } = storage;
 	const { employeeUserId, taskId } = request;
 	const { number } = db
 		.insert(paymentRequests)
-		.values({ employeeUserId, taskId, state: submission.state })
+		.values({ employeeUserId, taskId, state: firstEntry.state })
 		.returning({ number: paymentRequests.number })
 		.get();
 	if (request.eligibleJobIds.length > 0) {
@@ -76,7 +76,7 @@ function insertRequest(storage: Storage, request: NewRequest, submission: { stat
 			.run();
 	}
 	insertEvidence(storage, number, 1, request.evidence);
-	insertHistory(storage, number, { from: null, to: submission.state, actorUserId: submission.actorUserId, reason: null });
+	insertHistory(storage, number, { from: null, to: firstEntry.state, actorUserId: firstEntry.actorUserId, reason: null });
 	return number;
 }
 

@@ -57,6 +57,18 @@ describe('Approving a Payment Request', () => {
 	});
 });
 
+describe('A refused decision', () => {
+	it('leaves an already decided request and its history exactly as they were', () => {
+		const { payMe } = pendingParcel();
+		created(approveRequest(payMe, courierManager, 1));
+		const before = payMe.requests.load(1);
+
+		expect(rejectRequest(payMe, leadership(), 1, 'Too late')).toMatchObject({ ok: false, error: { code: 'already-decided' } });
+		expect(denyRequest(payMe, member('user-alex', 'role-courier'), 1, 'Mine')).toMatchObject({ ok: false, error: { code: 'own-request' } });
+		expect(payMe.requests.load(1)).toEqual(before);
+	});
+});
+
 describe('Rejecting and denying a Payment Request', () => {
 	it('moves a Pending request to Rejected or Denied and records the reason', () => {
 		const { payMe } = pendingParcel();

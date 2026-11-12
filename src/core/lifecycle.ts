@@ -16,10 +16,10 @@ export type RequestChange = 'approve' | 'reject' | 'deny' | 'amend' | 'withdraw'
 type StateRefusal = Extract<PayMeError, { state: RequestState }>['code'];
 
 /**
- * Who may make a change: the Employee who owns the request; a reviewer, who manages one of its eligible Jobs (Leadership manages
- * them all) and is not its owner, though they may have filed it for the owner; or Leadership.
+ * Who may make a change: the request's Employee; a Manager of one of its eligible Jobs (Leadership manages them all) other than
+ * the Employee, even if they filed it on the Employee's behalf; or Leadership.
  */
-type Party = 'owner' | 'reviewer' | 'leadership';
+type Party = 'employee' | 'manager' | 'leadership';
 
 interface Rule {
 	from: readonly RequestState[];
@@ -32,11 +32,11 @@ interface Rule {
 }
 
 const rules: Record<RequestChange, Rule> = {
-	approve: { from: ['pending'], to: 'approved', by: 'reviewer', refusal: 'already-decided' },
-	reject: { from: ['pending'], to: 'rejected', by: 'reviewer', needsReason: true, refusal: 'already-decided' },
-	deny: { from: ['pending'], to: 'denied', by: 'reviewer', needsReason: true, refusal: 'already-decided' },
-	amend: { from: ['rejected'], to: 'pending', by: 'owner', refusal: 'cannot-amend' },
-	withdraw: { from: ['pending', 'rejected'], to: 'withdrawn', by: 'owner', refusal: 'cannot-withdraw' },
+	approve: { from: ['pending'], to: 'approved', by: 'manager', refusal: 'already-decided' },
+	reject: { from: ['pending'], to: 'rejected', by: 'manager', needsReason: true, refusal: 'already-decided' },
+	deny: { from: ['pending'], to: 'denied', by: 'manager', needsReason: true, refusal: 'already-decided' },
+	amend: { from: ['rejected'], to: 'pending', by: 'employee', refusal: 'cannot-amend' },
+	withdraw: { from: ['pending', 'rejected'], to: 'withdrawn', by: 'employee', refusal: 'cannot-withdraw' },
 	pay: { from: ['approved'], to: 'paid', by: 'leadership', refusal: 'cannot-pay' }
 };
 
@@ -99,13 +99,13 @@ function refuseState(request: PaymentRequest, change: RequestChange): Failure | 
 
 function refuseActor(payMe: PayMe, actor: Actor, request: PaymentRequest, party: Party): Failure | null {
 	if (party === 'leadership') return requireLeadership(payMe, actor);
-	const owner = request.employeeUserId === actor.userId;
-	if (party === 'owner') return owner ? null : fail({ code: 'not-your-request' });
-	if (owner) return fail({ code: 'own-request' });
-	return reviews(payMe, actor, request) ? null : fail({ code: 'not-a-reviewer' });
+	const isEmployee = request.employeeUserId === actor.userId;
+	if (party === 'employee') return isEmployee ? null : fail({ code: 'not-your-request' });
+	if (isEmployee) return fail({ code: 'own-request' });
+	return managesEligibleJob(payMe, actor, request) ? null : fail({ code: 'not-a-reviewer' });
 }
 
-function reviews(payMe: PayMe, actor: Actor, request: PaymentRequest): boolean {
+function managesEligibleJob(payMe: PayMe, actor: Actor, request: PaymentRequest): boolean {
 	return request.eligibleJobIds.some((jobId) => {
 		const job = getJob(payMe, jobId);
 		return job !== null && managesJob(payMe, actor, job);

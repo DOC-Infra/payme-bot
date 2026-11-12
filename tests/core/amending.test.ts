@@ -83,6 +83,20 @@ describe('Amending a Rejected Payment Request', () => {
 	});
 });
 
+describe('A refused amendment or withdrawal', () => {
+	it('leaves a Pending request exactly as it was, in its first round with its original Evidence', () => {
+		const { payMe } = pendingParcel();
+		const before = payMe.requests.load(1);
+
+		expect(amendRequest(payMe, alex, 1, { notes: 'More', link: null, files: [clearer] })).toMatchObject({
+			ok: false,
+			error: { code: 'cannot-amend' }
+		});
+		expect(withdrawRequest(payMe, courierManager, 1)).toMatchObject({ ok: false, error: { code: 'not-your-request' } });
+		expect(payMe.requests.load(1)).toEqual(before);
+	});
+});
+
 describe('Amending a request for a Task that needs no notes', () => {
 	it('accepts blank notes alongside a link or file, but not an empty amendment', () => {
 		const { payMe } = rejectedParcel();
