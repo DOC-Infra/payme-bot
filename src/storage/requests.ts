@@ -26,7 +26,7 @@ export interface StateChange extends Omit<RequestHistoryEntry, 'from' | 'at'> {
 /** Whether the change was saved. If not, the request was no longer in the expected state: `current` is how it is now. */
 export type Applied = { saved: true; request: PaymentRequest } | { saved: false; current: PaymentRequest | null };
 
-export type RequestQuery = { numbers: readonly number[] } | { employeeUserId: string; states: readonly RequestState[] };
+export type RequestQuery = { numbers: readonly number[] } | { employeeUserId?: string; states: readonly RequestState[] };
 
 /** Loads and saves whole Payment Requests. Each save is atomic. */
 export interface RequestStore {
@@ -59,7 +59,8 @@ export function requestStore(storage: Storage): RequestStore {
 
 function queryFilter(query: RequestQuery): SQL | undefined {
 	if ('numbers' in query) return inArray(paymentRequests.number, query.numbers);
-	return and(eq(paymentRequests.employeeUserId, query.employeeUserId), inArray(paymentRequests.state, query.states));
+	const { employeeUserId, states } = query;
+	return and(employeeUserId === undefined ? undefined : eq(paymentRequests.employeeUserId, employeeUserId), inArray(paymentRequests.state, states));
 }
 
 function insertRequest(storage: Storage, request: NewRequest, submission: { state: RequestState; actorUserId: string }): number {

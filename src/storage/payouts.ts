@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, inArray, min, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { PayoutState } from '../core/labels';
 import type { Payout, PayoutLine } from '../core/payouts';
-import { paymentRequestJobs, paymentRequests, payoutLines, payouts } from './schema';
+import { payoutLines, payouts } from './schema';
 import type { Storage } from './storage';
 
 type PayoutRow = typeof payouts.$inferSelect;
@@ -10,20 +10,13 @@ export interface NewPayoutRow {
 	employeeUserId: string;
 	minecraftName: string;
 	generatedBy: string;
+	total: number;
 	lines: readonly PayoutLine[];
-}
-
-export interface UnpaidRequestRow {
-	number: number;
-	employeeUserId: string;
-	taskId: number;
-	jobId: number;
 }
 
 export function insertPayout(storage: Storage, payout: NewPayoutRow): number {
 	const { db } = storage;
-	const { employeeUserId, minecraftName, generatedBy, lines } = payout;
-	const total = lines.reduce((sum, line) => sum + line.rate, 0);
+	const { employeeUserId, minecraftName, generatedBy, total, lines } = payout;
 	const { number } = db
 		.insert(payouts)
 		.values({ employeeUserId, minecraftName, total, state: 'open', generatedBy })
@@ -69,37 +62,6 @@ export function selectPayoutsInState(storage: Storage, ...states: PayoutState[])
 		.orderBy(desc(payouts.number))
 		.all()
 		.map((row) => toPayout(storage, row));
-}
-
-/** Approved requests that are not locked in an Open Payout, oldest first, each with its first eligible Job. */
-export function selectUnpaidRequests(storage: Storage, employeeUserId: string | null = null): UnpaidRequestRow[] {
-	const { db } = storage;
-	const firstJob = db
-		.select({ jobId: min(paymentRequestJobs.jobId) })
-		.from(paymentRequestJobs)
-		.where(eq(paymentRequestJobs.requestNumber, paymentRequests.number));
-	const locked = db
-		.select({ requestNumber: payoutLines.requestNumber })
-		.from(payoutLines)
-		.innerJoin(payouts, eq(payouts.number, payoutLines.payoutNumber))
-		.where(eq(payouts.state, 'open'));
-	return db
-		.select({
-			number: paymentRequests.number,
-			employeeUserId: paymentRequests.employeeUserId,
-			taskId: paymentRequests.taskId,
-			jobId: sql<number>`(${firstJob})`
-		})
-		.from(paymentRequests)
-		.where(
-			and(
-				eq(paymentRequests.state, 'approved'),
-				employeeUserId === null ? undefined : eq(paymentRequests.employeeUserId, employeeUserId),
-				notInArray(paymentRequests.number, locked)
-			)
-		)
-		.orderBy(asc(paymentRequests.number))
-		.all();
 }
 
 function toPayout(storage: Storage, row: PayoutRow): Payout {
