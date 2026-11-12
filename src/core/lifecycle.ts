@@ -65,7 +65,7 @@ export function checkChange(payMe: PayMe, actor: Actor, number: number, change: 
 
 /**
  * Makes the change if the actor may make it now, recording it in the request's history. An amendment's `resubmission` starts the
- * request's next round. Refused if someone else changed the request first.
+ * request's next round.
  */
 export function changeState(
 	payMe: PayMe,
@@ -82,14 +82,9 @@ export function changeState(
 	if (recorded === '') return fail({ code: 'reason-required' });
 
 	const applied = payMe.requests.apply(number, { from: checked.value.state, to, actorUserId: actor.userId, reason: recorded, resubmission });
-	if (!applied.saved) return refuseStale(applied.current, change);
-	return succeed([], applied.request);
-}
-
-/** Someone else changed the request after it was checked, so the change was not saved. */
-function refuseStale(current: PaymentRequest | null, change: RequestChange): Failure {
-	if (!current) return fail({ code: 'request-not-found' });
-	return fail({ code: rules[change].refusal, number: current.number, state: current.state });
+	if (applied.saved) return succeed([], applied.request);
+	// Someone else changed it first: check again against its new state, which may still allow this change.
+	return changeState(payMe, actor, number, change, reason, resubmission);
 }
 
 function refuseState(request: PaymentRequest, change: RequestChange): Failure | null {

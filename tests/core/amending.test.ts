@@ -97,6 +97,28 @@ describe('A refused amendment or withdrawal', () => {
 	});
 });
 
+describe('Withdrawing while a Manager decides', () => {
+	function rejectedJustBeforeSaving(payMe: PayMe) {
+		const apply = payMe.requests.apply;
+		let interleaved = false;
+		payMe.requests.apply = (number, change) => {
+			if (!interleaved) {
+				interleaved = true;
+				created(rejectRequest(payMe, courierManager, number, 'Blurry screenshot'));
+			}
+			return apply(number, change);
+		};
+	}
+
+	it('still withdraws a request a Manager rejected in the meantime, since a Rejected request can be withdrawn', () => {
+		const { payMe } = pendingParcel();
+		rejectedJustBeforeSaving(payMe);
+
+		expect(withdrawRequest(payMe, alex, 1)).toMatchObject({ ok: true, value: { state: 'withdrawn' } });
+		expect(payMe.requests.load(1)?.history.map((entry) => entry.to)).toEqual(['pending', 'rejected', 'withdrawn']);
+	});
+});
+
 describe('Amending a request for a Task that needs no notes', () => {
 	it('accepts blank notes alongside a link or file, but not an empty amendment', () => {
 		const { payMe } = rejectedParcel();
