@@ -44,7 +44,8 @@ export type PayMeError =
 	| { code: 'payout-not-open'; number: number; state: PayoutState }
 	| { code: 'not-your-request' }
 	| { code: 'cannot-amend'; number: number; state: RequestState }
-	| { code: 'cannot-withdraw'; number: number; state: RequestState };
+	| { code: 'cannot-withdraw'; number: number; state: RequestState }
+	| { code: 'cannot-pay'; number: number; state: RequestState };
 
 export function describeError(error: PayMeError): string {
 	switch (error.code) {
@@ -138,5 +139,7 @@ export function describeError(error: PayMeError): string {
 			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Rejected requests can be amended.`;
 		case 'cannot-withdraw':
 			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Pending or Rejected requests can be withdrawn.`;
+		case 'cannot-pay':
+			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Approved requests can be paid.`;
 	}
 }

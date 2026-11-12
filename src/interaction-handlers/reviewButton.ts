@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { ButtonInteraction } from 'discord.js';
-import { approveRequest, checkReviewer } from '../core';
+import { approveRequest, checkChange } from '../core';
 import { buildReasonModal, parseReviewButton } from '../discord/review';
 import { acknowledge, runAsActor } from '../discord/runner';
 
@@ -17,7 +17,7 @@ export class ButtonHandler extends InteractionHandler {
 				return approveRequest(payMe, actor, requestNumber);
 			}
 
-			const checked = checkReviewer(payMe, actor, requestNumber);
+			const checked = checkChange(payMe, actor, requestNumber, action);
 			if (!checked.ok) return checked;
 			await interaction.showModal(buildReasonModal(action, requestNumber));
 			return null;

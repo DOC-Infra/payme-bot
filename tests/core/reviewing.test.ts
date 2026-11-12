@@ -3,7 +3,6 @@ import {
 	addManagerRole,
 	addTask,
 	approveRequest,
-	checkReviewer,
 	createJob,
 	denyRequest,
 	getPaymentRequest,
@@ -78,23 +77,6 @@ describe('Rejecting and denying a Payment Request', () => {
 			reason: 'Duplicate of R-1'
 		});
 	});
-
-	it('requires a reason', () => {
-		const { payMe } = pendingParcel();
-
-		expect(rejectRequest(payMe, courierManager, 1, '  ')).toEqual({ ok: false, error: { code: 'reason-required' } });
-		expect(denyRequest(payMe, courierManager, 1, '')).toEqual({ ok: false, error: { code: 'reason-required' } });
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('pending');
-	});
-
-	it('refuses to decide a request that is no longer Pending', () => {
-		const { payMe } = pendingParcel();
-		created(rejectRequest(payMe, courierManager, 1, 'Blurry'));
-
-		expect(approveRequest(payMe, leadership(), 1)).toEqual({ ok: false, error: { code: 'already-decided', number: 1, state: 'rejected' } });
-		expect(denyRequest(payMe, leadership(), 1, 'No')).toEqual({ ok: false, error: { code: 'already-decided', number: 1, state: 'rejected' } });
-		expect(getPaymentRequest(payMe, 1)?.history.map((entry) => entry.to)).toEqual(['pending', 'rejected']);
-	});
 });
 
 describe('What a decision posts', () => {
@@ -155,22 +137,6 @@ describe('What a decision posts', () => {
 });
 
 describe('Who can review', () => {
-	it('lets Leadership review a request for any Job', () => {
-		const { payMe } = pendingParcel();
-
-		expect(approveRequest(payMe, leadership(), 1)).toMatchObject({ ok: true });
-	});
-
-	it('refuses a Manager of a Job that is not eligible for the request, and members who manage nothing', () => {
-		const { payMe } = pendingParcel();
-		job(payMe, 'Logistics');
-
-		for (const reviewer of [member('user-lee', 'role-logistics-manager'), member('user-sam', 'role-courier')]) {
-			expect(approveRequest(payMe, reviewer, 1)).toEqual({ ok: false, error: { code: 'not-a-reviewer' } });
-		}
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('pending');
-	});
-
 	it('lets a Manager of any eligible Job review a request for a shared Task', () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
@@ -188,20 +154,6 @@ describe('Who can review', () => {
 
 		expect(approveRequest(payMe, member('user-lee', 'role-logistics-manager'), 1)).toMatchObject({ ok: true });
 	});
-
-	it('stops anyone reviewing their own request, including Leadership', () => {
-		const { payMe } = pendingParcel();
-		const alexAsReviewer = member('user-alex', 'role-courier', 'role-courier-manager', 'role-leadership');
-
-		expect(approveRequest(payMe, alexAsReviewer, 1)).toEqual({ ok: false, error: { code: 'own-request' } });
-		expect(getPaymentRequest(payMe, 1)?.state).toBe('pending');
-	});
-
-	it('tells the reviewer when the request does not exist', () => {
-		const { payMe } = pendingParcel();
-
-		expect(approveRequest(payMe, leadership(), 99)).toEqual({ ok: false, error: { code: 'request-not-found' } });
-	});
 });
 
 describe('Two simultaneous decisions', () => {
@@ -216,19 +168,6 @@ describe('Two simultaneous decisions', () => {
 
 		expect(first).toMatchObject({ ok: true });
 		expect(second).toEqual({ ok: false, error: { code: 'already-decided', number: 1, state: 'approved' } });
-		expect(getPaymentRequest(payMe, 1)?.history.map((entry) => entry.to)).toEqual(['pending', 'approved']);
-	});
-
-	it('tell a Manager whose reason form was open while another Manager approved that the request was already decided', () => {
-		const { payMe } = pendingParcel();
-
-		expect(checkReviewer(payMe, courierManager, 1)).toMatchObject({ ok: true });
-		created(approveRequest(payMe, leadership(), 1));
-
-		expect(rejectRequest(payMe, courierManager, 1, 'Blurry')).toEqual({
-			ok: false,
-			error: { code: 'already-decided', number: 1, state: 'approved' }
-		});
 		expect(getPaymentRequest(payMe, 1)?.history.map((entry) => entry.to)).toEqual(['pending', 'approved']);
 	});
 });

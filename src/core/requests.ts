@@ -1,10 +1,11 @@
-import { insertMessage, insertRequest, selectRequest, ticketClaimed } from '../storage/requests';
+import { insertMessage, selectRequest, ticketClaimed } from '../storage/requests';
 import { selectTaskIdByName } from '../storage/tasks';
 import type { Actor } from './actor';
-import { notice, type Card, type CardField, type Effect, type EntryAction, type EvidenceFile } from './effects';
+import { notice, type Card, type CardField, type Effect, type EvidenceFile } from './effects';
 import { getEmployee, type Employee } from './employees';
 import { jobsHeldBy, managesJob } from './job-membership';
 import { getJob, type Job } from './jobs';
+import { entryActions, submit } from './lifecycle';
 import { requestLabel, stateName, stateTone, type RequestState } from './labels';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
@@ -148,15 +149,13 @@ function fileRequest(
 		const refused = check(task);
 		if (refused) return refused;
 
-		const number = insertRequest(storage, {
+		const request = submit(payMe, actor, {
 			employeeUserId: employee.userId,
-			submittedBy: actor.userId,
 			taskId: task.id,
 			eligibleJobIds: heldJobs.filter((job) => task.jobIds.includes(job.id)).map((job) => job.id),
 			evidence: evidenceFor(input, 1)
 		});
-
-		const request = selectRequest(storage, number)!;
+		const { number } = request;
 		const forOther = onBehalf(actor, member);
 		const submitted = forOther ? `Submitted by <@${actor.userId}> for <@${employee.userId}>` : `Submitted by <@${actor.userId}>`;
 		const reply = `Submitted ${requestLabel(number)} for ${task.name}${forOther ? ` on behalf of <@${employee.userId}>` : ''}.`;
@@ -179,7 +178,7 @@ export function roundEffects(payMe: PayMe, request: PaymentRequest, heading: str
 			employeeUserId: employee.userId,
 			card: entryCard(request, task, heading),
 			files,
-			actions: entryActions(request.state)
+			actions: entryActions(request)
 		},
 		...request.eligibleJobIds.map((jobId): Effect => ({
 			type: 'post-review-message',
@@ -211,20 +210,13 @@ export function updateRequestEntry(payMe: PayMe, request: PaymentRequest): Effec
 		requestNumber: request.number,
 		round: request.round,
 		card: entryCard(request, getTask(payMe, request.taskId)!, latestChange(request)),
-		actions: entryActions(request.state)
+		actions: entryActions(request)
 	};
 }
 
-/** The buttons the Employee gets on the request's latest Requests Thread entry. */
-export function entryActions(state: RequestState): EntryAction[] {
-	if (state === 'pending') return ['withdraw'];
-	if (state === 'rejected') return ['amend', 'withdraw'];
-	return [];
-}
-
-/** Sets the buttons on the request's current Requests Thread entry to match its state. */
-export function updateEntryActions(request: PaymentRequest): Effect {
-	return { type: 'update-entry-actions', requestNumber: request.number, round: request.round, actions: entryActions(request.state) };
+/** Sets the buttons on the request's Requests Thread entry for `round` to match its state. */
+export function updateEntryActions(request: PaymentRequest, round = request.round): Effect {
+	return { type: 'update-entry-actions', requestNumber: request.number, round, actions: entryActions(request, round) };
 }
 
 export function recordRequestMessage(payMe: PayMe, number: number, message: RequestMessage) {

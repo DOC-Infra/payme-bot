@@ -1,30 +1,19 @@
-import { insertEvidence, startNextRound, updateRequestState } from '../storage/requests';
+import { insertEvidence, startNextRound } from '../storage/requests';
 import type { Actor } from './actor';
+import { changeState, checkChange } from './lifecycle';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { getTask } from './tasks';
-import { checkLink, evidenceFor, getPaymentRequest, roundEffects, updateRequestEntry, type NewEvidence, type PaymentRequest } from './requests';
-
-/** Checks that the actor may amend the request now, for example before showing them the amend form. */
-export function checkAmend(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
-	const request = findOwnRequest(payMe, actor, number);
-	if (!request.ok || request.value.state === 'rejected') return request;
-	return fail({ code: 'cannot-amend', number, state: request.value.state });
-}
-
-/** Checks that the actor may withdraw the request now, for example before asking them to confirm. */
-export function checkWithdraw(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
-	const request = findOwnRequest(payMe, actor, number);
-	if (!request.ok || ['pending', 'rejected'].includes(request.value.state)) return request;
-	return fail({ code: 'cannot-withdraw', number, state: request.value.state });
-}
-
-function findOwnRequest(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
-	const request = getPaymentRequest(payMe, number);
-	if (!request) return fail({ code: 'request-not-found' });
-	if (request.employeeUserId !== actor.userId) return fail({ code: 'not-your-request' });
-	return succeed([], request);
-}
+import {
+	checkLink,
+	evidenceFor,
+	getPaymentRequest,
+	roundEffects,
+	updateEntryActions,
+	updateRequestEntry,
+	type NewEvidence,
+	type PaymentRequest
+} from './requests';
 
 export function amendRequest(payMe: PayMe, actor: Actor, number: number, input: NewEvidence): Outcome<PaymentRequest> {
 	const invalid = checkLink(input);
@@ -32,22 +21,19 @@ export function amendRequest(payMe: PayMe, actor: Actor, number: number, input: 
 
 	const { storage } = payMe;
 	return storage.transaction(() => {
-		const checked = checkAmend(payMe, actor, number);
+		const checked = checkChange(payMe, actor, number, 'amend');
 		if (!checked.ok) return checked;
-
 		const empty = checkAmendment(payMe, checked.value, input);
 		if (empty) return empty;
 
-		const { round } = checked.value;
-		updateRequestState(storage, number, { from: 'rejected', to: 'pending', actorUserId: actor.userId, reason: null });
+		const amended = changeState(payMe, actor, number, 'amend');
+		if (!amended.ok) return amended;
+		const { round } = amended.value;
 		startNextRound(storage, number);
 		insertEvidence(storage, number, evidenceFor(input, round + 1));
 		const request = getPaymentRequest(payMe, number)!;
 		return succeed(
-			[
-				{ type: 'update-entry-actions', requestNumber: number, round, actions: [] },
-				...roundEffects(payMe, request, `Amended and resubmitted by <@${actor.userId}>, Pending review.`)
-			],
+			[updateEntryActions(request, round), ...roundEffects(payMe, request, `Amended and resubmitted by <@${actor.userId}>, Pending review.`)],
 			request
 		);
 	});
@@ -61,13 +47,11 @@ function checkAmendment(payMe: PayMe, request: PaymentRequest, input: NewEvidenc
 }
 
 export function withdrawRequest(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
-	const { storage } = payMe;
-	return storage.transaction(() => {
-		const checked = checkWithdraw(payMe, actor, number);
-		if (!checked.ok) return checked;
+	return payMe.storage.transaction(() => {
+		const withdrawn = changeState(payMe, actor, number, 'withdraw');
+		if (!withdrawn.ok) return withdrawn;
 
-		updateRequestState(storage, number, { from: checked.value.state, to: 'withdrawn', actorUserId: actor.userId, reason: null });
-		const request = getPaymentRequest(payMe, number)!;
+		const request = withdrawn.value;
 		return succeed([updateRequestEntry(payMe, request), { type: 'delete-review-copies', requestNumber: number }], request);
 	});
 }

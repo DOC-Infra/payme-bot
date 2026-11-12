@@ -11,6 +11,7 @@ export * from './rates';
 export * from './tasks';
 export * from './employees';
 export * from './requests';
+export * from './lifecycle';
 export * from './role-sync';
 export * from './reviewing';
 export * from './amending';

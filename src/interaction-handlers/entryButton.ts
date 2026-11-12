@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { ActionRowBuilder, MessageFlags, type ButtonBuilder, type ButtonInteraction } from 'discord.js';
-import { checkAmend, checkWithdraw, getTask, notice, requestLabel, withdrawRequest } from '../core';
+import { checkChange, getTask, notice, requestLabel, withdrawRequest } from '../core';
 import { toEmbeds } from '../discord/embeds';
 import { buildAmendModal, confirmWithdrawButton, parseEntryButton } from '../discord/entry';
 import { acknowledge, runAsActor, runOutcome } from '../discord/runner';
@@ -22,14 +22,14 @@ export class ButtonHandler extends InteractionHandler {
 			}
 
 			if (action === 'amend') {
-				const checked = checkAmend(payMe, actor, requestNumber);
+				const checked = checkChange(payMe, actor, requestNumber, 'amend');
 				if (!checked.ok) return checked;
 				const notesRequired = getTask(payMe, checked.value.taskId)?.notesRequired ?? true;
 				await interaction.showModal(buildAmendModal(requestNumber, notesRequired));
 				return null;
 			}
 
-			const checked = checkWithdraw(payMe, actor, requestNumber);
+			const checked = checkChange(payMe, actor, requestNumber, 'withdraw');
 			if (!checked.ok) return checked;
 			await interaction.reply({
 				embeds: toEmbeds(notice(`Withdraw ${requestLabel(requestNumber)}? It can't be amended or resubmitted afterwards.`, 'warning')),
