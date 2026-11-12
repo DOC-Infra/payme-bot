@@ -1,4 +1,3 @@
-import { insertMessage, selectRequest, ticketClaimed } from '../storage/requests';
 import { selectTaskIdByName } from '../storage/tasks';
 import type { Actor } from './actor';
 import { notice, type Card, type CardField, type Effect, type EvidenceFile } from './effects';
@@ -12,10 +11,10 @@ import { formatAmount } from './rates';
 import type { PayMe } from './payme';
 import { activeTasksForJobs, getTask, maxFormOptions, type Task } from './tasks';
 
-export type Evidence =
-	| { round: number; kind: 'notes'; text: string }
-	| { round: number; kind: 'link'; url: string }
-	| { round: number; kind: 'attachment'; name: string; url: string };
+export type EvidenceItem = { kind: 'notes'; text: string } | { kind: 'link'; url: string } | { kind: 'attachment'; name: string; url: string };
+
+/** Evidence given in a submission round. */
+export type Evidence = EvidenceItem & { round: number };
 
 export interface RequestHistoryEntry {
 	from: RequestState | null;
@@ -53,10 +52,6 @@ export interface NewEvidence {
 
 export interface NewPaymentRequest extends NewEvidence {
 	taskId: number;
-}
-
-export function getPaymentRequest(payMe: PayMe, number: number): PaymentRequest | null {
-	return selectRequest(payMe.storage, number);
 }
 
 /** What the request form shows: its Tasks when they fit on one form, otherwise the Jobs to pick from first. */
@@ -154,7 +149,7 @@ export function claimTicket(payMe: PayMe, actor: Actor, ticket: string): Outcome
 
 	const notes = `Ticket ${ticket}`;
 	return fileRequest(payMe, actor, actor, { taskId, notes, link: null, files: [] }, (task) =>
-		ticketClaimed(payMe.storage, actor.userId, task.id, notes) ? fail({ code: 'ticket-claimed', ticket }) : null
+		payMe.requests.ticketClaimed(actor.userId, task.id, notes) ? fail({ code: 'ticket-claimed', ticket }) : null
 	);
 }
 
@@ -183,7 +178,7 @@ function fileRequest(
 			employeeUserId: employee.userId,
 			taskId: task.id,
 			eligibleJobIds: heldJobs.filter((job) => task.jobIds.includes(job.id)).map((job) => job.id),
-			evidence: evidenceFor(input, 1)
+			evidence: evidenceItems(input)
 		});
 		const { number } = request;
 		const forOther = onBehalf(actor, member);
@@ -249,12 +244,8 @@ export function updateEntryActions(request: PaymentRequest, round = request.roun
 	return { type: 'update-entry-actions', requestNumber: request.number, round, actions: entryActions(request, round) };
 }
 
-export function recordRequestMessage(payMe: PayMe, number: number, message: RequestMessage) {
-	insertMessage(payMe.storage, number, message);
-}
-
 export function requestEntry(payMe: PayMe, number: number, round: number): RequestMessage | null {
-	const entry = getPaymentRequest(payMe, number)?.messages.find((message) => message.round === round && message.jobId === null);
+	const entry = payMe.requests.load(number)?.messages.find((message) => message.round === round && message.jobId === null);
 	return entry ?? null;
 }
 
@@ -318,11 +309,11 @@ export function checkLink(input: NewEvidence): Failure | null {
 	return null;
 }
 
-export function evidenceFor(input: NewEvidence, round: number): Evidence[] {
+export function evidenceItems(input: NewEvidence): EvidenceItem[] {
 	const notes = input.notes.trim();
-	const evidence: Evidence[] = notes ? [{ round, kind: 'notes', text: notes }] : [];
-	if (input.link) evidence.push({ round, kind: 'link', url: input.link });
-	for (const file of input.files) evidence.push({ round, kind: 'attachment', name: file.name, url: file.url });
+	const evidence: EvidenceItem[] = notes ? [{ kind: 'notes', text: notes }] : [];
+	if (input.link) evidence.push({ kind: 'link', url: input.link });
+	for (const file of input.files) evidence.push({ kind: 'attachment', name: file.name, url: file.url });
 	return evidence;
 }
 

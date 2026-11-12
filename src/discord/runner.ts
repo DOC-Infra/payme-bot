@@ -25,9 +25,7 @@ import {
 	pinnedMessageCard,
 	fail,
 	getEmployee,
-	getPaymentRequest,
 	getPayout,
-	recordRequestMessage,
 	recordRequestsThread,
 	requestEntry,
 	type Actor,
@@ -109,7 +107,7 @@ const handlers: Handlers = {
 			components: reviewRow(entryButtons(effect.requestNumber, effect.actions)),
 			allowedMentions: { parse: [] }
 		});
-		recordRequestMessage(container.payMe, effect.requestNumber, {
+		container.payMe.requests.recordMessage(effect.requestNumber, {
 			round: effect.round,
 			jobId: null,
 			channelId: thread.id,
@@ -127,7 +125,7 @@ const handlers: Handlers = {
 			components,
 			allowedMentions: { parse: [] }
 		});
-		recordRequestMessage(container.payMe, effect.requestNumber, {
+		container.payMe.requests.recordMessage(effect.requestNumber, {
 			round: effect.round,
 			jobId: effect.jobId,
 			channelId: channel.id,
@@ -135,7 +133,7 @@ const handlers: Handlers = {
 		});
 	},
 	'update-review-copies': async (effect) => {
-		const copies = getPaymentRequest(container.payMe, effect.requestNumber)?.messages ?? [];
+		const copies = container.payMe.requests.load(effect.requestNumber)?.messages ?? [];
 		const components = reviewRow(entryLink(effect.requestNumber, effect.round));
 		for (const copy of copies) {
 			if (copy.jobId === null || copy.round !== effect.round) continue;
@@ -163,7 +161,7 @@ const handlers: Handlers = {
 		});
 	},
 	'delete-review-copies': async (effect) => {
-		const copies = getPaymentRequest(container.payMe, effect.requestNumber)?.messages ?? [];
+		const copies = container.payMe.requests.load(effect.requestNumber)?.messages ?? [];
 		for (const copy of copies) {
 			if (copy.jobId === null) continue;
 			try {

@@ -1,4 +1,4 @@
-import { insertRequest, selectRequest, updateRequestState, type NewRequestRow } from '../storage/requests';
+import type { NewRequest } from '../storage/requests';
 import type { Actor } from './actor';
 import type { EntryAction } from './effects';
 import type { PayMeError } from './errors';
@@ -8,7 +8,7 @@ import type { RequestState } from './labels';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
-import type { PaymentRequest } from './requests';
+import type { EvidenceItem, PaymentRequest } from './requests';
 
 /** A change to an existing Payment Request. Submitting creates one, see `submit`. */
 export type RequestChange = 'approve' | 'reject' | 'deny' | 'amend' | 'withdraw' | 'pay';
@@ -50,27 +50,30 @@ export function entryActions(request: PaymentRequest, round = request.round): En
 }
 
 /** Records a new Pending request. `actor` filed it: the Employee, or a Manager or Leadership on their behalf. */
-export function submit(payMe: PayMe, actor: Actor, request: NewRequestRow): PaymentRequest {
-	const number = insertRequest(payMe.storage, request, { from: null, to: 'pending', actorUserId: actor.userId, reason: null });
-	return selectRequest(payMe.storage, number)!;
+export function submit(payMe: PayMe, actor: Actor, request: NewRequest): PaymentRequest {
+	return payMe.requests.create(request, { state: 'pending', actorUserId: actor.userId });
 }
 
 /** Checks that the actor may make the change now, for example before showing them a form for it. */
 export function checkChange(payMe: PayMe, actor: Actor, number: number, change: RequestChange): Outcome<PaymentRequest> {
-	const request = selectRequest(payMe.storage, number);
+	const request = payMe.requests.load(number);
 	if (!request) return fail({ code: 'request-not-found' });
 	const refused = refuseActor(payMe, actor, request, rules[change].by) ?? refuseState(request, change);
 	if (refused) return refused;
 	return succeed([], request);
 }
 
-/** Makes the change if the actor may make it now, recording it in the request's history. */
+/**
+ * Makes the change if the actor may make it now, recording it in the request's history. An amendment's `resubmission` starts the
+ * request's next round. Refused if someone else changed the request first.
+ */
 export function changeState(
 	payMe: PayMe,
 	actor: Actor,
 	number: number,
 	change: RequestChange,
-	reason: string | null = null
+	reason: string | null = null,
+	resubmission?: readonly EvidenceItem[]
 ): Outcome<PaymentRequest> {
 	const checked = checkChange(payMe, actor, number, change);
 	if (!checked.ok) return checked;
@@ -78,11 +81,15 @@ export function changeState(
 	const recorded = needsReason ? (reason?.trim() ?? '') : null;
 	if (recorded === '') return fail({ code: 'reason-required' });
 
-	const { storage } = payMe;
-	const changed = updateRequestState(storage, number, { from: checked.value.state, to, actorUserId: actor.userId, reason: recorded });
-	const request = selectRequest(storage, number)!;
-	if (!changed) return refuseState(request, change)!;
-	return succeed([], request);
+	const applied = payMe.requests.apply(number, { from: checked.value.state, to, actorUserId: actor.userId, reason: recorded, resubmission });
+	if (!applied.saved) return refuseStale(applied.current, change);
+	return succeed([], applied.request);
+}
+
+/** Someone else changed the request after it was checked, so the change was not saved. */
+function refuseStale(current: PaymentRequest | null, change: RequestChange): Failure {
+	if (!current) return fail({ code: 'request-not-found' });
+	return fail({ code: rules[change].refusal, number: current.number, state: current.state });
 }
 
 function refuseState(request: PaymentRequest, change: RequestChange): Failure | null {

@@ -17,14 +17,9 @@ export function denyRequest(payMe: PayMe, actor: Actor, number: number, reason: 
 }
 
 function decide(payMe: PayMe, actor: Actor, number: number, change: RequestChange, reason: string | null): Outcome<PaymentRequest> {
-	return payMe.storage.transaction(() => {
-		const decided = changeState(payMe, actor, number, change, reason);
-		if (!decided.ok) return decided;
+	const decided = changeState(payMe, actor, number, change, reason);
+	if (!decided.ok) return decided;
 
-		const request = decided.value;
-		return succeed(
-			[updateReviewCopies(payMe, request), updateEntryActions(request), logStateChange(payMe, request, change !== 'approve')],
-			request
-		);
-	});
+	const request = decided.value;
+	return succeed([updateReviewCopies(payMe, request), updateEntryActions(request), logStateChange(payMe, request, change !== 'approve')], request);
 }

@@ -10,7 +10,7 @@ import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership, requireLeadership } from './permissions';
 import { formatAmount } from './rates';
-import { getPaymentRequest, updateReviewCopies } from './requests';
+import { updateReviewCopies } from './requests';
 import { getTask } from './tasks';
 
 export interface PayoutLine {
@@ -102,8 +102,8 @@ function holdsAnyJob(payMe: PayMe, member: Actor, jobs: readonly Job[]): boolean
 function owedForJobs(payMe: PayMe, jobs: readonly Job[]): string[] {
 	const { storage } = payMe;
 	const locked = selectPayoutsInState(storage, 'open').flatMap((payout) => payout.lines.map((line) => line.requestNumber));
-	return [...selectUnpaidRequests(storage).map((request) => request.number), ...locked]
-		.map((number) => getPaymentRequest(payMe, number)!)
+	return payMe.requests
+		.loadMany({ numbers: [...selectUnpaidRequests(storage).map((request) => request.number), ...locked] })
 		.filter((request) => jobs.some((job) => request.eligibleJobIds.includes(job.id)))
 		.map((request) => request.employeeUserId);
 }

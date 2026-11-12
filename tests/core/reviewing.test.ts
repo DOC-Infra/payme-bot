@@ -5,7 +5,6 @@ import {
 	approveRequest,
 	createJob,
 	denyRequest,
-	getPaymentRequest,
 	hireEmployee,
 	recordRequestsThread,
 	rejectRequest,
@@ -50,7 +49,7 @@ describe('Approving a Payment Request', () => {
 		const { payMe } = pendingParcel();
 
 		expect(approveRequest(payMe, courierManager, 1)).toMatchObject({ ok: true, value: { state: 'approved' } });
-		expect(getPaymentRequest(payMe, 1)?.history).toMatchObject([
+		expect(payMe.requests.load(1)?.history).toMatchObject([
 			{ from: null, to: 'pending', actorUserId: 'user-alex', reason: null },
 			{ from: 'pending', to: 'approved', actorUserId: 'user-casey', reason: null }
 		]);
@@ -64,13 +63,13 @@ describe('Rejecting and denying a Payment Request', () => {
 
 		expect(rejectRequest(payMe, courierManager, 1, ' Blurry screenshot ')).toMatchObject({ ok: true, value: { state: 'rejected' } });
 		expect(denyRequest(payMe, courierManager, 2, 'Duplicate of R-1')).toMatchObject({ ok: true, value: { state: 'denied' } });
-		expect(getPaymentRequest(payMe, 1)?.history[1]).toMatchObject({
+		expect(payMe.requests.load(1)?.history[1]).toMatchObject({
 			from: 'pending',
 			to: 'rejected',
 			actorUserId: 'user-casey',
 			reason: 'Blurry screenshot'
 		});
-		expect(getPaymentRequest(payMe, 2)?.history[1]).toMatchObject({
+		expect(payMe.requests.load(2)?.history[1]).toMatchObject({
 			from: 'pending',
 			to: 'denied',
 			actorUserId: 'user-casey',
@@ -168,6 +167,6 @@ describe('Two simultaneous decisions', () => {
 
 		expect(first).toMatchObject({ ok: true });
 		expect(second).toEqual({ ok: false, error: { code: 'already-decided', number: 1, state: 'approved' } });
-		expect(getPaymentRequest(payMe, 1)?.history.map((entry) => entry.to)).toEqual(['pending', 'approved']);
+		expect(payMe.requests.load(1)?.history.map((entry) => entry.to)).toEqual(['pending', 'approved']);
 	});
 });
