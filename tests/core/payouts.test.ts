@@ -12,6 +12,7 @@ import {
 	markPayoutPaid,
 	payCommand,
 	hireEmployee,
+	recordRequestMessage,
 	recordRequestsThread,
 	retireJob,
 	retireTask,
@@ -168,9 +169,11 @@ describe('Marking a Payout paid', () => {
 	});
 
 	it("logs the Payout in the Employee's Requests Thread without a ping, and updates each request's review copies", () => {
-		const { payMe, parcel, mail } = courierAlex();
+		const { payMe, courier, parcel, mail } = courierAlex();
 		approved(payMe, alex, parcel.id);
 		approved(payMe, alex, mail.id);
+		recordRequestMessage(payMe, 1, { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'entry-1' });
+		recordRequestMessage(payMe, 1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-1' });
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 
 		expect(markPayoutPaid(payMe, leadership('user-lin'), 1)).toMatchObject({
@@ -178,11 +181,13 @@ describe('Marking a Payout paid', () => {
 				{
 					type: 'update-review-copies',
 					requestNumber: 1,
+					messages: [{ channelId: 'review-courier', messageId: 'copy-1' }],
 					card: { fields: expect.arrayContaining([{ name: 'Status', value: '**Paid** by <@user-lin>' }]) }
 				},
 				{
 					type: 'update-review-copies',
 					requestNumber: 2,
+					messages: [],
 					card: { fields: expect.arrayContaining([{ name: 'Status', value: '**Paid** by <@user-lin>' }]) }
 				},
 				{
@@ -394,6 +399,42 @@ describe('The payouts view', () => {
 		expect(showPayouts(payMe, leadership(), [])).toMatchObject({
 			effects: [{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts', description: 'Nobody is owed anything.' }, actions: [] }]
 		});
+	});
+});
+
+describe('Settle buttons on a Payout', () => {
+	const settleButtons = (outcome: Outcome<unknown>) =>
+		outcome.ok ? outcome.effects.flatMap((effect) => (effect.type === 'show-payout' ? [effect.settleButtons] : [])) : null;
+
+	it('show Mark paid and Discard to Leadership while the Payout is Open', () => {
+		const { payMe, parcel } = courierAlex();
+		approved(payMe, alex, parcel.id);
+
+		expect(settleButtons(generatePayout(payMe, leadership(), 'user-alex'))).toEqual([true]);
+		expect(settleButtons(showPayout(payMe, leadership(), 1))).toEqual([true]);
+	});
+
+	it('are gone once the Payout is Paid or Discarded', () => {
+		const { payMe, parcel, mail } = courierAlex();
+		approved(payMe, alex, parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+
+		expect(settleButtons(markPayoutPaid(payMe, leadership(), 1))).toEqual([false]);
+		expect(settleButtons(showPayout(payMe, leadership(), 1))).toEqual([false]);
+
+		approved(payMe, alex, mail.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		expect(settleButtons(discardPayout(payMe, leadership(), 2))).toEqual([false]);
+		expect(settleButtons(showPayout(payMe, leadership(), 2))).toEqual([false]);
+	});
+
+	it('never reach anyone but Leadership, who are refused the Payout outright', () => {
+		const { payMe, parcel } = courierAlex();
+		approved(payMe, alex, parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+
+		expect(settleButtons(showPayout(payMe, member('user-casey', 'role-courier-manager'), 1))).toBeNull();
+		expect(settleButtons(showPayout(payMe, alex, 1))).toBeNull();
 	});
 });
 

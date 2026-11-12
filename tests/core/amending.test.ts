@@ -7,6 +7,7 @@ import {
 	createJob,
 	getPaymentRequest,
 	hireEmployee,
+	recordRequestMessage,
 	recordRequestsThread,
 	rejectRequest,
 	setNotesRequired,
@@ -174,9 +175,31 @@ describe('Withdrawing a Payment Request', () => {
 					},
 					actions: []
 				},
-				{ type: 'delete-review-copies', requestNumber: 1 }
+				{ type: 'delete-review-copies', requestNumber: 1, messages: [] }
 			]
 		});
 		expect(getPaymentRequest(payMe, 1)?.history.at(-1)).toMatchObject({ from: 'pending', to: 'withdrawn', actorUserId: 'user-alex' });
+	});
+
+	it('deletes the review copies of every round, keeping the Requests Thread entries', () => {
+		const { payMe, courier } = rejectedParcel();
+		recordRequestMessage(payMe, 1, { round: 1, jobId: null, channelId: 'thread-alex', messageId: 'entry-1' });
+		recordRequestMessage(payMe, 1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-1' });
+		created(amendRequest(payMe, alex, 1, { notes: 'Retook it', link: null, files: [clearer] }));
+		recordRequestMessage(payMe, 1, { round: 2, jobId: null, channelId: 'thread-alex', messageId: 'entry-2' });
+		recordRequestMessage(payMe, 1, { round: 2, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-2' });
+
+		expect(withdrawRequest(payMe, alex, 1)).toMatchObject({
+			effects: expect.arrayContaining([
+				{
+					type: 'delete-review-copies',
+					requestNumber: 1,
+					messages: [
+						{ channelId: 'review-courier', messageId: 'copy-1' },
+						{ channelId: 'review-courier', messageId: 'copy-2' }
+					]
+				}
+			])
+		});
 	});
 });
