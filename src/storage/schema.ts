@@ -65,7 +65,8 @@ export const paymentRequests = sqliteTable('payment_requests', {
 		.notNull()
 		.references(() => tasks.id),
 	state: text('state', { enum: requestStates }).notNull(),
-	round: integer('round').notNull().default(1)
+	round: integer('round').notNull().default(1),
+	ticket: text('ticket')
 });
 
 export const paymentRequestJobs = sqliteTable(

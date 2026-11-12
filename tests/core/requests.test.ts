@@ -5,6 +5,7 @@ import {
 	addTaskToJob,
 	claimTicket,
 	createJob,
+	denyRequest,
 	hireEmployee,
 	recordRequestsThread,
 	carryOutRound,
@@ -542,6 +543,7 @@ describe('Claiming a DOC ticket', () => {
 		expect(request.taskId).toBe(assistance.id);
 		expect(request.state).toBe('pending');
 		expect(request.evidence).toEqual([{ round: 1, kind: 'notes', text: 'Ticket 01234' }]);
+		expect(request.ticket).toBe('01234');
 	});
 
 	it.each(['1234', '123456', '12a45', ''])('refuses %j, which is not 5 digits', (ticket) => {
@@ -550,13 +552,46 @@ describe('Claiming a DOC ticket', () => {
 		expect(claimTicket(payMe, alex, ticket)).toEqual({ ok: false, error: { code: 'invalid-ticket', ticket } });
 	});
 
-	it('refuses a ticket the Employee already claimed, unless that request was withdrawn', () => {
+	it('refuses a ticket the Employee already claimed', () => {
 		const { payMe, alex } = ticketScenario();
 		created(claimTicket(payMe, alex, '55555'));
 
 		expect(claimTicket(payMe, alex, '55555')).toEqual({ ok: false, error: { code: 'ticket-claimed', ticket: '55555' } });
+		expect(created(claimTicket(payMe, alex, '55556')).number).toBe(2);
+	});
+
+	it('lets the Employee claim the ticket again once that request was withdrawn', () => {
+		const { payMe, alex } = ticketScenario();
+		created(claimTicket(payMe, alex, '55555'));
+
 		created(withdrawRequest(payMe, alex, 1));
+
 		expect(created(claimTicket(payMe, alex, '55555')).number).toBe(2);
+	});
+
+	it('lets the Employee claim the ticket again once that request was denied', () => {
+		const { payMe, alex } = ticketScenario();
+		created(claimTicket(payMe, alex, '55555'));
+
+		created(denyRequest(payMe, member('user-casey', 'role-support-manager'), 1, 'Not our ticket'));
+
+		expect(created(claimTicket(payMe, alex, '55555')).number).toBe(2);
+	});
+
+	it('finds an earlier claim by its ticket, not by the wording of its notes', () => {
+		const { payMe, alex } = ticketScenario();
+		created(claimTicket(payMe, alex, '55555'));
+		payMe.storage.db.$client.exec("UPDATE payment_request_evidence SET value = 'Helped with DOC ticket 55555'");
+
+		expect(claimTicket(payMe, alex, '55555')).toEqual({ ok: false, error: { code: 'ticket-claimed', ticket: '55555' } });
+	});
+
+	it('does not count a request that merely mentions the ticket in its notes as a claim', () => {
+		const { payMe, assistance, alex } = ticketScenario();
+		const mention = created(submitRequest(payMe, alex, { taskId: assistance.id, notes: 'Ticket 55555', link: null, files: [screenshot] }));
+
+		expect(mention.ticket).toBeNull();
+		expect(created(claimTicket(payMe, alex, '55555')).ticket).toBe('55555');
 	});
 
 	it('lets different Employees claim the same ticket', () => {

@@ -14,6 +14,8 @@ export interface NewRequest {
 	eligibleJobIds: readonly number[];
 	/** The Evidence of the first round. */
 	evidence: readonly EvidenceItem[];
+	/** The DOC ticket number, for a ticket claim. */
+	ticket?: string;
 }
 
 /** A change from the state the request is expected to be in, recorded in its history. */
@@ -37,8 +39,8 @@ export interface RequestStore {
 	apply(number: number, change: StateChange): Applied;
 	/** Records the message, replacing any earlier record of the same message (which moves it to the end of the request's messages). */
 	recordMessage(number: number, message: RequestMessage): void;
-	/** Whether the Employee already has a request for the Task, not Denied or Withdrawn, with these notes. */
-	ticketClaimed(employeeUserId: string, taskId: number, notes: string): boolean;
+	/** Whether the Employee already claimed the ticket in a request that is not Denied or Withdrawn. */
+	ticketClaimed(employeeUserId: string, ticket: string): boolean;
 }
 
 export function requestStore(storage: Storage): RequestStore {
@@ -53,7 +55,7 @@ export function requestStore(storage: Storage): RequestStore {
 				return { saved: true, request: load(number)! };
 			}),
 		recordMessage: (number, message) => storage.transaction(() => insertMessage(storage, number, message)),
-		ticketClaimed: (employeeUserId, taskId, notes) => ticketClaimed(storage, employeeUserId, taskId, notes)
+		ticketClaimed: (employeeUserId, ticket) => ticketClaimed(storage, employeeUserId, ticket)
 	};
 }
 
@@ -64,10 +66,10 @@ function queryFilter(query: RequestQuery): SQL | undefined {
 
 function insertRequest(storage: Storage, request: NewRequest, firstEntry: { state: RequestState; actorUserId: string }): number {
 	const { db } = storage;
-	const { employeeUserId, taskId } = request;
+	const { employeeUserId, taskId, ticket = null } = request;
 	const { number } = db
 		.insert(paymentRequests)
-		.values({ employeeUserId, taskId, state: firstEntry.state })
+		.values({ employeeUserId, taskId, ticket, state: firstEntry.state })
 		.returning({ number: paymentRequests.number })
 		.get();
 	if (request.eligibleJobIds.length > 0) {
@@ -123,18 +125,15 @@ function insertMessage(storage: Storage, number: number, message: RequestMessage
 	storage.db.insert(paymentRequestMessages).values({ requestNumber: number, round, jobId, channelId, messageId }).run();
 }
 
-function ticketClaimed(storage: Storage, employeeUserId: string, taskId: number, notes: string): boolean {
+function ticketClaimed(storage: Storage, employeeUserId: string, ticket: string): boolean {
 	const row = storage.db
 		.select({ number: paymentRequests.number })
 		.from(paymentRequests)
-		.innerJoin(paymentRequestEvidence, eq(paymentRequestEvidence.requestNumber, paymentRequests.number))
 		.where(
 			and(
 				eq(paymentRequests.employeeUserId, employeeUserId),
-				eq(paymentRequests.taskId, taskId),
-				notInArray(paymentRequests.state, ['denied', 'withdrawn']),
-				eq(paymentRequestEvidence.kind, 'notes'),
-				eq(paymentRequestEvidence.value, notes)
+				eq(paymentRequests.ticket, ticket),
+				notInArray(paymentRequests.state, ['denied', 'withdrawn'])
 			)
 		)
 		.get();

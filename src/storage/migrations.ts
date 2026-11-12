@@ -124,5 +124,22 @@ export const migrations: Migration[] = [
 	{
 		name: '0007-task-notes-required',
 		sql: `ALTER TABLE tasks ADD COLUMN notes_required INTEGER NOT NULL DEFAULT 1;`
+	},
+	{
+		name: '0008-payment-request-ticket',
+		sql: `
+			ALTER TABLE payment_requests ADD COLUMN ticket TEXT;
+			UPDATE payment_requests
+			SET ticket = (
+				SELECT substr(evidence.value, 8)
+				FROM payment_request_evidence AS evidence
+				WHERE evidence.request_number = payment_requests.number
+					AND evidence.round = 1
+					AND evidence.kind = 'notes'
+					AND evidence.value GLOB 'Ticket [0-9][0-9][0-9][0-9][0-9]'
+			)
+			WHERE task_id IN (SELECT id FROM tasks WHERE name = 'DOC Ticket Assistance');
+			CREATE INDEX payment_requests_by_ticket ON payment_requests (employee_user_id, ticket) WHERE ticket IS NOT NULL;
+		`
 	}
 ];
