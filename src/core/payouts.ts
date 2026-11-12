@@ -1,4 +1,4 @@
-import { insertPayout, selectOpenPayout, selectPayout, selectPayoutsInState, selectUnpaidRequests, settlePayout } from '../storage/payouts';
+import { insertPayout, selectOpenPayout, selectPayout, selectPayoutsInState, settlePayout } from '../storage/payouts';
 import type { Actor } from './actor';
 import type { Card, Effect, PayoutAction } from './effects';
 import { getEmployee } from './employees';
@@ -10,7 +10,7 @@ import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership, requireLeadership } from './permissions';
 import { formatAmount } from './rates';
-import { updateReviewCopies } from './requests';
+import { updateReviewCopies, type PaymentRequest } from './requests';
 import { getTask } from './tasks';
 
 export interface PayoutLine {
@@ -53,32 +53,79 @@ export function getPayout(payMe: PayMe, number: number): Payout | null {
 	return selectPayout(payMe.storage, number);
 }
 
+/** What is owed, read in one go. */
+interface Owing {
+	approved: PaymentRequest[];
+	unpaid: PaymentRequest[];
+	openPayouts: Payout[];
+	rates: ReadonlyMap<number, number>;
+}
+
+function loadOwing(payMe: PayMe, employeeUserId?: string): Owing {
+	const approved = payMe.requests.loadMany({ employeeUserId, states: ['approved'] });
+	const openPayouts = loadOpenPayouts(payMe, employeeUserId);
+	const unpaid = unpaidRequests(approved, openPayouts);
+	return { approved, unpaid, openPayouts, rates: currentRates(payMe, unpaid) };
+}
+
+function loadOpenPayouts(payMe: PayMe, employeeUserId?: string): Payout[] {
+	if (employeeUserId === undefined) return selectPayoutsInState(payMe.storage, 'open');
+	const open = selectOpenPayout(payMe.storage, employeeUserId);
+	return open ? [open] : [];
+}
+
+/** A request is unpaid when it is Approved and not locked in an Open Payout. */
+function unpaidRequests(requests: readonly PaymentRequest[], openPayouts: readonly Payout[]): PaymentRequest[] {
+	const locked = new Set(openPayouts.flatMap((payout) => payout.lines.map((line) => line.requestNumber)));
+	return requests.filter((request) => request.state === 'approved' && !locked.has(request.number));
+}
+
+/** A Payout line belongs to the lowest-numbered Job the request is eligible under. */
+function lineJobId(request: PaymentRequest): number {
+	return Math.min(...request.eligibleJobIds);
+}
+
+function currentRates(payMe: PayMe, requests: readonly PaymentRequest[]): Map<number, number> {
+	const taskIds = new Set(requests.map((request) => request.taskId));
+	return new Map([...taskIds].map((taskId) => [taskId, getTask(payMe, taskId)!.rate]));
+}
+
+function rateOf(owing: Owing, request: PaymentRequest): number {
+	return owing.rates.get(request.taskId)!;
+}
+
+function sumOfRates(lines: readonly { rate: number }[]): number {
+	return lines.reduce((sum, line) => sum + line.rate, 0);
+}
+
 // Unpaid requests are estimated at current Rates; an Open Payout keeps its frozen total (ADR 0001).
-export function owedTo(payMe: PayMe, employeeUserId: string): Owed {
-	const { storage } = payMe;
-	const unpaid = selectUnpaidRequests(storage, employeeUserId);
+function owedBy(owing: Owing, employeeUserId: string): Owed {
+	const unpaid = owing.unpaid.filter((request) => request.employeeUserId === employeeUserId);
 	return {
 		unpaidRequestNumbers: unpaid.map((request) => request.number),
-		estimatedTotal: unpaid.reduce((sum, request) => sum + getTask(payMe, request.taskId)!.rate, 0),
-		openPayout: selectOpenPayout(storage, employeeUserId)
+		estimatedTotal: unpaid.reduce((sum, request) => sum + rateOf(owing, request), 0),
+		openPayout: owing.openPayouts.find((payout) => payout.employeeUserId === employeeUserId) ?? null
 	};
+}
+
+export function owedTo(payMe: PayMe, employeeUserId: string): Owed {
+	return owedBy(loadOwing(payMe, employeeUserId), employeeUserId);
 }
 
 export function totalOwed(owed: Owed): number {
 	return owed.estimatedTotal + (owed.openPayout?.total ?? 0);
 }
 
-function owedAndHistory(payMe: PayMe, employeeUserIds?: readonly string[]): PayoutsView {
-	const { storage } = payMe;
+function owedAndHistory(payMe: PayMe, owing: Owing, employeeUserIds?: readonly string[]): PayoutsView {
 	const inScope = (userId: string) => !employeeUserIds || employeeUserIds.includes(userId);
-	const owing = [...selectUnpaidRequests(storage), ...selectPayoutsInState(storage, 'open')].map((item) => item.employeeUserId);
-	const owed = [...new Set(owing)].filter(inScope).map((userId) => ({
+	const owingUserIds = [...owing.unpaid, ...owing.openPayouts].map((item) => item.employeeUserId);
+	const owed = [...new Set(owingUserIds)].filter(inScope).map((userId) => ({
 		employeeUserId: userId,
 		minecraftName: getEmployee(payMe, userId)!.minecraftName,
-		...owedTo(payMe, userId)
+		...owedBy(owing, userId)
 	}));
 	owed.sort((a, b) => a.minecraftName.localeCompare(b.minecraftName));
-	const history = selectPayoutsInState(storage, 'paid', 'discarded').filter((payout) => inScope(payout.employeeUserId));
+	const history = selectPayoutsInState(payMe.storage, 'paid', 'discarded').filter((payout) => inScope(payout.employeeUserId));
 	return { owed, history };
 }
 
@@ -88,8 +135,9 @@ export function showPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[
 	const managed = jobsManagedBy(payMe, actor);
 	if (managed.length === 0) return fail({ code: 'not-permitted' });
 
+	const owing = loadOwing(payMe);
 	const holders = members.filter((member) => holdsAnyJob(payMe, member, managed)).map((member) => member.userId);
-	const view = owedAndHistory(payMe, [...holders, ...owedForJobs(payMe, managed)]);
+	const view = owedAndHistory(payMe, owing, [...holders, ...owedForJobs(owing, managed)]);
 	const history = view.history.map(historyText);
 	const description = [...owedLines(view), '', '**Payout history**', ...(history.length ? history : ['No Payouts yet.'])].join('\n');
 	return succeed([{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts (read-only)', description }, actions: [] }], view);
@@ -99,17 +147,13 @@ function holdsAnyJob(payMe: PayMe, member: Actor, jobs: readonly Job[]): boolean
 	return jobsHeldBy(payMe, member).some((held) => jobs.some((job) => job.id === held.id));
 }
 
-function owedForJobs(payMe: PayMe, jobs: readonly Job[]): string[] {
-	const { storage } = payMe;
-	const locked = selectPayoutsInState(storage, 'open').flatMap((payout) => payout.lines.map((line) => line.requestNumber));
-	return payMe.requests
-		.loadMany({ numbers: [...selectUnpaidRequests(storage).map((request) => request.number), ...locked] })
-		.filter((request) => jobs.some((job) => request.eligibleJobIds.includes(job.id)))
-		.map((request) => request.employeeUserId);
+// Every Approved request is either unpaid or locked in an Open Payout, so all of them are owed.
+function owedForJobs(owing: Owing, jobs: readonly Job[]): string[] {
+	return owing.approved.filter((request) => jobs.some((job) => request.eligibleJobIds.includes(job.id))).map((request) => request.employeeUserId);
 }
 
 function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
-	const view = owedAndHistory(payMe);
+	const view = owedAndHistory(payMe, loadOwing(payMe));
 	const actions = view.owed.map((employee): PayoutAction =>
 		employee.openPayout
 			? {
@@ -160,17 +204,19 @@ export function generatePayout(payMe: PayMe, actor: Actor, employeeUserId: strin
 	return storage.transaction(() => {
 		const employee = getEmployee(payMe, employeeUserId);
 		if (!employee) return fail({ code: 'employee-not-found' });
-		const open = selectOpenPayout(storage, employeeUserId);
+		const owing = loadOwing(payMe, employeeUserId);
+		const [open] = owing.openPayouts;
 		if (open) return fail({ code: 'payout-already-open', number: open.number });
 
-		const lines = selectUnpaidRequests(storage, employeeUserId).map((request) => ({
+		const lines = owing.unpaid.map((request): PayoutLine => ({
 			requestNumber: request.number,
 			taskId: request.taskId,
-			jobId: request.jobId,
-			rate: getTask(payMe, request.taskId)!.rate
+			jobId: lineJobId(request),
+			rate: rateOf(owing, request)
 		}));
 		if (lines.length === 0) return fail({ code: 'nothing-owed' });
-		const number = insertPayout(storage, { employeeUserId, minecraftName: employee.minecraftName, generatedBy: actor.userId, lines });
+		const { minecraftName } = employee;
+		const number = insertPayout(storage, { employeeUserId, minecraftName, generatedBy: actor.userId, total: sumOfRates(lines), lines });
 		const payout = getPayout(payMe, number)!;
 		return succeed([payoutEffect(payMe, payout)], payout);
 	});
@@ -254,8 +300,7 @@ function breakdown(payMe: PayMe, payout: Payout): string[] {
 	const jobIds = [...new Set(payout.lines.map((line) => line.jobId))];
 	return jobIds.flatMap((jobId) => {
 		const lines = payout.lines.filter((line) => line.jobId === jobId);
-		const subtotal = lines.reduce((sum, line) => sum + line.rate, 0);
-		return [`**${getJob(payMe, jobId)!.name}**: ${formatAmount(subtotal)}`, ...lines.map((line) => `- ${lineText(payMe, line)}`)];
+		return [`**${getJob(payMe, jobId)!.name}**: ${formatAmount(sumOfRates(lines))}`, ...lines.map((line) => `- ${lineText(payMe, line)}`)];
 	});
 }
 

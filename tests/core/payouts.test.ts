@@ -9,6 +9,7 @@ import {
 	generatePayout,
 	getPayout,
 	markPayoutPaid,
+	owedTo,
 	payCommand,
 	hireEmployee,
 	recordRequestsThread,
@@ -17,6 +18,7 @@ import {
 	submitRequest,
 	showPayout,
 	showPayouts,
+	totalOwed,
 	type Outcome,
 	type PayMe
 } from '../../src/core';
@@ -78,6 +80,47 @@ describe('Generating a Payout', () => {
 				]
 			}
 		});
+	});
+});
+
+describe('What is owed', () => {
+	it('leaves a request locked in an Open Payout out of the unpaid requests, owing it at its frozen Rate', () => {
+		const { payMe, parcel, mail } = courierAlex();
+		approved(payMe, alex, parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		created(changeRate(payMe, leadership(), parcel.id, '1100'));
+		approved(payMe, alex, mail.id);
+		approved(payMe, alex, parcel.id);
+
+		const owed = owedTo(payMe, 'user-alex');
+
+		expect(owed).toMatchObject({ unpaidRequestNumbers: [2, 3], estimatedTotal: 160025, openPayout: { number: 1, total: 100000 } });
+		expect(totalOwed(owed)).toBe(260025);
+		expect(created(showPayouts(payMe, leadership(), [])).owed).toMatchObject([{ employeeUserId: 'user-alex', ...owed }]);
+	});
+
+	it('includes only the unpaid requests in the next Payout once the Open one is discarded', () => {
+		const { payMe, parcel, mail } = courierAlex();
+		approved(payMe, alex, parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		approved(payMe, alex, mail.id);
+		created(discardPayout(payMe, leadership(), 1));
+
+		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({
+			ok: true,
+			value: { number: 2, total: 150025, lines: [{ requestNumber: 1 }, { requestNumber: 2 }] }
+		});
+	});
+
+	it('attributes a Payout line to the lowest-numbered eligible Job when the request is eligible under several', () => {
+		const { payMe, courier } = courierAlex();
+		const logistics = job(payMe, 'Logistics');
+		const crate = created(addTask(payMe, leadership(), { name: 'Move Crate', rate: '300', jobIds: [logistics.id, courier.id] }));
+		approved(payMe, member('user-alex', 'role-logistics', 'role-courier'), crate.id);
+
+		const payout = created(generatePayout(payMe, leadership(), 'user-alex'));
+
+		expect(payout.lines).toEqual([{ requestNumber: 1, taskId: crate.id, jobId: courier.id, rate: 30000 }]);
 	});
 });
 
