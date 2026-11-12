@@ -9,19 +9,18 @@ type HistoryRow = typeof paymentRequestHistory.$inferSelect;
 
 export interface NewRequestRow {
 	employeeUserId: string;
-	/** Who filed it: the Employee, or a Manager or Leadership on their behalf. */
-	submittedBy: string;
 	taskId: number;
 	eligibleJobIds: readonly number[];
 	evidence: readonly Evidence[];
 }
 
-export function insertRequest(storage: Storage, request: NewRequestRow): number {
+/** Inserts the request in the state `submission` moves it to, with `submission` as its first history entry. */
+export function insertRequest(storage: Storage, request: NewRequestRow, submission: Omit<RequestHistoryEntry, 'at'>): number {
 	const { db } = storage;
 	const { employeeUserId, taskId } = request;
 	const { number } = db
 		.insert(paymentRequests)
-		.values({ employeeUserId, taskId, state: 'pending' })
+		.values({ employeeUserId, taskId, state: submission.to })
 		.returning({ number: paymentRequests.number })
 		.get();
 	if (request.eligibleJobIds.length > 0) {
@@ -30,7 +29,7 @@ export function insertRequest(storage: Storage, request: NewRequestRow): number 
 			.run();
 	}
 	insertEvidence(storage, number, request.evidence);
-	insertHistory(storage, number, { from: null, to: 'pending', actorUserId: request.submittedBy, reason: null });
+	insertHistory(storage, number, submission);
 	return number;
 }
 

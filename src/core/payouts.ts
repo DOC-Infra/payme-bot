@@ -1,9 +1,9 @@
 import { insertPayout, selectOpenPayout, selectPayout, selectPayoutsInState, selectUnpaidRequests, settlePayout } from '../storage/payouts';
-import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
 import type { Card, Effect, PayoutAction } from './effects';
 import { getEmployee } from './employees';
 import { jobsHeldBy, jobsManagedBy } from './job-membership';
+import { changeState } from './lifecycle';
 import { getJob, type Job } from './jobs';
 import { payoutLabel, payoutStateName, payoutTone, requestLabel, type PayoutState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
@@ -186,8 +186,10 @@ export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number): Outc
 
 		const payout = getPayout(payMe, number)!;
 		const effects: Effect[] = payout.lines.map((line) => {
-			updateRequestState(storage, line.requestNumber, { from: 'approved', to: 'paid', actorUserId: actor.userId, reason: null });
-			return updateReviewCopies(payMe, getPaymentRequest(payMe, line.requestNumber)!);
+			const paid = changeState(payMe, actor, line.requestNumber, 'pay');
+			// Nothing changes a request while it is in an Open Payout, so a refusal is a bug. Throwing rolls the Payout back too.
+			if (!paid.ok) throw new Error(`Cannot pay ${requestLabel(line.requestNumber)} in ${payoutLabel(number)}: ${paid.error.code}`);
+			return updateReviewCopies(payMe, paid.value);
 		});
 		const log: Card = {
 			tone: 'success',

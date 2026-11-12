@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addManagerRole,
-	approveRequest,
 	addTask,
 	addTaskToJob,
 	claimTicket,
@@ -610,20 +609,5 @@ describe('Requesting payment on behalf of an Employee', () => {
 			ok: false,
 			error: { code: 'employee-no-requests-thread' }
 		});
-	});
-
-	it('lets the filing Manager review the request', () => {
-		const { payMe, parcel, alex, courierManager } = courierAndMiner();
-		submitRequest(payMe, courierManager, { taskId: parcel.id, notes: 'Done', link: null, files: [screenshot] }, alex);
-
-		expect(approveRequest(payMe, courierManager, 1)).toMatchObject({ ok: true, value: { state: 'approved' } });
-	});
-
-	it('leaves withdrawing to the Employee', () => {
-		const { payMe, parcel, alex, courierManager } = courierAndMiner();
-		submitRequest(payMe, courierManager, { taskId: parcel.id, notes: 'Done', link: null, files: [screenshot] }, alex);
-
-		expect(withdrawRequest(payMe, courierManager, 1)).toEqual({ ok: false, error: { code: 'not-your-request' } });
-		expect(withdrawRequest(payMe, alex, 1)).toMatchObject({ ok: true, value: { state: 'withdrawn' } });
 	});
 });

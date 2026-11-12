@@ -1,56 +1,30 @@
-import { updateRequestState } from '../storage/requests';
 import type { Actor } from './actor';
-import { managesJob } from './job-membership';
-import { getJob } from './jobs';
-import type { RequestState } from './labels';
-import { fail, succeed, type Outcome } from './outcome';
+import { changeState, type RequestChange } from './lifecycle';
+import { succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import { getPaymentRequest, logStateChange, updateEntryActions, updateReviewCopies, type PaymentRequest } from './requests';
+import { logStateChange, updateEntryActions, updateReviewCopies, type PaymentRequest } from './requests';
 
 export function approveRequest(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
-	return decide(payMe, actor, number, 'approved', null);
+	return decide(payMe, actor, number, 'approve', null);
 }
 
 export function rejectRequest(payMe: PayMe, actor: Actor, number: number, reason: string): Outcome<PaymentRequest> {
-	return decideWithReason(payMe, actor, number, 'rejected', reason);
+	return decide(payMe, actor, number, 'reject', reason);
 }
 
 export function denyRequest(payMe: PayMe, actor: Actor, number: number, reason: string): Outcome<PaymentRequest> {
-	return decideWithReason(payMe, actor, number, 'denied', reason);
+	return decide(payMe, actor, number, 'deny', reason);
 }
 
-function decideWithReason(payMe: PayMe, actor: Actor, number: number, to: RequestState, reason: string): Outcome<PaymentRequest> {
-	const trimmed = reason.trim();
-	if (!trimmed) return fail({ code: 'reason-required' });
-	return decide(payMe, actor, number, to, trimmed);
-}
+function decide(payMe: PayMe, actor: Actor, number: number, change: RequestChange, reason: string | null): Outcome<PaymentRequest> {
+	return payMe.storage.transaction(() => {
+		const decided = changeState(payMe, actor, number, change, reason);
+		if (!decided.ok) return decided;
 
-/** Checks that the actor may review the request now, for example before asking them for a reason. */
-export function checkReviewer(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
-	const request = getPaymentRequest(payMe, number);
-	if (!request) return fail({ code: 'request-not-found' });
-	if (request.employeeUserId === actor.userId) return fail({ code: 'own-request' });
-	if (!canReview(payMe, actor, request)) return fail({ code: 'not-a-reviewer' });
-	if (request.state !== 'pending') return fail({ code: 'already-decided', number, state: request.state });
-	return succeed([], request);
-}
-
-function canReview(payMe: PayMe, actor: Actor, request: PaymentRequest): boolean {
-	return request.eligibleJobIds.some((jobId) => {
-		const job = getJob(payMe, jobId);
-		return job !== null && managesJob(payMe, actor, job);
-	});
-}
-
-function decide(payMe: PayMe, actor: Actor, number: number, to: RequestState, reason: string | null): Outcome<PaymentRequest> {
-	const { storage } = payMe;
-	return storage.transaction(() => {
-		const checked = checkReviewer(payMe, actor, number);
-		if (!checked.ok) return checked;
-
-		const updated = updateRequestState(storage, number, { from: 'pending', to, actorUserId: actor.userId, reason });
-		const request = getPaymentRequest(payMe, number)!;
-		if (!updated) return fail({ code: 'already-decided', number, state: request.state });
-		return succeed([updateReviewCopies(payMe, request), updateEntryActions(request), logStateChange(payMe, request, to !== 'approved')], request);
+		const request = decided.value;
+		return succeed(
+			[updateReviewCopies(payMe, request), updateEntryActions(request), logStateChange(payMe, request, change !== 'approve')],
+			request
+		);
 	});
 }
