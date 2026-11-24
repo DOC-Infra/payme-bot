@@ -16,8 +16,8 @@ import {
 	type UserContextMenuCommandInteraction,
 	type UserSelectMenuInteraction
 } from 'discord.js';
-import { encodeCustomId } from './customIds';
-import { fail, requestForm, type Actor, type Job, type PayMe, type TaskForm } from '../core';
+import { encodeCustomId, type CustomId } from './customIds';
+import { fail, requestForm, ticketJobs, type Actor, type Job, type PayMe, type TaskForm } from '../core';
 import { fetchActorIn } from './actor';
 import { homeFor, serverName } from './home';
 import { runAsActor, runOutcome } from './runner';
@@ -38,21 +38,25 @@ export function requestButtonRow(): ActionRowBuilder<ButtonBuilder> {
 	return new ActionRowBuilder<ButtonBuilder>().addComponents(request, claim);
 }
 
-/** The ticket claim form, with a Job to pick when the claimer holds more than one Job with the ticket Task. */
-export function buildClaimTicketModal(jobs: readonly Job[]): ModalBuilder {
-	const ticket = new TextInputBuilder()
+/**
+ * The ticket claim form: the Job to claim under, picked already when there is only one, and the ticket number, filled in with
+ * `ticket` when known. `home` is the server the claim goes to when that is not the one the form is shown in.
+ */
+export function buildClaimTicketModal(jobs: readonly Job[], home: string | null = null, ticket: string | null = null): ModalBuilder {
+	const number = new TextInputBuilder()
 		.setCustomId(ticketFieldId)
 		.setStyle(TextInputStyle.Short)
 		.setRequired(true)
 		.setMinLength(5)
 		.setMaxLength(5)
 		.setPlaceholder('12345');
+	if (ticket) number.setValue(ticket);
 	return new ModalBuilder()
-		.setCustomId(encodeCustomId({ kind: 'claim-ticket-modal' }))
+		.setCustomId(encodeCustomId({ kind: 'claim-ticket-modal', home }))
 		.setTitle('Claim ticket')
 		.addLabelComponents(
-			new LabelBuilder().setLabel('Ticket number').setDescription('The 5-digit DOC ticket number.').setTextInputComponent(ticket),
-			...(jobs.length > 0 ? [new LabelBuilder().setLabel('Job').setStringSelectMenuComponent(jobSelect(jobs))] : [])
+			...(jobs.length > 0 ? [new LabelBuilder().setLabel('Job').setStringSelectMenuComponent(jobSelect(jobs))] : []),
+			new LabelBuilder().setLabel('Ticket number').setDescription('The 5-digit DOC ticket number.').setTextInputComponent(number)
 		);
 }
 
@@ -61,7 +65,7 @@ function jobSelect(jobs: readonly Job[]): StringSelectMenuBuilder {
 		.setCustomId(jobFieldId)
 		.setPlaceholder('Choose the Job the work was for')
 		.setRequired(true)
-		.addOptions(jobs.map((job) => ({ label: job.name, value: String(job.id) })));
+		.addOptions(jobs.map((job) => ({ label: job.name, value: String(job.id), default: jobs.length === 1 })));
 }
 
 type FormInteraction =
@@ -104,7 +108,7 @@ export async function startRequest(
 	if (choice.kind === 'none') return runOutcome(interaction, fail(forOther ? { code: 'employee-not-found' } : refusal), null);
 	if (choice.kind === 'ask') {
 		holdNotes(interaction.user.id, notes);
-		return askForHome(interaction, forOther ? employeeUserId : null, choice.guildIds);
+		return askForHome(interaction, { kind: 'home-pick', employeeUserId: forOther ? employeeUserId : null }, choice.guildIds);
 	}
 	return continueRequest(interaction, choice.guildId, forOther ? employeeUserId : null, notes, jobId);
 }
@@ -128,9 +132,35 @@ function holdNotes(userId: string, notes: string | null) {
 	else heldNotes.delete(userId);
 }
 
-async function askForHome(interaction: FormInteraction, employeeUserId: string | null, guildIds: readonly string[]) {
+/** Starts claiming a DOC ticket from anywhere PayMe can be used, in the user's home server, with `ticket` filled in when known. */
+export async function startTicketClaim(interaction: FormInteraction, ticket: string | null) {
+	const choice = homeFor(interaction.guildId, interaction.user.id, interaction.user.id);
+	if (choice.kind === 'none') return runOutcome(interaction, fail({ code: 'not-hired' }), null);
+	if (choice.kind === 'ask') {
+		holdNotes(interaction.user.id, ticket);
+		return askForHome(interaction, { kind: 'ticket-home-pick' }, choice.guildIds);
+	}
+	return openTicketClaim(interaction, choice.guildId, ticket);
+}
+
+/** Shows the ticket claim form for a claim filed in `home`. */
+export async function openTicketClaim(interaction: FormInteraction, home: string, ticket: string | null) {
+	await runAsActor(
+		interaction,
+		{ code: 'not-hired' },
+		async (actor, payMe) => {
+			const outside = home === interaction.guildId ? null : home;
+			await interaction.showModal(buildClaimTicketModal(ticketJobs(payMe, actor), outside, ticket));
+			return null;
+		},
+		home
+	);
+}
+
+/** Asks which of `guildIds` to file in, with a menu whose `id` says what to carry on with once the user picks. */
+async function askForHome(interaction: FormInteraction, id: CustomId, guildIds: readonly string[]) {
 	const select = new StringSelectMenuBuilder()
-		.setCustomId(encodeCustomId({ kind: 'home-pick', employeeUserId }))
+		.setCustomId(encodeCustomId(id))
 		.setPlaceholder('Choose a server')
 		.addOptions(guildIds.slice(0, 25).map((guildId) => ({ label: serverName(guildId).slice(0, 100), value: guildId })));
 	await interaction.reply({

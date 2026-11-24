@@ -162,13 +162,19 @@ export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentReque
 	});
 }
 
-/** The Jobs the actor must pick from to claim a ticket: those they hold with the DOC Ticket Assistance Task, when more than one. */
+/** The DOC Ticket number a message mentions: the first run of exactly five digits, or null. */
+export function ticketNumberIn(text: string): string | null {
+	return /(?<!\d)\d{5}(?!\d)/.exec(text)?.[0] ?? null;
+}
+
+/** The Jobs the actor can claim a ticket under: those they hold that have the DOC Ticket Assistance Task. */
 export function ticketJobs(payMe: PayMe, actor: Actor): Job[] {
 	const taskId = selectTaskIdByName(payMe.storage, ticketTaskName);
 	const task = taskId === null ? null : getTask(payMe, taskId);
 	if (!task || task.retired) return [];
-	const jobs = jobsHeldBy(payMe, actor).filter((job) => task.jobIds.includes(job.id));
-	return jobs.length > 1 ? jobs.slice(0, maxFormOptions) : [];
+	return jobsHeldBy(payMe, actor)
+		.filter((job) => task.jobIds.includes(job.id))
+		.slice(0, maxFormOptions);
 }
 
 /** Submits a Payment Request for the DOC Ticket Assistance Task. The ticket number is the Evidence, so no link or file is needed. */

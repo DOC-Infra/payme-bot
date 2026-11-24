@@ -5,6 +5,7 @@ import {
 	ButtonStyle,
 	ChannelType,
 	ComponentType,
+	DiscordAPIError,
 	EmbedBuilder,
 	messageLink,
 	MessageFlags,
@@ -283,9 +284,25 @@ export async function runOutcome(
 		if (!outcome.ok) await replyPrivately(interaction, notice(describeError(outcome.error), 'danger'));
 		return;
 	}
-	await runEffects(outcome.effects, { guildId, payMe: payMeFor(guildId), interaction });
+	try {
+		await runEffects(outcome.effects, { guildId, payMe: payMeFor(guildId), interaction });
+	} catch (error) {
+		// PayMe has already saved the change, so say it may be half done rather than leave the member waiting on "thinking".
+		container.logger.error(`Could not finish carrying out an action on server ${guildId}`, error);
+		await replyPrivately(interaction, notice(unfinishedMessage(error), 'danger')).catch(() => undefined);
+		return;
+	}
 	// A deferred reply nothing filled would stay as "thinking" forever.
 	if (interaction.deferred && !interaction.replied && !acknowledged.has(interaction)) await interaction.deleteReply();
+}
+
+/** What to tell the member when Discord refused part of an action PayMe had already saved. */
+function unfinishedMessage(error: unknown): string {
+	const missing = error instanceof DiscordAPIError && (error.code === 50001 || error.code === 50013);
+	const why = missing
+		? "Discord refused because PayMe's role can't see or change a channel involved. Check its permissions there"
+		: "Something went wrong in Discord. Check the bot's logs";
+	return `PayMe saved this but couldn't finish it in Discord, so it may be only partly done. ${why}, then try again.`;
 }
 
 type Step = Outcome<unknown> | null;

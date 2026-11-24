@@ -1,10 +1,10 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import { ChannelType, MessageFlags, InteractionContextType } from 'discord.js';
-import { linkEmployee } from '../core';
+import { checkEmployeeLink, linkEmployee } from '../core';
 import { memberToActor } from '../discord/actor';
 import { runAsActor } from '../discord/runner';
-import { payMeOf } from '../discord/servers';
+import { checkEmployeeChannel } from '../discord/botPermissions';
 
 @ApplyOptions<Command.Options>({
 	description: 'Link a member to their channel and Minecraft Name, or change them (Leadership only)'
@@ -30,8 +30,10 @@ export class UserCommand extends Command {
 		const linked = memberToActor(options.getUser('user', true).id, options.getMember('user'));
 		const minecraftName = options.getString('minecraft', true);
 		const channelId = options.getChannel('channel', true).id;
-		await runAsActor(interaction, { code: 'not-permitted' }, (actor) =>
-			linkEmployee(payMeOf(interaction), actor, linked, minecraftName, channelId)
-		);
+		await runAsActor(interaction, { code: 'not-permitted' }, async (actor, payMe) => {
+			const refused =
+				checkEmployeeLink(payMe, actor, linked.userId, channelId) ?? (await checkEmployeeChannel(interaction.guildId!, channelId));
+			return refused ?? linkEmployee(payMe, actor, linked, minecraftName, channelId);
+		});
 	}
 }

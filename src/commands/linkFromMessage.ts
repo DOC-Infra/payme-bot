@@ -2,6 +2,7 @@ import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import { ApplicationCommandType, ChannelType, InteractionContextType } from 'discord.js';
 import { checkEmployeeLink, fail, getEmployee } from '../core';
+import { checkEmployeeChannel } from '../discord/botPermissions';
 import { buildLinkModal } from '../discord/hireModal';
 import { runAsActor } from '../discord/runner';
 
@@ -26,7 +27,7 @@ export class UserCommand extends Command {
 		await runAsActor(interaction, { code: 'not-permitted' }, async (actor, payMe) => {
 			if (author.bot || interaction.targetMessage.webhookId) return fail({ code: 'link-needs-a-member' });
 			if (!channelId || parent?.type !== ChannelType.GuildText) return fail({ code: 'link-needs-a-member' });
-			const refused = checkEmployeeLink(payMe, actor, author.id, channelId);
+			const refused = checkEmployeeLink(payMe, actor, author.id, channelId) ?? (await checkEmployeeChannel(interaction.guildId!, channelId));
 			if (refused) return refused;
 			await interaction.showModal(buildLinkModal(author.id, channelId, getEmployee(payMe, author.id)?.minecraftName ?? null));
 			return null;

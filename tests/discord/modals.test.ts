@@ -73,6 +73,8 @@ const forms = {
 			'n'.repeat(1000)
 		),
 	'claim ticket with a Job to pick': () => buildClaimTicketModal(jobs),
+	'claim ticket with its one Job picked': () => buildClaimTicketModal([job(1)]),
+	'claim ticket in a home server, number filled in': () => buildClaimTicketModal(jobs, id, '12345'),
 	reject: () => buildReasonModal('reject', 99999),
 	deny: () => buildReasonModal('deny', 99999)
 };
