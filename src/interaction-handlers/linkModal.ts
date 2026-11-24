@@ -3,6 +3,7 @@ import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework
 import { MessageFlags, type ModalSubmitInteraction } from 'discord.js';
 import { linkEmployee } from '../core';
 import { fetchActor } from '../discord/actor';
+import { checkEmployeeChannel } from '../discord/botPermissions';
 import { decodeCustomId } from '../discord/customIds';
 import { minecraftFieldId } from '../discord/hireModal';
 import { runAsActor } from '../discord/runner';
@@ -15,7 +16,10 @@ export class ModalHandler extends InteractionHandler {
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 		const linked = await fetchActor(interaction, userId);
 		const minecraftName = interaction.fields.getTextInputValue(minecraftFieldId).trim();
-		await runAsActor(interaction, { code: 'not-permitted' }, (actor, payMe) => linkEmployee(payMe, actor, linked, minecraftName, channelId));
+		await runAsActor(interaction, { code: 'not-permitted' }, async (actor, payMe) => {
+			const unusable = await checkEmployeeChannel(interaction.guildId!, channelId);
+			return unusable ?? linkEmployee(payMe, actor, linked, minecraftName, channelId);
+		});
 	}
 
 	public override parse(interaction: ModalSubmitInteraction) {

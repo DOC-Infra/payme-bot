@@ -40,6 +40,7 @@ export type PayMeError =
 	| { code: 'payout-already-open'; number: number }
 	| { code: 'nothing-owed' }
 	| { code: 'link-needs-a-member' }
+	| { code: 'employee-channel-unusable'; channelId: string; missing: string[] }
 	| { code: 'job-required'; task: string }
 	| { code: 'employee-not-found' }
 	| { code: 'employee-no-requests-thread' }
@@ -137,6 +138,8 @@ export function describeError(error: PayMeError): string {
 			return `This Employee already has an Open Payout, ${payoutLabel(error.number)}. Mark it paid or discard it first.`;
 		case 'job-required':
 			return `${error.task} is in more than one Job. Pick the Job the work was for.`;
+		case 'employee-channel-unusable':
+			return `PayMe can't take over <#${error.channelId}> yet. In that channel's permissions, give PayMe's role: ${error.missing.join(', ')}. Then link again.`;
 		case 'link-needs-a-member':
 			return 'Right-click a message the Employee sent in their own channel. That one was sent by a bot or webhook.';
 		case 'nothing-owed':
