@@ -1,15 +1,11 @@
 import './lib/setup';
 
-import { ApplicationCommandRegistries, container, LogLevel, SapphireClient } from '@sapphire/framework';
+import { container, LogLevel, SapphireClient } from '@sapphire/framework';
 import { GatewayIntentBits } from 'discord.js';
 import { loadConfig } from './env';
-import { createPayMe } from './core';
-import { openStorage } from './storage/storage';
 
 const config = loadConfig();
 container.config = config;
-container.payMe = createPayMe(openStorage(config.databasePath), { leadershipRoleId: config.leadershipRoleId });
-ApplicationCommandRegistries.setDefaultGuildIds([config.guildId]);
 
 const client = new SapphireClient({
 	defaultPrefix: '!',

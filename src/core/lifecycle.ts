@@ -17,7 +17,7 @@ type StateRefusal = Extract<PayMeError, { state: RequestState }>['code'];
 
 /**
  * Who may make a change: the request's Employee; a Manager of one of its eligible Jobs (Leadership manages them all) other than
- * the Employee, even if they filed it on the Employee's behalf; or Leadership.
+ * the Employee; or Leadership.
  */
 type Party = 'employee' | 'manager' | 'leadership';
 
@@ -49,9 +49,13 @@ export function entryActions(request: PaymentRequest, round = request.round): En
 	return entryButtons.filter((change) => rules[change].from.includes(request.state));
 }
 
-/** Records a new Pending request. `actor` filed it: the Employee, or a Manager or Leadership on their behalf. */
+/**
+ * Records a new request. `actor` filed it: the Employee, whose request is Pending, or a Manager or Leadership on their behalf, whose
+ * request is Approved at once.
+ */
 export function submit(payMe: PayMe, actor: Actor, request: NewRequest): PaymentRequest {
-	return payMe.requests.create(request, { state: 'pending', actorUserId: actor.userId });
+	const state = actor.userId === request.employeeUserId ? 'pending' : 'approved';
+	return payMe.requests.create(request, { state, actorUserId: actor.userId });
 }
 
 /** Checks that the actor may make the change now, for example before showing them a form for it. */

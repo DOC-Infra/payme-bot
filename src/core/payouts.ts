@@ -1,15 +1,17 @@
 import { insertPayout, selectOpenPayout, selectPayout, selectPayoutsInState, settlePayout } from '../storage/payouts';
+import { markSharesPaid, selectUnpaidShares } from '../storage/projects';
 import type { Actor } from './actor';
-import type { Card, Effect, PayoutAction } from './effects';
+import { notice, type Card, type Effect, type PayoutAction } from './effects';
 import { getEmployee } from './employees';
 import { jobsHeldBy, jobsManagedBy } from './job-membership';
 import { changeState } from './lifecycle';
 import { getJob, type Job } from './jobs';
-import { payoutLabel, payoutStateName, payoutTone, requestLabel, type PayoutState } from './labels';
+import { payoutLabel, payoutStateName, payoutTone, requestLabel, shareLabel, type PayoutState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership, requireLeadership } from './permissions';
-import { formatAmount } from './rates';
+import { getProject, type Share } from './projects';
+import { formatAmount, plainAmount } from './rates';
 import { updateReviewCopies, type PaymentRequest } from './requests';
 import { getTask } from './tasks';
 
@@ -20,6 +22,14 @@ export interface PayoutLine {
 	rate: number;
 }
 
+/** A Share frozen into a Payout. */
+export interface PayoutShareLine {
+	shareId: number;
+	projectId: number;
+	jobId: number;
+	amount: number;
+}
+
 export interface Payout {
 	number: number;
 	employeeUserId: string;
@@ -27,6 +37,7 @@ export interface Payout {
 	total: number;
 	state: PayoutState;
 	lines: PayoutLine[];
+	shares: PayoutShareLine[];
 	generatedBy: string;
 	generatedAt: string;
 	settledBy: string | null;
@@ -36,6 +47,9 @@ export interface Payout {
 export interface Owed {
 	unpaidRequestNumbers: number[];
 	estimatedTotal: number;
+	unpaidShareIds: number[];
+	/** Shares are fixed amounts, so unlike requests their total is exact. */
+	sharesTotal: number;
 	openPayout: Payout | null;
 }
 
@@ -58,13 +72,19 @@ interface Owing {
 	unpaid: PaymentRequest[];
 	openPayouts: Payout[];
 	rates: ReadonlyMap<number, number>;
+	/** Every Share not yet paid, including those locked in an Open Payout. */
+	shares: Share[];
+	unpaidShares: Share[];
 }
 
 function loadOwing(payMe: PayMe, employeeUserId?: string): Owing {
 	const approved = payMe.requests.loadMany({ employeeUserId, states: ['approved'] });
 	const openPayouts = loadOpenPayouts(payMe, employeeUserId);
 	const unpaid = unpaidRequests(approved, openPayouts);
-	return { approved, unpaid, openPayouts, rates: currentRates(payMe, unpaid) };
+	const shares = selectUnpaidShares(payMe.storage, employeeUserId);
+	const lockedShares = new Set(openPayouts.flatMap((payout) => payout.shares.map((line) => line.shareId)));
+	const unpaidShares = shares.filter((share) => !lockedShares.has(share.id));
+	return { approved, unpaid, openPayouts, rates: currentRates(payMe, unpaid), shares, unpaidShares };
 }
 
 function loadOpenPayouts(payMe: PayMe, employeeUserId?: string): Payout[] {
@@ -98,13 +118,46 @@ function sumOfRates(lines: readonly { rate: number }[]): number {
 	return lines.reduce((sum, line) => sum + line.rate, 0);
 }
 
+function sumOfAmounts(lines: readonly { amount: number }[]): number {
+	return lines.reduce((sum, line) => sum + line.amount, 0);
+}
+
 // Unpaid requests are estimated at current Rates; an Open Payout keeps its frozen total (ADR 0001).
 function owedFrom(owing: Owing, employeeUserId: string): Owed {
 	const unpaid = owing.unpaid.filter((request) => request.employeeUserId === employeeUserId);
+	const shares = owing.unpaidShares.filter((share) => share.employeeUserId === employeeUserId);
 	return {
 		unpaidRequestNumbers: unpaid.map((request) => request.number),
 		estimatedTotal: unpaid.reduce((sum, request) => sum + rateOf(owing, request), 0),
+		unpaidShareIds: shares.map((share) => share.id),
+		sharesTotal: sumOfAmounts(shares),
 		openPayout: owing.openPayouts.find((payout) => payout.employeeUserId === employeeUserId) ?? null
+	};
+}
+
+/** What everyone is owed together, for the dashboard. */
+export interface OwedSummary {
+	/** How many Employees are owed requests or Shares not yet in an Open Payout. */
+	employees: number;
+	/** Unpaid Approved requests at current Rates, plus unpaid Shares, not yet in an Open Payout. */
+	total: number;
+	/** The same, by the Job each would be paid under. A request eligible under no Job counts only in `total`. */
+	byJob: ReadonlyMap<number, number>;
+	openPayouts: Payout[];
+}
+
+export function owedSummary(payMe: PayMe): OwedSummary {
+	const owing = loadOwing(payMe);
+	const byJob = new Map<number, number>();
+	const add = (jobId: number, amount: number) => byJob.set(jobId, (byJob.get(jobId) ?? 0) + amount);
+	for (const request of owing.unpaid) if (request.eligibleJobIds.length > 0) add(lineJobId(request), rateOf(owing, request));
+	for (const share of owing.unpaidShares) add(share.jobId, share.amount);
+	const items = [...owing.unpaid, ...owing.unpaidShares];
+	return {
+		employees: new Set(items.map((item) => item.employeeUserId)).size,
+		total: owing.unpaid.reduce((sum, request) => sum + rateOf(owing, request), 0) + sumOfAmounts(owing.unpaidShares),
+		byJob,
+		openPayouts: owing.openPayouts
 	};
 }
 
@@ -113,12 +166,12 @@ export function owedTo(payMe: PayMe, employeeUserId: string): Owed {
 }
 
 export function totalOwed(owed: Owed): number {
-	return owed.estimatedTotal + (owed.openPayout?.total ?? 0);
+	return owed.estimatedTotal + owed.sharesTotal + (owed.openPayout?.total ?? 0);
 }
 
 function owedAndHistory(payMe: PayMe, owing: Owing, employeeUserIds?: readonly string[]): PayoutsView {
 	const inScope = (userId: string) => !employeeUserIds || employeeUserIds.includes(userId);
-	const owingUserIds = [...owing.unpaid, ...owing.openPayouts].map((item) => item.employeeUserId);
+	const owingUserIds = [...owing.unpaid, ...owing.unpaidShares, ...owing.openPayouts].map((item) => item.employeeUserId);
 	const owed = [...new Set(owingUserIds)].filter(inScope).map((userId) => ({
 		employeeUserId: userId,
 		minecraftName: getEmployee(payMe, userId)!.minecraftName,
@@ -147,9 +200,11 @@ function holdsAnyJob(payMe: PayMe, member: Actor, jobs: readonly Job[]): boolean
 	return jobsHeldBy(payMe, member).some((held) => jobs.some((job) => job.id === held.id));
 }
 
-// Every Approved request is either unpaid or locked in an Open Payout, so all of them are owed.
+// Every Approved request and unpaid Share is either unpaid or locked in an Open Payout, so all of them are owed.
 function owedForJobs(owing: Owing, jobs: readonly Job[]): string[] {
-	return owing.approved.filter((request) => jobs.some((job) => request.eligibleJobIds.includes(job.id))).map((request) => request.employeeUserId);
+	const requests = owing.approved.filter((request) => jobs.some((job) => request.eligibleJobIds.includes(job.id)));
+	const shares = owing.shares.filter((share) => jobs.some((job) => job.id === share.jobId));
+	return [...requests, ...shares].map((item) => item.employeeUserId);
 }
 
 function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
@@ -193,6 +248,9 @@ function owedText(employee: EmployeeOwed): string {
 		const requests = employee.unpaidRequestNumbers.map(requestLabel).join(', ');
 		parts.push(`about ${formatAmount(employee.estimatedTotal)} owed (estimate at current Rates) for ${requests}`);
 	}
+	if (employee.unpaidShareIds.length) {
+		parts.push(`${formatAmount(employee.sharesTotal)} owed for Shares ${employee.unpaidShareIds.map(shareLabel).join(', ')}`);
+	}
 	return parts.join('; ');
 }
 
@@ -202,24 +260,69 @@ export function generatePayout(payMe: PayMe, actor: Actor, employeeUserId: strin
 
 	const { storage } = payMe;
 	return storage.transaction(() => {
-		const employee = getEmployee(payMe, employeeUserId);
-		if (!employee) return fail({ code: 'employee-not-found' });
+		if (!getEmployee(payMe, employeeUserId)) return fail({ code: 'employee-not-found' });
 		const owing = loadOwing(payMe, employeeUserId);
 		const [open] = owing.openPayouts;
 		if (open) return fail({ code: 'payout-already-open', number: open.number });
 
-		const lines = owing.unpaid.map((request): PayoutLine => ({
-			requestNumber: request.number,
-			taskId: request.taskId,
-			jobId: lineJobId(request),
-			rate: rateOf(owing, request)
-		}));
-		if (lines.length === 0) return fail({ code: 'nothing-owed' });
-		const { minecraftName } = employee;
-		const number = insertPayout(storage, { employeeUserId, minecraftName, generatedBy: actor.userId, total: sumOfRates(lines), lines });
-		const payout = getPayout(payMe, number)!;
+		const payout = insertPayoutFor(payMe, actor, owing, employeeUserId);
+		if (!payout) return fail({ code: 'nothing-owed' });
 		return succeed([payoutEffect(payMe, payout)], payout);
 	});
+}
+
+/**
+ * Generates a Payout for every Employee who is owed something and has no Open Payout, then shows every Open Payout, new or not,
+ * so Leadership can run each Pay Command and mark it paid.
+ */
+export function generateAllPayouts(payMe: PayMe, actor: Actor): Outcome<Payout[]> {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+
+	return payMe.storage.transaction(() => {
+		const owing = loadOwing(payMe);
+		const alreadyOpen = owing.openPayouts;
+		const owedUserIds = new Set([...owing.unpaid, ...owing.unpaidShares].map((item) => item.employeeUserId));
+		const generated = [...owedUserIds]
+			.filter((userId) => !alreadyOpen.some((payout) => payout.employeeUserId === userId))
+			.flatMap((userId) => insertPayoutFor(payMe, actor, owingOf(owing, userId), userId) ?? []);
+		const payouts = [...alreadyOpen, ...generated].sort((a, b) => a.number - b.number);
+		if (payouts.length === 0) return succeed([{ type: 'private-reply', card: notice('Nobody is owed anything.', 'neutral') }], payouts);
+
+		const total = payouts.reduce((sum, payout) => sum + payout.total, 0);
+		const already = alreadyOpen.length ? ` ${alreadyOpen.length} ${alreadyOpen.length === 1 ? 'was' : 'were'} already Open.` : '';
+		const summary = `Generated ${generated.length} ${generated.length === 1 ? 'Payout' : 'Payouts'}.${already} ${formatAmount(total)} to pay in all; run each Pay Command below, then mark it paid.`;
+		return succeed([{ type: 'private-reply', card: notice(summary, 'info') }, ...payouts.map((payout) => payoutEffect(payMe, payout))], payouts);
+	});
+}
+
+/** What `loadOwing` found, narrowed to one Employee. */
+function owingOf(owing: Owing, employeeUserId: string): Owing {
+	const mine = <T extends { employeeUserId: string }>(items: readonly T[]) => items.filter((item) => item.employeeUserId === employeeUserId);
+	return {
+		...owing,
+		approved: mine(owing.approved),
+		unpaid: mine(owing.unpaid),
+		openPayouts: mine(owing.openPayouts),
+		shares: mine(owing.shares),
+		unpaidShares: mine(owing.unpaidShares)
+	};
+}
+
+/** Freezes the Employee's unpaid requests and Shares into a new Open Payout, or returns null when there are none. */
+function insertPayoutFor(payMe: PayMe, actor: Actor, owing: Owing, employeeUserId: string): Payout | null {
+	const lines = owing.unpaid.map((request): PayoutLine => ({
+		requestNumber: request.number,
+		taskId: request.taskId,
+		jobId: lineJobId(request),
+		rate: rateOf(owing, request)
+	}));
+	const shares = owing.unpaidShares.map(({ id, projectId, jobId, amount }): PayoutShareLine => ({ shareId: id, projectId, jobId, amount }));
+	if (lines.length === 0 && shares.length === 0) return null;
+	const { minecraftName } = getEmployee(payMe, employeeUserId)!;
+	const total = sumOfRates(lines) + sumOfAmounts(shares);
+	const number = insertPayout(payMe.storage, { employeeUserId, minecraftName, generatedBy: actor.userId, total, lines, shares });
+	return getPayout(payMe, number)!;
 }
 
 export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number): Outcome<Payout> {
@@ -237,12 +340,16 @@ export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number): Outc
 			if (!paid.ok) throw new Error(`Cannot pay ${requestLabel(line.requestNumber)} in ${payoutLabel(number)}: ${paid.error.code}`);
 			return updateReviewCopies(payMe, paid.value);
 		});
+		const shareIds = payout.shares.map((line) => line.shareId);
+		// Nothing else pays a Share in an Open Payout, so a mismatch is a bug. Throwing rolls the Payout back too.
+		if (markSharesPaid(storage, shareIds) !== shareIds.length) throw new Error(`Cannot pay every Share in ${payoutLabel(number)}`);
 		const log: Card = {
 			tone: 'success',
 			title: `${payoutLabel(number)} paid`,
 			description: [
 				`Paid by <@${actor.userId}>: **${formatAmount(payout.total)}** to ${payout.minecraftName}`,
-				...payout.lines.map((line) => `- ${lineText(payMe, line)}`)
+				...payout.lines.map((line) => `- ${lineText(payMe, line)}`),
+				...payout.shares.map((line) => `- ${shareLineText(payMe, line)}`)
 			].join('\n')
 		};
 		effects.push({ type: 'post-to-requests-thread', employeeUserId: payout.employeeUserId, card: log, ping: false }, payoutEffect(payMe, payout));
@@ -270,14 +377,16 @@ function notOpen(payMe: PayMe, number: number) {
 }
 
 export function payCommand(payout: Payout): string {
-	return `/gov payout GovCommerce ${payout.minecraftName} ${formatAmount(payout.total)} PayMe ${payoutLabel(payout.number)}`;
+	return `/gov payout GovCommerce ${payout.minecraftName} ${plainAmount(payout.total)} PayMe ${payoutLabel(payout.number)}`;
 }
 
 /** The private Payout message. Once settled, it shows who settled it in place of the Pay Command. */
 function payoutEffect(payMe: PayMe, payout: Payout): Effect {
 	const open = payout.state === 'open';
 	const status = open ? payoutStateName(payout.state) : `**${payoutStateName(payout.state)}** by <@${payout.settledBy}>`;
-	const requests = payout.lines.map((line) => requestLabel(line.requestNumber)).join(', ');
+	const requests = [...payout.lines.map((line) => requestLabel(line.requestNumber)), ...payout.shares.map((line) => shareLabel(line.shareId))].join(
+		', '
+	);
 	return {
 		type: 'show-payout',
 		payoutNumber: payout.number,
@@ -297,11 +406,20 @@ function payoutEffect(payMe: PayMe, payout: Payout): Effect {
 }
 
 function breakdown(payMe: PayMe, payout: Payout): string[] {
-	const jobIds = [...new Set(payout.lines.map((line) => line.jobId))];
+	const jobIds = [...new Set([...payout.lines, ...payout.shares].map((line) => line.jobId))];
 	return jobIds.flatMap((jobId) => {
 		const lines = payout.lines.filter((line) => line.jobId === jobId);
-		return [`**${getJob(payMe, jobId)!.name}**: ${formatAmount(sumOfRates(lines))}`, ...lines.map((line) => `- ${lineText(payMe, line)}`)];
+		const shares = payout.shares.filter((line) => line.jobId === jobId);
+		return [
+			`**${getJob(payMe, jobId)!.name}**: ${formatAmount(sumOfRates(lines) + sumOfAmounts(shares))}`,
+			...lines.map((line) => `- ${lineText(payMe, line)}`),
+			...shares.map((line) => `- ${shareLineText(payMe, line)}`)
+		];
 	});
+}
+
+function shareLineText(payMe: PayMe, line: PayoutShareLine): string {
+	return `**${shareLabel(line.shareId)}** ${getProject(payMe, line.projectId)!.name} Project: ${formatAmount(line.amount)}`;
 }
 
 function lineText(payMe: PayMe, line: PayoutLine): string {

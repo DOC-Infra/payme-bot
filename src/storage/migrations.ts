@@ -141,5 +141,59 @@ export const migrations: Migration[] = [
 			WHERE task_id IN (SELECT id FROM tasks WHERE name = 'DOC Ticket Assistance');
 			CREATE INDEX payment_requests_by_ticket ON payment_requests (employee_user_id, ticket) WHERE ticket IS NOT NULL;
 		`
+	},
+	{
+		name: '0009-projects',
+		sql: `
+			CREATE TABLE projects (
+				id INTEGER PRIMARY KEY,
+				name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+				job_id INTEGER NOT NULL REFERENCES jobs (id),
+				state TEXT NOT NULL CHECK (state IN ('open', 'closed')),
+				created_by TEXT NOT NULL
+			);
+			CREATE TABLE project_funding (
+				id INTEGER PRIMARY KEY,
+				project_id INTEGER NOT NULL REFERENCES projects (id),
+				amount INTEGER NOT NULL,
+				actor_user_id TEXT NOT NULL,
+				at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			);
+			CREATE INDEX project_funding_by_project ON project_funding (project_id);
+			CREATE TABLE project_shares (
+				id INTEGER PRIMARY KEY,
+				project_id INTEGER NOT NULL REFERENCES projects (id),
+				employee_user_id TEXT NOT NULL REFERENCES employees (user_id),
+				amount INTEGER NOT NULL,
+				note TEXT,
+				actor_user_id TEXT NOT NULL,
+				paid INTEGER NOT NULL DEFAULT 0,
+				at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			);
+			CREATE INDEX project_shares_by_project ON project_shares (project_id);
+			CREATE INDEX project_shares_unpaid ON project_shares (employee_user_id) WHERE paid = 0;
+			CREATE TABLE payout_share_lines (
+				payout_number INTEGER NOT NULL REFERENCES payouts (number),
+				share_id INTEGER NOT NULL REFERENCES project_shares (id),
+				project_id INTEGER NOT NULL REFERENCES projects (id),
+				job_id INTEGER NOT NULL REFERENCES jobs (id),
+				amount INTEGER NOT NULL,
+				PRIMARY KEY (payout_number, share_id)
+			);
+			CREATE INDEX payout_share_lines_by_share ON payout_share_lines (share_id);
+		`
+	},
+	{
+		name: '0010-project-share-removed',
+		sql: `ALTER TABLE project_shares ADD COLUMN removed INTEGER NOT NULL DEFAULT 0;`
+	},
+	{
+		name: '0011-settings',
+		sql: `
+			CREATE TABLE settings (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL
+			);
+		`
 	}
 ];

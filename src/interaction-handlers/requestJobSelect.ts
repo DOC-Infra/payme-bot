@@ -1,24 +1,30 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import type { StringSelectMenuInteraction } from 'discord.js';
-import { fetchActor } from '../discord/actor';
+import { fetchActorIn } from '../discord/actor';
 import { decodeCustomId } from '../discord/customIds';
-import { openRequestForm } from '../discord/requestModal';
+import { openRequestForm, takeHeldNotes } from '../discord/requestModal';
 import { runAsActor } from '../discord/runner';
+
+interface Picking {
+	home: string;
+	employeeUserId: string | null;
+}
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.SelectMenu
 })
 export class MenuHandler extends InteractionHandler {
-	public async run(interaction: StringSelectMenuInteraction, employeeUserId: string | null) {
+	public async run(interaction: StringSelectMenuInteraction, { home, employeeUserId }: Picking) {
 		const jobId = Number(interaction.values[0]);
-		if (employeeUserId === null) return runAsActor(interaction, { code: 'not-hired' }, openRequestForm(interaction, jobId));
-		const employee = await fetchActor(interaction, employeeUserId);
-		return runAsActor(interaction, { code: 'not-their-manager' }, openRequestForm(interaction, jobId, employee));
+		const notes = takeHeldNotes(interaction.user.id);
+		const employee = employeeUserId ? await fetchActorIn(home, employeeUserId) : null;
+		const refusal = employee ? ({ code: 'not-their-manager' } as const) : ({ code: 'not-hired' } as const);
+		return runAsActor(interaction, refusal, openRequestForm(interaction, home, jobId, employee, notes), home);
 	}
 
 	public override parse(interaction: StringSelectMenuInteraction) {
 		const id = decodeCustomId(interaction.customId);
-		return id?.kind === 'request-job-select' ? this.some(id.employeeUserId) : this.none();
+		return id?.kind === 'request-job-select' ? this.some({ home: id.home, employeeUserId: id.employeeUserId }) : this.none();
 	}
 }

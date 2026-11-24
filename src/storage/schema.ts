@@ -1,9 +1,10 @@
 import { sql } from 'drizzle-orm';
 import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import type { PayoutState, RequestState } from '../core/labels';
+import type { PayoutState, ProjectState, RequestState } from '../core/labels';
 
 const requestStates = ['pending', 'approved', 'rejected', 'denied', 'withdrawn', 'paid'] as const satisfies readonly RequestState[];
 const payoutStates = ['open', 'paid', 'discarded'] as const satisfies readonly PayoutState[];
+const projectStates = ['open', 'closed'] as const satisfies readonly ProjectState[];
 
 const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -148,3 +149,65 @@ export const payoutLines = sqliteTable(
 	},
 	(table) => [primaryKey({ columns: [table.payoutNumber, table.requestNumber] })]
 );
+
+export const projects = sqliteTable('projects', {
+	id: integer('id').primaryKey(),
+	name: text('name').notNull().unique(),
+	jobId: integer('job_id')
+		.notNull()
+		.references(() => jobs.id),
+	state: text('state', { enum: projectStates }).notNull(),
+	createdBy: text('created_by').notNull()
+});
+
+export const projectFunding = sqliteTable('project_funding', {
+	id: integer('id').primaryKey(),
+	projectId: integer('project_id')
+		.notNull()
+		.references(() => projects.id),
+	amount: integer('amount').notNull(),
+	actorUserId: text('actor_user_id').notNull(),
+	at: text('at').notNull().default(now)
+});
+
+export const projectShares = sqliteTable('project_shares', {
+	id: integer('id').primaryKey(),
+	projectId: integer('project_id')
+		.notNull()
+		.references(() => projects.id),
+	employeeUserId: text('employee_user_id')
+		.notNull()
+		.references(() => employees.userId),
+	amount: integer('amount').notNull(),
+	note: text('note'),
+	actorUserId: text('actor_user_id').notNull(),
+	paid: integer('paid', { mode: 'boolean' }).notNull().default(false),
+	removed: integer('removed', { mode: 'boolean' }).notNull().default(false),
+	at: text('at').notNull().default(now)
+});
+
+export const payoutShareLines = sqliteTable(
+	'payout_share_lines',
+	{
+		payoutNumber: integer('payout_number')
+			.notNull()
+			.references(() => payouts.number),
+		shareId: integer('share_id')
+			.notNull()
+			.references(() => projectShares.id),
+		projectId: integer('project_id')
+			.notNull()
+			.references(() => projects.id),
+		jobId: integer('job_id')
+			.notNull()
+			.references(() => jobs.id),
+		amount: integer('amount').notNull()
+	},
+	(table) => [primaryKey({ columns: [table.payoutNumber, table.shareId] })]
+);
+
+/** One value per key, for things Leadership sets from Discord, like the Rates Channel. */
+export const settings = sqliteTable('settings', {
+	key: text('key').primaryKey(),
+	value: text('value').notNull()
+});

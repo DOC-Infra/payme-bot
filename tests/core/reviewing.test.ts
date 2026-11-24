@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-	addManagerRole,
+	setManagerRoles,
 	addTask,
 	amendRequest,
 	approveRequest,
@@ -26,13 +26,21 @@ function created<T>(outcome: Outcome<T>): T {
 function job(payMe: PayMe, name: string) {
 	const slug = name.toLowerCase();
 	const result = created(createJob(payMe, leadership(), { name, employeeRoleId: `role-${slug}`, reviewChannelId: `review-${slug}` }));
-	addManagerRole(payMe, leadership(), result.id, `role-${slug}-manager`, []);
+	setManagerRoles(payMe, leadership(), result.id, [`role-${slug}-manager`], []);
 	return result;
 }
 
 function hire(payMe: PayMe, userId: string, minecraftName: string) {
 	created(hireEmployee(payMe, leadership(), member(userId), minecraftName));
 	recordRequestsThread(payMe, userId, { channelId: `channel-${userId}`, pinnedMessageId: `pin-${userId}`, threadId: `thread-${userId}` });
+}
+
+/** A request filed before each request named one Job, so it is eligible under every Job listed. */
+function legacyRequest(payMe: PayMe, employeeUserId: string, taskId: number, eligibleJobIds: number[]) {
+	return payMe.requests.create(
+		{ employeeUserId, taskId, eligibleJobIds, evidence: [{ kind: 'notes', text: 'Done' }] },
+		{ state: 'pending', actorUserId: employeeUserId }
+	);
 }
 
 /** Alex, a Courier, submits R-1 for Deliver Parcel. */
@@ -156,7 +164,7 @@ describe('Which review copies a decision changes', () => {
 		messageId: `message-${channelId}-${round}`
 	});
 
-	/** R-1 for Load Cart, eligible under Courier and Logistics, with its round 1 entry and both review copies posted. */
+	/** R-1 for Load Cart, filed before requests named one Job, so eligible under Courier and Logistics, with its round 1 entry and both review copies posted. */
 	function postedCart() {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
@@ -164,7 +172,7 @@ describe('Which review copies a decision changes', () => {
 		const cart = created(addTask(payMe, leadership(), { name: 'Load Cart', rate: '100', jobIds: [courier.id, logistics.id] }));
 		hire(payMe, 'user-alex', 'Alex_42');
 		const alex = member('user-alex', 'role-courier', 'role-logistics');
-		created(submitRequest(payMe, alex, { taskId: cart.id, notes: 'Done', link: null, files: [screenshot] }));
+		legacyRequest(payMe, 'user-alex', cart.id, [courier.id, logistics.id]);
 		for (const message of [copy(1, null, 'thread-user-alex'), copy(1, courier.id, 'review-courier'), copy(1, logistics.id, 'review-logistics')])
 			payMe.requests.recordMessage(1, message);
 		return { payMe, courier, logistics, alex };
@@ -213,7 +221,7 @@ describe('Which review copies a decision changes', () => {
 });
 
 describe('Who can review', () => {
-	it('lets a Manager of any eligible Job review a request for a shared Task', () => {
+	it('lets only Managers of the picked Job review a request for a shared Task', () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
 		const logistics = job(payMe, 'Logistics');
@@ -222,12 +230,14 @@ describe('Who can review', () => {
 		created(
 			submitRequest(payMe, member('user-alex', 'role-courier', 'role-logistics'), {
 				taskId: cart.id,
+				jobId: logistics.id,
 				notes: 'Done',
 				link: null,
 				files: [screenshot]
 			})
 		);
 
+		expect(approveRequest(payMe, courierManager, 1)).toMatchObject({ ok: false, error: { code: 'not-a-reviewer' } });
 		expect(approveRequest(payMe, member('user-lee', 'role-logistics-manager'), 1)).toMatchObject({ ok: true });
 	});
 });

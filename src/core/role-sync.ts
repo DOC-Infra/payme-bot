@@ -9,7 +9,7 @@ export function syncJobRoles(payMe: PayMe, userId: string, oldRoleIds: string[],
 	if (!channelId) return succeed();
 
 	const gainedRoleIds = newRoleIds.filter((id) => !oldRoleIds.includes(id));
-	const roleIds = managerRoleIdsOfHeldJobs(payMe, { userId, roleIds: gainedRoleIds });
+	const roleIds = managerRoleIdsOfHeldJobs(payMe, { userId, roleIds: gainedRoleIds, administrator: false });
 	const effects: Effect[] = roleIds.length === 0 ? [] : [{ type: 'grant-channel-access', channelId, roleIds }];
 	return succeed(effects);
 }

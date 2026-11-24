@@ -4,8 +4,18 @@ export type RequestState = 'pending' | 'approved' | 'rejected' | 'denied' | 'wit
 
 export type PayoutState = 'open' | 'paid' | 'discarded';
 
+export type ProjectState = 'open' | 'closed';
+
 export function requestLabel(number: number): string {
 	return `R-${number}`;
+}
+
+export function shareLabel(id: number): string {
+	return `S-${id}`;
+}
+
+export function projectStateName(state: ProjectState): string {
+	return capitalise(state);
 }
 
 export function payoutLabel(number: number): string {

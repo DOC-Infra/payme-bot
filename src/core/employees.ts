@@ -1,7 +1,7 @@
 import { saveEmployee, selectEmployee, selectEmployeeIdByChannel, selectEmployees, updateRequestsThread } from '../storage/employees';
 import type { Actor } from './actor';
 import { notice, type Card, type Effect } from './effects';
-import { channelViewerRoleIds } from './job-membership';
+import { managerRoleIdsOfHeldJobs } from './job-membership';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
@@ -16,6 +16,11 @@ export interface Employee {
 
 export function getEmployee(payMe: PayMe, userId: string): Employee | null {
 	return selectEmployee(payMe.storage, userId);
+}
+
+/** The Employee whose Employee Channel this is, if any. */
+export function employeeIdByChannel(payMe: PayMe, channelId: string): string | null {
+	return selectEmployeeIdByChannel(payMe.storage, channelId);
 }
 
 export function allEmployees(payMe: PayMe): Employee[] {
@@ -55,7 +60,7 @@ export function hireEmployee(payMe: PayMe, actor: Actor, hiree: Actor, minecraft
 				employeeUserId: hiree.userId,
 				name: minecraftName.toLowerCase(),
 				viewerUserIds: [hiree.userId],
-				viewerRoleIds: channelViewerRoleIds(payMe, hiree),
+				viewerRoleIds: managerRoleIdsOfHeldJobs(payMe, hiree),
 				...requestsThreadStart(hiree.userId, minecraftName)
 			},
 			logEntry(hiree.userId, `Hired by <@${actor.userId}> with Minecraft Name ${minecraftName}.`),
@@ -63,6 +68,14 @@ export function hireEmployee(payMe: PayMe, actor: Actor, hiree: Actor, minecraft
 		];
 		return succeed(effects, selectEmployee(storage, hiree.userId)!);
 	});
+}
+
+/** Checks that the actor may link the member to the channel, for example before asking for their Minecraft Name. */
+export function checkEmployeeLink(payMe: PayMe, actor: Actor, userId: string, channelId: string): Failure | null {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	const holder = selectEmployeeIdByChannel(payMe.storage, channelId);
+	return holder !== null && holder !== userId ? fail({ code: 'employee-channel-taken', channelId }) : null;
 }
 
 export function linkEmployee(payMe: PayMe, actor: Actor, linked: Actor, minecraftName: string, channelId: string): Outcome<Employee> {
@@ -73,19 +86,17 @@ export function linkEmployee(payMe: PayMe, actor: Actor, linked: Actor, minecraf
 	const { storage } = payMe;
 	return storage.transaction(() => {
 		const { userId } = linked;
-		const holder = selectEmployeeIdByChannel(storage, channelId);
-		if (holder !== null && holder !== userId) return fail({ code: 'employee-channel-taken', channelId });
+		const taken = checkEmployeeLink(payMe, actor, userId, channelId);
+		if (taken) return taken;
 
 		const existing = selectEmployee(storage, userId);
 		const reuse = existing !== null && existing.channelId === channelId && existing.threadId !== null;
 		saveEmployee(storage, reuse ? { ...existing, minecraftName } : { userId, minecraftName, channelId, threadId: null, pinnedMessageId: null });
 
-		const effects: Effect[] = reuse
-			? []
-			: [
-					{ type: 'grant-channel-access', channelId, roleIds: channelViewerRoleIds(payMe, linked) },
-					{ type: 'start-requests-thread', employeeUserId: userId, channelId, ...requestsThreadStart(userId, minecraftName) }
-				];
+		const effects: Effect[] = [
+			{ type: 'sync-employee-channel', channelId, employeeUserId: userId, viewerRoleIds: managerRoleIdsOfHeldJobs(payMe, linked) }
+		];
+		if (!reuse) effects.push({ type: 'start-requests-thread', employeeUserId: userId, channelId, ...requestsThreadStart(userId, minecraftName) });
 		for (const change of linkChanges(existing, minecraftName, channelId, `<@${actor.userId}>`)) effects.push(logEntry(userId, change));
 		effects.push({ type: 'private-reply', card: notice(`Linked <@${userId}> to <#${channelId}> with Minecraft Name ${minecraftName}.`) });
 		return succeed(effects, selectEmployee(storage, userId)!);

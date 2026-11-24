@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-	addManagerRole,
+	setManagerRoles,
 	addTask,
 	changeState,
 	checkChange,
@@ -29,7 +29,7 @@ function created<T>(outcome: Outcome<T>): T {
 function courierPayMe() {
 	const payMe = createTestPayMe();
 	const courier = created(createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' }));
-	addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager', []);
+	setManagerRoles(payMe, leadership(), courier.id, ['role-courier-manager'], []);
 	const parcel = created(addTask(payMe, leadership(), { name: 'Deliver Parcel', rate: '100', jobIds: [courier.id] }));
 	created(hireEmployee(payMe, leadership(), member('user-alex'), 'Alex_42'));
 	return { payMe, courier, parcel };
@@ -40,7 +40,7 @@ function submitParcel(payMe: PayMe, by: Actor = alex) {
 }
 
 describe('Submitting a Payment Request', () => {
-	it('records it as Pending, with whoever filed it as the first history entry', () => {
+	it("records the Employee's own request as Pending, and one filed on their behalf as Approved", () => {
 		const { payMe } = courierPayMe();
 
 		expect(submitParcel(payMe)).toMatchObject({
@@ -51,7 +51,8 @@ describe('Submitting a Payment Request', () => {
 		});
 		expect(submitParcel(payMe, courierManager)).toMatchObject({
 			employeeUserId: 'user-alex',
-			history: [{ from: null, to: 'pending', actorUserId: 'user-casey' }]
+			state: 'approved',
+			history: [{ from: null, to: 'approved', actorUserId: 'user-casey' }]
 		});
 	});
 });
@@ -210,22 +211,19 @@ describe('Who may change a Payment Request', () => {
 		expect(payMe.requests.load(1)?.state).toBe('rejected');
 	});
 
-	it('leaves withdrawing to the Employee when a Manager filed the request for them', () => {
+	it('leaves a request a Manager filed for the Employee nothing to review or withdraw, only to pay', () => {
 		const { payMe } = courierPayMe();
 		submitParcel(payMe, courierManager);
 
-		expect(changeState(payMe, courierManager, 1, 'withdraw')).toEqual({ ok: false, error: { code: 'not-your-request' } });
-		expect(changeState(payMe, alex, 1, 'withdraw')).toMatchObject({ ok: true, value: { state: 'withdrawn' } });
+		expect(changeState(payMe, leadership(), 1, 'approve')).toMatchObject({ ok: false, error: { code: 'already-decided' } });
+		expect(changeState(payMe, alex, 1, 'withdraw')).toMatchObject({ ok: false, error: { code: 'cannot-withdraw' } });
+		expect(changeState(payMe, leadership(), 1, 'pay')).toMatchObject({ ok: true, value: { state: 'paid' } });
 	});
 
-	it.each(['approve', 'reject', 'deny'] as const)('lets a Manager of an eligible Job, Leadership or the filing Manager %s', (change) => {
+	it.each(['approve', 'reject', 'deny'] as const)('lets a Manager of an eligible Job or Leadership %s', (change) => {
 		for (const reviewer of [courierManager, leadership()]) {
 			expect(changeState(requestIn('pending'), reviewer, 1, change, 'Because')).toMatchObject({ ok: true });
 		}
-
-		const { payMe } = courierPayMe();
-		submitParcel(payMe, courierManager);
-		expect(changeState(payMe, courierManager, 1, change, 'Because')).toMatchObject({ ok: true });
 	});
 
 	it.each(['approve', 'reject', 'deny'] as const)('refuses to let someone unrelated %s', (change) => {

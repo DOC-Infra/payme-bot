@@ -3,11 +3,17 @@ export type Effect =
 	| CreateEmployeeChannel
 	| StartRequestsThread
 	| GrantChannelAccess
+	| SyncEmployeeChannel
+	| RevokeChannelAccess
+	| RenameChannel
 	| PostToRequestsThread
 	| PostRound
 	| UpdateReviewCopies
 	| ShowPayout
 	| ShowPayouts
+	| ShowProject
+	| ShowProjects
+	| ShowManage
 	| UpdateEntryActions
 	| UpdateRequestEntry
 	| DeleteReviewCopies;
@@ -76,6 +82,30 @@ export interface StartRequestsThread {
 }
 
 /** Let these roles view the channel, keeping every other permission as it is. */
+/**
+ * Make an Employee Channel visible to exactly the Employee, PayMe and these roles: let each of them see it, and take away seeing it
+ * from every other role, @everyone included. Roles' other permissions and other members' own permissions are left as they are.
+ */
+export interface SyncEmployeeChannel {
+	type: 'sync-employee-channel';
+	channelId: string;
+	employeeUserId: string;
+	viewerRoleIds: string[];
+}
+
+/** Stop these roles' own permissions in the channel, keeping everything else as it is. */
+export interface RevokeChannelAccess {
+	type: 'revoke-channel-access';
+	channelId: string;
+	roleIds: string[];
+}
+
+export interface RenameChannel {
+	type: 'rename-channel';
+	channelId: string;
+	name: string;
+}
+
 export interface GrantChannelAccess {
 	type: 'grant-channel-access';
 	channelId: string;
@@ -161,4 +191,53 @@ export interface ShowPayouts {
 	type: 'show-payouts';
 	card: Card;
 	actions: PayoutAction[];
+}
+
+/** What the viewer of a Project can do to it with a button. */
+export type ProjectAction = 'share' | 'change-share' | 'fund' | 'close';
+
+/** Show a Project privately to the actor, with one button per action. */
+export interface ShowProject {
+	type: 'show-project';
+	projectId: number;
+	card: Card;
+	actions: ProjectAction[];
+}
+
+/** A Project the actor can pick to open. */
+export interface ProjectChoice {
+	id: number;
+	label: string;
+}
+
+/** Show the Projects privately to the actor, with a menu to open one and, when `canCreate` is set, a button to create one. */
+export interface ShowProjects {
+	type: 'show-projects';
+	card: Card;
+	projects: ProjectChoice[];
+	canCreate: boolean;
+}
+
+/** Something Leadership can open from a management view's menu. */
+export interface Choice {
+	id: number;
+	label: string;
+}
+
+export type JobAction = 'edit' | 'managers' | 'retire';
+export type TaskAction = 'edit' | 'jobs' | 'retire' | 'restore';
+
+/** What a management view offers below its card. */
+export type ManageView =
+	| { kind: 'jobs'; jobs: Choice[] }
+	| { kind: 'job'; jobId: number; actions: JobAction[] }
+	| { kind: 'tasks'; jobs: Choice[] }
+	| { kind: 'job-tasks'; jobId: number; tasks: Choice[]; canAdd: boolean }
+	| { kind: 'task'; taskId: number; actions: TaskAction[] };
+
+/** Show a Job or Task management view privately to the actor, with the menus and buttons the view offers. */
+export interface ShowManage {
+	type: 'show-manage';
+	card: Card;
+	view: ManageView;
 }

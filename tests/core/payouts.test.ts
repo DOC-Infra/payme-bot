@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-	addManagerRole,
+	setManagerRoles,
 	addTask,
 	approveRequest,
-	changeRate,
+	editTask,
 	createJob,
 	discardPayout,
+	generateAllPayouts,
 	generatePayout,
 	getPayout,
 	markPayoutPaid,
@@ -26,6 +27,7 @@ import { createTestPayMe, leadership, member } from '../support/payme';
 
 const screenshot = { name: 'proof.png', url: 'https://cdn.example/proof.png' };
 const alex = member('user-alex', 'role-courier');
+const noShares = { unpaidShareIds: [], sharesTotal: 0 };
 
 function created<T>(outcome: Outcome<T>): T {
 	if (!outcome.ok) throw new Error(`Expected success, got ${outcome.error.code}`);
@@ -35,7 +37,7 @@ function created<T>(outcome: Outcome<T>): T {
 function job(payMe: PayMe, name: string) {
 	const slug = name.toLowerCase();
 	const result = created(createJob(payMe, leadership(), { name, employeeRoleId: `role-${slug}`, reviewChannelId: `review-${slug}` }));
-	addManagerRole(payMe, leadership(), result.id, `role-${slug}-manager`, []);
+	setManagerRoles(payMe, leadership(), result.id, [`role-${slug}-manager`], []);
 	return result;
 }
 
@@ -48,6 +50,14 @@ function approved(payMe: PayMe, employee: ReturnType<typeof member>, taskId: num
 	const request = created(submitRequest(payMe, employee, { taskId, notes: 'Done', link: null, files: [screenshot] }));
 	created(approveRequest(payMe, leadership(), request.number));
 	return request.number;
+}
+
+/** A request filed before each request named one Job, so it is eligible under every Job listed. */
+function legacyRequest(payMe: PayMe, employeeUserId: string, taskId: number, eligibleJobIds: number[]) {
+	return payMe.requests.create(
+		{ employeeUserId, taskId, eligibleJobIds, evidence: [{ kind: 'notes', text: 'Done' }] },
+		{ state: 'pending', actorUserId: employeeUserId }
+	);
 }
 
 /** Alex, a Courier with Minecraft Name Alex_42, can request Deliver Parcel (Rate 1000) and Sort Mail (Rate 500.25). */
@@ -88,7 +98,7 @@ describe('What is owed', () => {
 		const { payMe, parcel, mail } = courierAlex();
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(changeRate(payMe, leadership(), parcel.id, '1100'));
+		created(editTask(payMe, leadership(), parcel.id, { rate: '1100' }));
 		approved(payMe, alex, mail.id);
 		approved(payMe, alex, parcel.id);
 
@@ -112,11 +122,12 @@ describe('What is owed', () => {
 		});
 	});
 
-	it('attributes a Payout line to the lowest-numbered eligible Job when the request is eligible under several', () => {
+	it('attributes a Payout line to the lowest-numbered eligible Job when an older request is eligible under several', () => {
 		const { payMe, courier } = courierAlex();
 		const logistics = job(payMe, 'Logistics');
 		const crate = created(addTask(payMe, leadership(), { name: 'Move Crate', rate: '300', jobIds: [logistics.id, courier.id] }));
-		approved(payMe, member('user-alex', 'role-logistics', 'role-courier'), crate.id);
+		legacyRequest(payMe, 'user-alex', crate.id, [logistics.id, courier.id]);
+		created(approveRequest(payMe, leadership(), 1));
 
 		const payout = created(generatePayout(payMe, leadership(), 'user-alex'));
 
@@ -165,14 +176,14 @@ describe('The Pay Command', () => {
 						description: [
 							'For <@user-alex>',
 							'',
-							`**${courier.name}**: 1500.25`,
-							'- **R-1** Deliver Parcel: 1000',
-							'- **R-3** Sort Mail: 500.25',
-							`**${logistics.name}**: 250`,
-							'- **R-2** Load Cart: 250'
+							`**${courier.name}**: $1,500.25`,
+							'- **R-1** Deliver Parcel: $1,000',
+							'- **R-3** Sort Mail: $500.25',
+							`**${logistics.name}**: $250`,
+							'- **R-2** Load Cart: $250'
 						].join('\n'),
 						fields: [
-							{ name: 'Total', value: '**1750.25**', inline: true },
+							{ name: 'Total', value: '**$1,750.25**', inline: true },
 							{ name: 'Status', value: 'Open', inline: true },
 							{ name: 'Pay Command', value: '```\n/gov payout GovCommerce Alex_42 1750.25 PayMe P-1\n```' }
 						]
@@ -180,6 +191,53 @@ describe('The Pay Command', () => {
 				}
 			]
 		});
+	});
+});
+
+describe('Generating every Payout at once', () => {
+	it('generates one for each Employee owed something, keeps an Open one as it is, and shows them all', () => {
+		const { payMe, parcel, mail } = courierAlex();
+		const bo = member('user-bo', 'role-courier');
+		const casey = member('user-casey', 'role-courier');
+		hire(payMe, 'user-bo', 'Bo_7');
+		hire(payMe, 'user-casey', 'Casey_9');
+		approved(payMe, alex, parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		approved(payMe, alex, mail.id);
+		approved(payMe, bo, mail.id);
+		created(submitRequest(payMe, casey, { taskId: parcel.id, notes: 'Done', link: null, files: [screenshot] }));
+
+		const outcome = generateAllPayouts(payMe, leadership());
+
+		expect(outcome).toMatchObject({
+			ok: true,
+			value: [
+				{ number: 1, employeeUserId: 'user-alex', total: 100000 },
+				{ number: 2, employeeUserId: 'user-bo', total: 50025 }
+			],
+			effects: [
+				{
+					type: 'private-reply',
+					card: {
+						description: 'Generated 1 Payout. 1 was already Open. $1,500.25 to pay in all; run each Pay Command below, then mark it paid.'
+					}
+				},
+				{ type: 'show-payout', payoutNumber: 1, settleButtons: true },
+				{ type: 'show-payout', payoutNumber: 2, settleButtons: true }
+			]
+		});
+		expect(owedTo(payMe, 'user-alex').unpaidRequestNumbers).toEqual([2]);
+	});
+
+	it('tells Leadership when nobody is owed anything, and refuses anyone else', () => {
+		const { payMe } = courierAlex();
+
+		expect(generateAllPayouts(payMe, leadership())).toMatchObject({
+			ok: true,
+			value: [],
+			effects: [{ type: 'private-reply', card: { description: 'Nobody is owed anything.' } }]
+		});
+		expect(generateAllPayouts(payMe, member('user-casey', 'role-courier-manager'))).toEqual({ ok: false, error: { code: 'not-permitted' } });
 	});
 });
 
@@ -201,7 +259,7 @@ describe('Marking a Payout paid', () => {
 		const { payMe, parcel } = courierAlex();
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(changeRate(payMe, leadership(), parcel.id, '2000'));
+		created(editTask(payMe, leadership(), parcel.id, { rate: '2000' }));
 
 		const payout = created(markPayoutPaid(payMe, leadership(), 1));
 
@@ -238,9 +296,9 @@ describe('Marking a Payout paid', () => {
 						tone: 'success',
 						title: 'P-1 paid',
 						description: [
-							'Paid by <@user-lin>: **1500.25** to Alex_42',
-							'- **R-1** Deliver Parcel: 1000',
-							'- **R-2** Sort Mail: 500.25'
+							'Paid by <@user-lin>: **$1,500.25** to Alex_42',
+							'- **R-1** Deliver Parcel: $1,000',
+							'- **R-2** Sort Mail: $500.25'
 						].join('\n')
 					},
 					ping: false
@@ -251,7 +309,7 @@ describe('Marking a Payout paid', () => {
 					card: {
 						tone: 'success',
 						fields: [
-							{ name: 'Total', value: '**1500.25**', inline: true },
+							{ name: 'Total', value: '**$1,500.25**', inline: true },
 							{ name: 'Status', value: '**Paid** by <@user-lin>', inline: true }
 						]
 					}
@@ -305,7 +363,7 @@ describe('Discarding a Payout', () => {
 		const { payMe, parcel } = courierAlex();
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(changeRate(payMe, leadership(), parcel.id, '1200'));
+		created(editTask(payMe, leadership(), parcel.id, { rate: '1200' }));
 
 		expect(discardPayout(payMe, leadership('user-lin'), 1)).toMatchObject({
 			ok: true,
@@ -317,7 +375,7 @@ describe('Discarding a Payout', () => {
 					card: {
 						tone: 'neutral',
 						fields: [
-							{ name: 'Total', value: '**1000**', inline: true },
+							{ name: 'Total', value: '**$1,000**', inline: true },
 							{ name: 'Status', value: '**Discarded** by <@user-lin>', inline: true }
 						],
 						footer: 'R-1 can be paid in a new Payout.'
@@ -368,11 +426,18 @@ describe('The payouts view', () => {
 
 	it('lists every Employee with Approved, unpaid requests and their estimated totals at current Rates', () => {
 		const { payMe, parcel } = twoEmployees();
-		created(changeRate(payMe, leadership(), parcel.id, '1100'));
+		created(editTask(payMe, leadership(), parcel.id, { rate: '1100' }));
 
 		expect(created(showPayouts(payMe, leadership(), [])).owed).toEqual([
-			{ employeeUserId: 'user-alex', minecraftName: 'Alex_42', unpaidRequestNumbers: [1], estimatedTotal: 110000, openPayout: null },
-			{ employeeUserId: 'user-bo', minecraftName: 'Bo_7', unpaidRequestNumbers: [2, 3], estimatedTotal: 160025, openPayout: null }
+			{
+				employeeUserId: 'user-alex',
+				minecraftName: 'Alex_42',
+				unpaidRequestNumbers: [1],
+				estimatedTotal: 110000,
+				...noShares,
+				openPayout: null
+			},
+			{ employeeUserId: 'user-bo', minecraftName: 'Bo_7', unpaidRequestNumbers: [2, 3], estimatedTotal: 160025, ...noShares, openPayout: null }
 		]);
 	});
 
@@ -400,8 +465,8 @@ describe('The payouts view', () => {
 						tone: 'info',
 						title: 'Payouts',
 						description: [
-							'<@user-alex> (Alex_42): Open Payout **P-1**, 1000',
-							'<@user-bo> (Bo_7): about 1500.25 owed (estimate at current Rates) for R-2, R-3'
+							'<@user-alex> (Alex_42): Open Payout **P-1**, $1,000',
+							'<@user-bo> (Bo_7): about $1,500.25 owed (estimate at current Rates) for R-2, R-3'
 						].join('\n')
 					},
 					actions: [
@@ -535,7 +600,7 @@ describe("A Manager's payouts view", () => {
 						tone: 'info',
 						title: 'Payouts (read-only)',
 						description: [
-							'<@user-alex> (Alex_42): about 1000 owed (estimate at current Rates) for R-1',
+							'<@user-alex> (Alex_42): about $1,000 owed (estimate at current Rates) for R-1',
 							'',
 							'**Payout history**',
 							'No Payouts yet.'
@@ -572,7 +637,7 @@ describe("A Manager's payouts view", () => {
 		expect(view).toMatchObject({
 			card: {
 				description: expect.stringMatching(
-					/\*\*Payout history\*\*\n\*\*P-2\*\* for <@user-alex> \(Alex_42\): 1000, Paid on \d{4}-\d{2}-\d{2}\n\*\*P-1\*\* for <@user-alex> \(Alex_42\): 1000, Discarded on \d{4}-\d{2}-\d{2}$/
+					/\*\*Payout history\*\*\n\*\*P-2\*\* for <@user-alex> \(Alex_42\): \$1,000, Paid on \d{4}-\d{2}-\d{2}\n\*\*P-1\*\* for <@user-alex> \(Alex_42\): \$1,000, Discarded on \d{4}-\d{2}-\d{2}$/
 				)
 			}
 		});

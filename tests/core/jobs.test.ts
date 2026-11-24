@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addManagerRole, createJob, editJob, getJob, jobsHeldBy, listJobs, removeManagerRole, retireJob, type Outcome } from '../../src/core';
+import { setManagerRoles, createJob, editJob, getJob, jobsHeldBy, jobsView, retireJob, type Outcome } from '../../src/core';
 import { createTestPayMe, leadership, member } from '../support/payme';
 
 const courier = { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'channel-courier-review' };
@@ -65,12 +65,10 @@ describe('Jobs', () => {
 		const payMe = createTestPayMe();
 		const { id } = created(createJob(payMe, leadership(), courier));
 
-		addManagerRole(payMe, leadership(), id, 'role-courier-manager', []);
-		addManagerRole(payMe, leadership(), id, 'role-courier-lead', []);
-		addManagerRole(payMe, leadership(), id, 'role-courier-manager', []);
+		setManagerRoles(payMe, leadership(), id, ['role-courier-manager', 'role-courier-lead', 'role-courier-manager'], []);
 		expect(getJob(payMe, id)?.managerRoleIds).toEqual(['role-courier-manager', 'role-courier-lead']);
 
-		removeManagerRole(payMe, leadership(), id, 'role-courier-manager');
+		setManagerRoles(payMe, leadership(), id, ['role-courier-lead'], []);
 		expect(getJob(payMe, id)?.managerRoleIds).toEqual(['role-courier-lead']);
 	});
 
@@ -81,23 +79,22 @@ describe('Jobs', () => {
 		expect(retireJob(payMe, leadership(), id)).toMatchObject({ ok: true, value: { retired: true } });
 
 		expect(getJob(payMe, id)?.retired).toBe(true);
-		expect(listJobs(payMe, leadership())).toMatchObject({ ok: true, value: [{ id, retired: true }] });
+		expect(jobsView(payMe, leadership())).toMatchObject({ ok: true, value: [{ id, retired: true }] });
 	});
 
 	it('lists each Job with its roles and Review Channel', () => {
 		const payMe = createTestPayMe();
 		const { id } = created(createJob(payMe, leadership(), miner));
 		createJob(payMe, leadership(), courier);
-		addManagerRole(payMe, leadership(), id, 'role-miner-manager', []);
-		addManagerRole(payMe, leadership(), id, 'role-miner-lead', []);
+		setManagerRoles(payMe, leadership(), id, ['role-miner-manager', 'role-miner-lead'], []);
 		retireJob(payMe, leadership(), id);
 
-		const outcome = listJobs(payMe, leadership());
+		const outcome = jobsView(payMe, leadership());
 
 		expect(outcome).toMatchObject({ ok: true, value: [{ name: 'Courier' }, { name: 'Miner' }] });
-		expect(outcome.ok && outcome.effects).toEqual([
+		expect(outcome.ok && outcome.effects).toMatchObject([
 			{
-				type: 'private-reply',
+				type: 'show-manage',
 				card: {
 					tone: 'info',
 					title: 'Jobs',
@@ -120,26 +117,25 @@ describe('Jobs', () => {
 	it('says so when there are no Jobs to list', () => {
 		const payMe = createTestPayMe();
 
-		expect(listJobs(payMe, leadership())).toEqual({
+		expect(jobsView(payMe, leadership())).toEqual({
 			ok: true,
 			value: [],
-			effects: [{ type: 'private-reply', card: { tone: 'neutral', description: 'There are no Jobs yet.' } }]
+			effects: [{ type: 'show-manage', card: { tone: 'neutral', description: 'There are no Jobs yet.' }, view: { kind: 'jobs', jobs: [] } }]
 		});
 	});
 
 	it('refuses every Job change and the Job list to anyone who is not Leadership', () => {
 		const payMe = createTestPayMe();
 		const { id } = created(createJob(payMe, leadership(), courier));
-		addManagerRole(payMe, leadership(), id, 'role-courier-manager', []);
+		setManagerRoles(payMe, leadership(), id, ['role-courier-manager'], []);
 		const manager = member('user-manager', 'role-courier-manager', 'role-courier');
 		const notPermitted = { ok: false, error: { code: 'not-permitted' } };
 
 		expect(createJob(payMe, manager, miner)).toEqual(notPermitted);
 		expect(editJob(payMe, manager, id, { name: 'Logistics' })).toEqual(notPermitted);
-		expect(addManagerRole(payMe, manager, id, 'role-other', [])).toEqual(notPermitted);
-		expect(removeManagerRole(payMe, manager, id, 'role-courier-manager')).toEqual(notPermitted);
+		expect(setManagerRoles(payMe, manager, id, ['role-other'], [])).toEqual(notPermitted);
 		expect(retireJob(payMe, manager, id)).toEqual(notPermitted);
-		expect(listJobs(payMe, manager)).toEqual(notPermitted);
+		expect(jobsView(payMe, manager)).toEqual(notPermitted);
 		expect(getJob(payMe, id)).toEqual({ id, ...courier, managerRoleIds: ['role-courier-manager'], retired: false });
 	});
 
@@ -160,7 +156,6 @@ describe('Jobs', () => {
 
 		const notFound = { ok: false, error: { code: 'job-not-found' } };
 		expect(editJob(payMe, leadership(), 99, { name: 'Courier' })).toEqual(notFound);
-		expect(addManagerRole(payMe, leadership(), 99, 'role-courier-manager', [])).toEqual(notFound);
-		expect(removeManagerRole(payMe, leadership(), 99, 'role-courier-manager')).toEqual(notFound);
+		expect(setManagerRoles(payMe, leadership(), 99, ['role-courier-manager'], [])).toEqual(notFound);
 	});
 });

@@ -54,8 +54,8 @@ export function activeTasksForJobs(payMe: PayMe, jobIds: readonly number[]): Tas
 	return allTasks(payMe).filter((task) => !task.retired && task.jobIds.some((jobId) => jobIds.includes(jobId)));
 }
 
-export function listTasks(payMe: PayMe): Outcome<Task[]> {
-	const tasks = allTasks(payMe);
+/** Every Task with its Rate, Jobs and requirements. */
+export function rateScheduleCard(payMe: PayMe, tasks: readonly Task[] = allTasks(payMe)): Card {
 	const jobNames = new Map(allJobs(payMe).map((job) => [job.id, job.name]));
 	const describe = (task: Task) => {
 		const jobs = task.jobIds.map((id) => jobNames.get(id)).sort();
@@ -66,11 +66,9 @@ export function listTasks(payMe: PayMe): Outcome<Task[]> {
 		].filter(Boolean);
 		return `**${task.name}**${notes.length ? ` (${notes.join(', ')})` : ''}: ${formatAmount(task.rate)} (${jobs.join(', ')})`;
 	};
-	const card: Card =
-		tasks.length === 0
-			? notice('The Rate Schedule is empty.', 'neutral')
-			: { tone: 'info', title: 'Rate Schedule', description: tasks.map(describe).join('\n') };
-	return succeed([{ type: 'private-reply', card }], tasks);
+	return tasks.length === 0
+		? notice('The Rate Schedule is empty.', 'neutral')
+		: { tone: 'info', title: 'Rate Schedule', description: tasks.map(describe).join('\n') };
 }
 
 export function addTask(payMe: PayMe, actor: Actor, input: NewTask): Outcome<Task> {
@@ -104,46 +102,64 @@ export function addTask(payMe: PayMe, actor: Actor, input: NewTask): Outcome<Tas
 	});
 }
 
-export function changeRate(payMe: PayMe, actor: Actor, id: number, text: string): Outcome<Task> {
-	const rate = parseRate(text);
+/** What to change on a Task. Anything left out stays as it is. */
+export interface TaskChanges {
+	rate?: string;
+	evidenceRequired?: boolean;
+	notesRequired?: boolean;
+}
+
+/** Changes a Task's Rate and what its requests need in one go, leaving what is unchanged alone. */
+export function editTask(payMe: PayMe, actor: Actor, id: number, changes: TaskChanges): Outcome<Task> {
+	const rate = changes.rate === undefined ? undefined : parseRate(changes.rate);
 	return changeTask(payMe, actor, id, (task) => {
-		if (rate === null) return fail({ code: 'invalid-rate', rate: text });
-		updateTaskRate(payMe.storage, id, rate);
-		return `The ${task.name} Task now pays ${formatAmount(rate)}.`;
+		if (rate === null) return fail({ code: 'invalid-rate', rate: changes.rate! });
+		const { storage } = payMe;
+		const changed: string[] = [];
+		if (rate !== undefined && rate !== task.rate) {
+			updateTaskRate(storage, id, rate);
+			changed.push(`now pays ${formatAmount(rate)}`);
+		}
+		if (changes.evidenceRequired !== undefined && changes.evidenceRequired !== task.evidenceRequired) {
+			updateTaskEvidenceRequired(storage, id, changes.evidenceRequired);
+			changed.push(changes.evidenceRequired ? 'now needs a link or a file' : 'no longer needs a link or a file');
+		}
+		if (changes.notesRequired !== undefined && changes.notesRequired !== task.notesRequired) {
+			updateTaskNotesRequired(storage, id, changes.notesRequired);
+			changed.push(changes.notesRequired ? 'now needs notes' : 'no longer needs notes');
+		}
+		return changed.length ? `The ${task.name} Task ${joinList(changed)}.` : `Nothing changed on the ${task.name} Task.`;
 	});
 }
 
-export function setEvidenceRequired(payMe: PayMe, actor: Actor, id: number, required: boolean): Outcome<Task> {
+/**
+ * Makes the Task belong to exactly these active Jobs, keeping any Retired Jobs it belongs to so its past requests still name them.
+ */
+export function setTaskJobs(payMe: PayMe, actor: Actor, id: number, activeJobIds: readonly number[]): Outcome<Task> {
 	return changeTask(payMe, actor, id, (task) => {
-		updateTaskEvidenceRequired(payMe.storage, id, required);
-		return required ? `The ${task.name} Task now needs a link or a file as Evidence.` : `The ${task.name} Task no longer needs a link or a file.`;
+		const { storage } = payMe;
+		const retiredJobIds = task.jobIds.filter((jobId) => selectJob(storage, jobId)?.retired !== false);
+		const wanted = [...new Set([...activeJobIds, ...retiredJobIds])];
+		if (activeJobIds.length === 0) return fail({ code: 'task-needs-a-job' });
+
+		const added = wanted.filter((jobId) => !task.jobIds.includes(jobId));
+		const removed = task.jobIds.filter((jobId) => !wanted.includes(jobId));
+		for (const jobId of added) {
+			const unusable = checkJob(storage, jobId, !task.retired);
+			if (typeof unusable !== 'string') return unusable;
+		}
+		for (const jobId of removed) deleteTaskJob(storage, id, jobId);
+		for (const jobId of added) insertTaskJob(storage, id, jobId);
+
+		const names = activeJobIds.map((jobId) => selectJob(storage, jobId)!.name).sort();
+		const verb = added.length || removed.length ? 'now belongs to' : 'still belongs to';
+		return `The ${task.name} Task ${verb} ${joinList(names)}.`;
 	});
 }
 
-export function setNotesRequired(payMe: PayMe, actor: Actor, id: number, required: boolean): Outcome<Task> {
-	return changeTask(payMe, actor, id, (task) => {
-		updateTaskNotesRequired(payMe.storage, id, required);
-		return required ? `The ${task.name} Task now needs notes.` : `The ${task.name} Task no longer needs notes.`;
-	});
-}
-
-export function addTaskToJob(payMe: PayMe, actor: Actor, id: number, jobId: number): Outcome<Task> {
-	return changeTask(payMe, actor, id, (task) => {
-		const jobName = checkJob(payMe.storage, jobId, !task.retired && !task.jobIds.includes(jobId));
-		if (typeof jobName !== 'string') return jobName;
-		insertTaskJob(payMe.storage, id, jobId);
-		return `The ${task.name} Task now belongs to the ${jobName} Job.`;
-	});
-}
-
-export function removeTaskFromJob(payMe: PayMe, actor: Actor, id: number, jobId: number): Outcome<Task> {
-	return changeTask(payMe, actor, id, (task) => {
-		const job = selectJob(payMe.storage, jobId);
-		if (!job) return fail({ code: 'job-not-found' });
-		if (task.jobIds.every((taskJobId) => taskJobId === jobId)) return fail({ code: 'task-needs-a-job' });
-		deleteTaskJob(payMe.storage, id, jobId);
-		return `The ${task.name} Task no longer belongs to the ${job.name} Job.`;
-	});
+function joinList(items: readonly string[]): string {
+	if (items.length <= 1) return items.join('');
+	return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
 export function retireTask(payMe: PayMe, actor: Actor, id: number): Outcome<Task> {
