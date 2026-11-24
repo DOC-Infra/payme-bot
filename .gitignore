@@ -13,9 +13,10 @@ node_modules/
 
 dist/
 
-# SQLite database
+# SQLite databases: the old single one, and one per server
 payme.db
 payme.db-*
+data/
 
 # Ignore the config file (contains sensitive information such as tokens)
 config.ts

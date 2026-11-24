@@ -10,8 +10,11 @@ import {
 	MessageFlags,
 	OverwriteType,
 	PermissionFlagsBits,
+	PermissionsBitField,
+	type PermissionsString,
 	type ActionRow,
 	type MessageActionRowComponent,
+	type MessageActionRowComponentBuilder,
 	type ButtonInteraction,
 	type ModalSubmitInteraction,
 	type OverwriteData,
@@ -27,6 +30,7 @@ import {
 	getEmployee,
 	recordRequestsThread,
 	carryOutRound,
+	employeeCategoryId,
 	requestEntry,
 	type Actor,
 	type Card,
@@ -34,24 +38,40 @@ import {
 	type EvidenceFile,
 	type MessageRef,
 	type Outcome,
+	type PayMe,
 	type PayMeError,
 	type PostRound,
 	type RoundPoster
 } from '../core';
-import { toActor } from './actor';
+import { fetchActorIn, toActor } from './actor';
+import { scheduleDashboardRefresh } from './dashboard';
+import { scheduleRatesRefresh } from './ratesChannel';
 import { toEmbeds } from './embeds';
 import { entryButtons } from './entry';
 import { decodeCustomId } from './customIds';
 import { requestButtonRow } from './requestModal';
 import { buttonRows, payoutActionButtons, settleButtons } from './payouts';
+import { manageComponents } from './manage';
+import { newProjectButton, projectActionButtons, projectSelectRow } from './projects';
+import { employeeCategory } from './paymentReview';
 import { reviewButtons, reviewRow } from './review';
+import { payMeFor } from './servers';
+
+type ComponentRow = ActionRowBuilder<MessageActionRowComponentBuilder>;
 
 interface PrivateMessage {
 	embeds?: EmbedBuilder[];
-	components: ActionRowBuilder<ButtonBuilder>[];
+	components: ComponentRow[];
 }
 
-type Handler<T extends Effect> = (effect: T, interaction: RepliableInteraction | null) => Promise<unknown>;
+/** Which server the effects belong to, its PayMe, and the interaction to reply to, if any. */
+export interface EffectContext {
+	guildId: string;
+	payMe: PayMe;
+	interaction: RepliableInteraction | null;
+}
+
+type Handler<T extends Effect> = (effect: T, context: EffectContext) => Promise<unknown>;
 type Handlers = { [K in Effect['type']]: Handler<Extract<Effect, { type: K }>> };
 
 /** Interactions acknowledged without a reply: their message shows the result, so anything else they say goes in a private follow-up. */
@@ -70,10 +90,15 @@ const bot = [
 	PermissionFlagsBits.ManageThreads
 ];
 
+/** The permissions as an overwrite that allows each of them. */
+function allowing(flags: readonly bigint[]): Partial<Record<PermissionsString, true>> {
+	return Object.fromEntries(new PermissionsBitField(flags).toArray().map((name) => [name, true]));
+}
+
 const handlers: Handlers = {
-	'private-reply': async (effect, interaction) => interaction && replyPrivately(interaction, effect.card),
-	'create-employee-channel': async (effect) => {
-		const guild = await container.client.guilds.fetch(container.config.guildId);
+	'private-reply': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card),
+	'create-employee-channel': async (effect, { guildId, payMe }) => {
+		const guild = await container.client.guilds.fetch(guildId);
 		const overwrites: OverwriteData[] = [
 			{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
 			{ id: container.client.user!.id, type: OverwriteType.Member, allow: bot },
@@ -83,36 +108,67 @@ const handlers: Handlers = {
 		const channel = await guild.channels.create({
 			name: effect.name,
 			type: ChannelType.GuildText,
-			parent: container.config.employeeChannelCategoryId,
+			parent: (await employeeCategory(guild, employeeCategoryId(payMe))).id,
 			permissionOverwrites: overwrites
 		});
-		await startRequestsThread(channel, effect.employeeUserId, effect.pinnedMessage, effect.threadName);
+		await startRequestsThread(payMe, channel, effect.employeeUserId, effect.pinnedMessage, effect.threadName);
 	},
-	'start-requests-thread': async (effect) => {
+	'start-requests-thread': async (effect, { payMe }) => {
 		const channel = await container.client.channels.fetch(effect.channelId);
 		if (channel?.type !== ChannelType.GuildText) throw new Error(`Channel ${effect.channelId} is not a text channel`);
-		await startRequestsThread(channel, effect.employeeUserId, effect.pinnedMessage, effect.threadName);
+		await startRequestsThread(payMe, channel, effect.employeeUserId, effect.pinnedMessage, effect.threadName);
 	},
 	'grant-channel-access': async (effect) => {
 		const channel = await container.client.channels.fetch(effect.channelId);
 		if (!channel || channel.isDMBased() || channel.isThread()) throw new Error(`Channel ${effect.channelId} is not a guild channel`);
 		for (const roleId of effect.roleIds) await channel.permissionOverwrites.edit(roleId, { ViewChannel: true, ReadMessageHistory: true });
 	},
-	'post-to-requests-thread': async (effect) => {
-		const thread = await openRequestsThread(effect.employeeUserId);
+	'sync-employee-channel': async (effect) => {
+		const channel = await container.client.channels.fetch(effect.channelId);
+		if (channel?.type !== ChannelType.GuildText) throw new Error(`Channel ${effect.channelId} is not a text channel`);
+		const { permissionOverwrites } = channel;
+		const everyoneId = channel.guild.roles.everyone.id;
+		const viewers = new Set(effect.viewerRoleIds);
+		const otherRoles = permissionOverwrites.cache.filter(
+			(overwrite) =>
+				overwrite.type === OverwriteType.Role &&
+				overwrite.id !== everyoneId &&
+				!viewers.has(overwrite.id) &&
+				overwrite.allow.has(PermissionFlagsBits.ViewChannel)
+		);
+
+		// PayMe lets itself in first, so hiding the channel from @everyone never locks it out.
+		await permissionOverwrites.edit(container.client.user!.id, allowing(bot), { type: OverwriteType.Member });
+		await permissionOverwrites.edit(effect.employeeUserId, allowing(viewer), { type: OverwriteType.Member });
+		for (const roleId of viewers) await permissionOverwrites.edit(roleId, allowing(viewer), { type: OverwriteType.Role });
+		for (const roleId of otherRoles.keys()) await permissionOverwrites.edit(roleId, { ViewChannel: null }, { type: OverwriteType.Role });
+		await permissionOverwrites.edit(everyoneId, { ViewChannel: false }, { type: OverwriteType.Role });
+	},
+	'revoke-channel-access': async (effect) => {
+		const channel = await container.client.channels.fetch(effect.channelId);
+		if (!channel || channel.isDMBased() || channel.isThread()) throw new Error(`Channel ${effect.channelId} is not a guild channel`);
+		for (const roleId of effect.roleIds) await channel.permissionOverwrites.delete(roleId);
+	},
+	'rename-channel': async (effect) => {
+		const channel = await container.client.channels.fetch(effect.channelId);
+		if (!channel || channel.isDMBased() || channel.isThread()) throw new Error(`Channel ${effect.channelId} is not a guild channel`);
+		await channel.setName(effect.name);
+	},
+	'post-to-requests-thread': async (effect, { payMe }) => {
+		const thread = await openRequestsThread(payMe, effect.employeeUserId);
 		const content = effect.ping ? `<@${effect.employeeUserId}>` : undefined;
 		await thread.send({ content, embeds: toEmbeds(effect.card), allowedMentions: { users: effect.ping ? [effect.employeeUserId] : [] } });
 	},
-	'post-round': async (effect) => carryOutRound(effect, discordRounds, container.payMe.requests),
-	'update-review-copies': async (effect) => {
-		const components = reviewRow(entryLink(effect.requestNumber, effect.round));
+	'post-round': async (effect, context) => carryOutRound(effect, roundPoster(context), context.payMe.requests),
+	'update-review-copies': async (effect, context) => {
+		const components = reviewRow(entryLink(context, effect.requestNumber, effect.round));
 		for (const copy of effect.messages) {
 			const channel = await container.client.channels.fetch(copy.channelId);
 			if (!channel?.isTextBased()) throw new Error(`Review Channel ${copy.channelId} is not a text channel`);
 			await channel.messages.edit(copy.messageId, { content: null, embeds: toEmbeds(effect.card), components, allowedMentions: { parse: [] } });
 		}
 	},
-	'show-payout': async (effect, interaction) => {
+	'show-payout': async (effect, { interaction }) => {
 		if (!interaction) return;
 		return replyPrivately(
 			interaction,
@@ -121,9 +177,21 @@ const handlers: Handlers = {
 			acknowledged.has(interaction)
 		);
 	},
-	'show-payouts': async (effect, interaction) => interaction && replyPrivately(interaction, effect.card, payoutActionButtons(effect.actions)),
-	'update-request-entry': async (effect) => {
-		const entry = requestEntry(container.payMe, effect.requestNumber, effect.round);
+	'show-payouts': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card, payoutActionButtons(effect.actions)),
+	'show-project': async (effect, { interaction }) =>
+		interaction && replyPrivately(interaction, effect.card, projectActionButtons(effect.projectId, effect.actions)),
+	'show-manage': async (effect, { interaction }) => {
+		if (!interaction) return;
+		const { menus, buttons } = manageComponents(effect.view);
+		return replyPrivately(interaction, effect.card, buttons, false, menus);
+	},
+	'show-projects': async (effect, { interaction }) => {
+		if (!interaction) return;
+		const menu: ComponentRow[] = effect.projects.length > 0 ? [projectSelectRow(effect.projects)] : [];
+		return replyPrivately(interaction, effect.card, effect.canCreate ? [newProjectButton()] : [], false, menu);
+	},
+	'update-request-entry': async (effect, { payMe }) => {
+		const entry = requestEntry(payMe, effect.requestNumber, effect.round);
 		if (!entry) return;
 		const thread = await container.client.channels.fetch(entry.channelId);
 		if (!thread?.isThread()) throw new Error(`Requests Thread ${entry.channelId} is not a thread`);
@@ -144,8 +212,8 @@ const handlers: Handlers = {
 			}
 		}
 	},
-	'update-entry-actions': async (effect) => {
-		const entry = requestEntry(container.payMe, effect.requestNumber, effect.round);
+	'update-entry-actions': async (effect, { payMe }) => {
+		const entry = requestEntry(payMe, effect.requestNumber, effect.round);
 		if (!entry) return;
 		const thread = await container.client.channels.fetch(entry.channelId);
 		if (!thread?.isThread()) throw new Error(`Requests Thread ${entry.channelId} is not a thread`);
@@ -154,13 +222,15 @@ const handlers: Handlers = {
 	}
 };
 
-const discordRounds: RoundPoster = {
-	postEntry: postRequestEntry,
-	postReviewCopy: (round, channelId, entry) => postReviewCopy(round, channelId, entryLinkButton(entry))
-};
+function roundPoster({ guildId, payMe }: EffectContext): RoundPoster {
+	return {
+		postEntry: (round) => postRequestEntry(payMe, round),
+		postReviewCopy: (round, channelId, entry) => postReviewCopy(round, channelId, entryLinkButton(guildId, entry))
+	};
+}
 
-async function postRequestEntry(round: PostRound): Promise<MessageRef> {
-	const thread = await openRequestsThread(round.employeeUserId);
+async function postRequestEntry(payMe: PayMe, round: PostRound): Promise<MessageRef> {
+	const thread = await openRequestsThread(payMe, round.employeeUserId);
 	const message = await thread.send({
 		embeds: toEmbeds(round.entryCard),
 		files: uploads(round.files),
@@ -183,13 +253,13 @@ async function postReviewCopy(round: PostRound, channelId: string, link: ButtonB
 	return { channelId: channel.id, messageId: message.id };
 }
 
-function entryLink(requestNumber: number, round: number): ButtonBuilder[] {
-	const entry = requestEntry(container.payMe, requestNumber, round);
-	return entry ? [entryLinkButton(entry)] : [];
+function entryLink({ guildId, payMe }: EffectContext, requestNumber: number, round: number): ButtonBuilder[] {
+	const entry = requestEntry(payMe, requestNumber, round);
+	return entry ? [entryLinkButton(guildId, entry)] : [];
 }
 
-function entryLinkButton(entry: MessageRef): ButtonBuilder {
-	const url = messageLink(entry.channelId, entry.messageId, container.config.guildId);
+function entryLinkButton(guildId: string, entry: MessageRef): ButtonBuilder {
+	const url = messageLink(entry.channelId, entry.messageId, guildId);
 	return new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Open in Requests Thread').setURL(url);
 }
 
@@ -203,36 +273,54 @@ export async function acknowledge(interaction: ButtonInteraction | ModalSubmitIn
 	await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 }
 
-export async function runOutcome(interaction: RepliableInteraction, outcome: Outcome<unknown>): Promise<void> {
-	if (!outcome.ok) {
-		await replyPrivately(interaction, notice(describeError(outcome.error), 'danger'));
+/** Replies with the failure, or runs the effects in `guildId`'s server: the interaction's own unless it is filed elsewhere. */
+export async function runOutcome(
+	interaction: RepliableInteraction,
+	outcome: Outcome<unknown>,
+	guildId: string | null = interaction.guildId
+): Promise<void> {
+	if (!outcome.ok || !guildId) {
+		if (!outcome.ok) await replyPrivately(interaction, notice(describeError(outcome.error), 'danger'));
 		return;
 	}
-	await runEffects(outcome.effects, interaction);
+	await runEffects(outcome.effects, { guildId, payMe: payMeFor(guildId), interaction });
+	// A deferred reply nothing filled would stay as "thinking" forever.
+	if (interaction.deferred && !interaction.replied && !acknowledged.has(interaction)) await interaction.deleteReply();
 }
 
 type Step = Outcome<unknown> | null;
 
-/** Runs `op` as the acting member, or replies with `refusal` outside a guild. `op` returns null when it has replied itself. */
-export async function runAsActor(interaction: RepliableInteraction, refusal: PayMeError, op: (actor: Actor) => Step | Promise<Step>): Promise<void> {
-	const actor = toActor(interaction);
-	const outcome = actor ? await op(actor) : fail(refusal);
-	if (outcome) await runOutcome(interaction, outcome);
+/**
+ * Runs `op` as the acting member with their server's PayMe, or replies with `refusal` outside a server. With `home`, the server is
+ * that one instead, and the actor has the roles and permissions they have there: for PayMe used as a user app outside its servers.
+ * `op` returns null when it has replied itself.
+ */
+export async function runAsActor(
+	interaction: RepliableInteraction,
+	refusal: PayMeError,
+	op: (actor: Actor, payMe: PayMe) => Step | Promise<Step>,
+	home: string | null = interaction.guildId
+): Promise<void> {
+	const actor = home && home !== interaction.guildId ? await fetchActorIn(home, interaction.user.id) : toActor(interaction);
+	const outcome = actor && home ? await op(actor, payMeFor(home)) : fail(refusal);
+	if (outcome) await runOutcome(interaction, outcome, home);
 }
 
-/** Runs effects that have no interaction to reply to, such as those from listeners. Private replies are dropped. */
-export async function runEffects(effects: Effect[], interaction: RepliableInteraction | null = null): Promise<void> {
-	for (const effect of effects) await runEffect(interaction, effect);
+/** Runs the server's effects. Without an interaction, such as from a listener, private replies are dropped. */
+export async function runEffects(effects: Effect[], context: EffectContext): Promise<void> {
+	for (const effect of effects) await runEffect(context, effect);
+	scheduleDashboardRefresh(context.guildId);
+	scheduleRatesRefresh(context.guildId);
 }
 
-function runEffect<T extends Effect>(interaction: RepliableInteraction | null, effect: T) {
+function runEffect<T extends Effect>(context: EffectContext, effect: T) {
 	const handler = handlers[effect.type] as Handler<T>;
-	return handler(effect, interaction);
+	return handler(effect, context);
 }
 
-/** Brings pinned messages posted before the Request payment and Claim ticket buttons existed up to date. */
-export async function addMissingRequestButtons(): Promise<void> {
-	for (const employee of allEmployees(container.payMe)) {
+/** Brings the server's pinned messages posted before the Request payment and Claim ticket buttons existed up to date. */
+export async function addMissingRequestButtons(payMe: PayMe): Promise<void> {
+	for (const employee of allEmployees(payMe)) {
 		if (!employee.channelId || !employee.pinnedMessageId) continue;
 		try {
 			const channel = await container.client.channels.fetch(employee.channelId);
@@ -250,15 +338,15 @@ export async function addMissingRequestButtons(): Promise<void> {
 	}
 }
 
-async function startRequestsThread(channel: TextChannel, employeeUserId: string, pinnedMessage: Card, threadName: string) {
+async function startRequestsThread(payMe: PayMe, channel: TextChannel, employeeUserId: string, pinnedMessage: Card, threadName: string) {
 	const message = await channel.send({ embeds: toEmbeds(pinnedMessage), components: [requestButtonRow()], allowedMentions: { parse: [] } });
 	await message.pin();
 	const thread = await message.startThread({ name: threadName });
-	recordRequestsThread(container.payMe, employeeUserId, { channelId: channel.id, pinnedMessageId: message.id, threadId: thread.id });
+	recordRequestsThread(payMe, employeeUserId, { channelId: channel.id, pinnedMessageId: message.id, threadId: thread.id });
 }
 
-async function openRequestsThread(employeeUserId: string) {
-	const threadId = getEmployee(container.payMe, employeeUserId)?.threadId;
+async function openRequestsThread(payMe: PayMe, employeeUserId: string) {
+	const threadId = getEmployee(payMe, employeeUserId)?.threadId;
 	if (!threadId) throw new Error(`Employee ${employeeUserId} has no Requests Thread`);
 
 	const thread = await container.client.channels.fetch(threadId);
@@ -271,11 +359,20 @@ function uploads(files: readonly EvidenceFile[]) {
 	return files.map((file) => ({ attachment: file.url, name: file.name }));
 }
 
-/** Replies privately, or with `update`, replaces the message the interaction came from, following up with any overflow. */
-async function replyPrivately(interaction: RepliableInteraction, card: Card, buttons: ButtonBuilder[] = [], update = false) {
+/**
+ * Replies privately, or with `update`, replaces the message the interaction came from, following up with any overflow. `menus` go
+ * above the buttons on the last message.
+ */
+async function replyPrivately(
+	interaction: RepliableInteraction,
+	card: Card,
+	buttons: ButtonBuilder[] = [],
+	update = false,
+	menus: ComponentRow[] = []
+) {
 	const messages: PrivateMessage[] = toEmbeds(card).map((embed) => ({ embeds: [embed], components: [] }));
-	const [first = [], ...rest] = chunk(buttons, 25).map(buttonRows);
-	messages[messages.length - 1].components = first;
+	const [first = [], ...rest] = chunk(buttons, 25 - menus.length * 5).map(buttonRows);
+	messages[messages.length - 1].components = [...menus, ...first];
 	messages.push(...rest.map((components) => ({ components })));
 	for (const message of messages) {
 		if (update && !interaction.replied) await interaction.editReply({ ...message, allowedMentions: { parse: [] } });

@@ -1,6 +1,6 @@
 import { selectTaskIdByName } from '../storage/tasks';
 import type { Actor } from './actor';
-import { notice, type Card, type CardField, type Effect, type EvidenceFile, type MessageRef, type PostRound } from './effects';
+import { type Card, type CardField, type Effect, type EvidenceFile, type MessageRef, type PostRound } from './effects';
 import { getEmployee, type Employee } from './employees';
 import { jobsHeldBy, managesJob } from './job-membership';
 import { getJob, type Job } from './jobs';
@@ -54,6 +54,8 @@ export interface NewEvidence {
 
 export interface NewPaymentRequest extends NewEvidence {
 	taskId: number;
+	/** The Job the work was for. Required when the Task is in more than one of the Jobs it could be requested under. */
+	jobId?: number;
 }
 
 /** What the request form shows: its Tasks when they fit on one form, otherwise the Jobs to pick from first. */
@@ -68,8 +70,11 @@ export interface TaskForm {
 	filesHint: string;
 }
 
+/** One choice on the form: a Task under one Job. A Task in several of the offered Jobs is one choice per Job. */
 export interface FormTask {
-	id: number;
+	taskId: number;
+	jobId: number;
+	/** The Task's name, followed by its Job's when it is offered under more than one. */
 	name: string;
 	/** The Task's Rate and any Evidence or notes it doesn't need. */
 	description: string;
@@ -83,13 +88,18 @@ export function requestForm(payMe: PayMe, actor: Actor, jobId: number | null = n
 	const offeredJobIds = requester.offeredJobs.map((job) => job.id);
 	if (jobId !== null && !offeredJobIds.includes(jobId)) return fail({ code: onBehalf(actor, employee) ? 'not-their-manager' : 'job-not-held' });
 
-	const tasks = activeTasksForJobs(payMe, jobId === null ? offeredJobIds : [jobId]);
+	const jobs = jobId === null ? requester.offeredJobs : requester.offeredJobs.filter((job) => job.id === jobId);
+	const tasks = activeTasksForJobs(
+		payMe,
+		jobs.map((job) => job.id)
+	);
 	if (tasks.length === 0) return fail({ code: 'no-tasks' });
-	if (tasks.length > maxFormOptions) return succeed([], { kind: 'jobs', jobs: requester.offeredJobs.slice(0, maxFormOptions) });
-	return succeed([], taskForm(tasks));
+	const choices = tasks.flatMap((task) => formTasks(task, jobs));
+	if (choices.length > maxFormOptions) return succeed([], { kind: 'jobs', jobs: requester.offeredJobs.slice(0, maxFormOptions) });
+	return succeed([], taskForm(tasks, choices));
 }
 
-function taskForm(tasks: readonly Task[]): TaskForm {
+function taskForm(tasks: readonly Task[], choices: FormTask[]): TaskForm {
 	const notesRequired = tasks.every((task) => task.notesRequired);
 	const someNeedNotes = tasks.some((task) => task.notesRequired);
 	const notesHint = notesRequired
@@ -100,7 +110,7 @@ function taskForm(tasks: readonly Task[]): TaskForm {
 		: 'A link or a file is required unless the Task says otherwise.';
 	return {
 		kind: 'tasks',
-		tasks: tasks.map(formTask),
+		tasks: choices,
 		notesRequired,
 		notesHint,
 		linkHint: `Optional. ${evidenceRule}`,
@@ -108,16 +118,17 @@ function taskForm(tasks: readonly Task[]): TaskForm {
 	};
 }
 
-function formTask(task: Task): FormTask {
+function formTasks(task: Task, jobs: readonly Job[]): FormTask[] {
 	const exemptions = [!task.evidenceRequired && 'no link or file needed', !task.notesRequired && 'no notes needed'].filter(Boolean);
-	return { id: task.id, name: task.name, description: [`Rate ${formatAmount(task.rate)}`, ...exemptions].join(', ') };
+	const description = [`Rate ${formatAmount(task.rate)}`, ...exemptions].join(', ');
+	const taskJobs = jobs.filter((job) => task.jobIds.includes(job.id));
+	const shared = taskJobs.length > 1;
+	return taskJobs.map((job) => ({ taskId: task.id, jobId: job.id, name: shared ? `${task.name} (${job.name})` : task.name, description }));
 }
 
 interface Requester {
 	employee: Employee;
-	/** Every active Job the Employee holds. */
-	heldJobs: Job[];
-	/** The held Jobs the actor may request pay under: all of them for the Employee, those they manage for anyone else. */
+	/** The active Jobs the Employee holds the actor may request pay under: all of them for the Employee, those they manage for anyone else. */
 	offeredJobs: Job[];
 }
 
@@ -130,7 +141,7 @@ function findRequester(payMe: PayMe, actor: Actor, member: Actor): Failure | Req
 	const heldJobs = jobsHeldBy(payMe, member);
 	const offeredJobs = forOther ? heldJobs.filter((job) => managesJob(payMe, actor, job)) : heldJobs;
 	if (offeredJobs.length === 0) return fail({ code: forOther ? 'not-their-manager' : 'no-jobs' });
-	return { employee, heldJobs, offeredJobs };
+	return { employee, offeredJobs };
 }
 
 function onBehalf(actor: Actor, employee: Actor): boolean {
@@ -139,7 +150,7 @@ function onBehalf(actor: Actor, employee: Actor): boolean {
 
 export const ticketTaskName = 'DOC Ticket Assistance';
 
-/** Submits a Payment Request for `employee`: the actor, or an Employee holding a Job the actor manages. */
+/** Submits a Payment Request for `employee`: the actor, or an Employee holding a Job the actor manages, which is Approved at once. */
 export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentRequest, employee: Actor = actor): Outcome<PaymentRequest> {
 	const invalid = checkLink(input);
 	if (invalid) return invalid;
@@ -151,13 +162,22 @@ export function submitRequest(payMe: PayMe, actor: Actor, input: NewPaymentReque
 	});
 }
 
+/** The Jobs the actor must pick from to claim a ticket: those they hold with the DOC Ticket Assistance Task, when more than one. */
+export function ticketJobs(payMe: PayMe, actor: Actor): Job[] {
+	const taskId = selectTaskIdByName(payMe.storage, ticketTaskName);
+	const task = taskId === null ? null : getTask(payMe, taskId);
+	if (!task || task.retired) return [];
+	const jobs = jobsHeldBy(payMe, actor).filter((job) => task.jobIds.includes(job.id));
+	return jobs.length > 1 ? jobs.slice(0, maxFormOptions) : [];
+}
+
 /** Submits a Payment Request for the DOC Ticket Assistance Task. The ticket number is the Evidence, so no link or file is needed. */
-export function claimTicket(payMe: PayMe, actor: Actor, ticket: string): Outcome<PaymentRequest> {
+export function claimTicket(payMe: PayMe, actor: Actor, ticket: string, jobId?: number): Outcome<PaymentRequest> {
 	if (!/^\d{5}$/.test(ticket)) return fail({ code: 'invalid-ticket', ticket });
 	const taskId = selectTaskIdByName(payMe.storage, ticketTaskName);
 	if (taskId === null) return fail({ code: 'no-ticket-task', name: ticketTaskName });
 
-	const input = { taskId, notes: `Ticket ${ticket}`, link: null, files: [], ticket };
+	const input = { taskId, jobId, notes: `Ticket ${ticket}`, link: null, files: [], ticket };
 	return fileRequest(payMe, actor, actor, input, () =>
 		payMe.requests.ticketClaimed(actor.userId, ticket) ? fail({ code: 'ticket-claimed', ticket }) : null
 	);
@@ -175,31 +195,44 @@ function fileRequest(
 		const requester = findRequester(payMe, actor, member);
 		if ('ok' in requester) return requester;
 
-		const { employee, heldJobs, offeredJobs } = requester;
+		const { employee, offeredJobs } = requester;
 		const task = activeTasksForJobs(
 			payMe,
 			offeredJobs.map((job) => job.id)
 		).find((offered) => offered.id === input.taskId);
 		if (!task) return fail({ code: 'task-not-offered' });
+		const job = pickJob(offeredJobs, task, input.jobId);
+		if ('ok' in job) return job;
 		const refused = check(task);
 		if (refused) return refused;
 
 		const request = submit(payMe, actor, {
 			employeeUserId: employee.userId,
 			taskId: task.id,
-			eligibleJobIds: heldJobs.filter((job) => task.jobIds.includes(job.id)).map((job) => job.id),
+			eligibleJobIds: [job.id],
 			evidence: evidenceItems(input),
 			ticket: input.ticket
 		});
-		const { number } = request;
 		const forOther = onBehalf(actor, member);
-		const submitted = forOther ? `Submitted by <@${actor.userId}> for <@${employee.userId}>` : `Submitted by <@${actor.userId}>`;
-		const reply = `Submitted ${requestLabel(number)} for ${task.name}${forOther ? ` on behalf of <@${employee.userId}>` : ''}.`;
-		return succeed([postRound(payMe, request, `${submitted}, Pending review.`), { type: 'private-reply', card: notice(reply) }], request);
+		const heading = forOther
+			? `Submitted by <@${actor.userId}> for <@${employee.userId}>, Approved.`
+			: `Submitted by <@${actor.userId}>, Pending review.`;
+		return succeed([postRound(payMe, request, heading)], request);
 	});
 }
 
-/** Posts the Evidence of the request's current round as a new Requests Thread entry and a review copy for each eligible Job. */
+/** The one Job the request is for: the one given, or the only offered Job the Task is in. */
+function pickJob(offeredJobs: readonly Job[], task: Task, jobId: number | undefined): Job | Failure {
+	const taskJobs = offeredJobs.filter((job) => task.jobIds.includes(job.id));
+	if (jobId !== undefined) return taskJobs.find((job) => job.id === jobId) ?? fail({ code: 'task-not-offered' });
+	if (taskJobs.length > 1) return fail({ code: 'job-required', task: task.name });
+	return taskJobs[0];
+}
+
+/**
+ * Posts the Evidence of the request's current round as a new Requests Thread entry and, while it is Pending, a review copy for each
+ * eligible Job.
+ */
 export function postRound(payMe: PayMe, request: PaymentRequest, heading: string): PostRound {
 	const task = getTask(payMe, request.taskId)!;
 	const employee = getEmployee(payMe, request.employeeUserId)!;
@@ -212,7 +245,8 @@ export function postRound(payMe: PayMe, request: PaymentRequest, heading: string
 		entryCard: entryCard(request, task, heading),
 		actions: entryActions(request),
 		reviewCard: reviewCard(request, task, employee, evidence),
-		reviewChannels: request.eligibleJobIds.map((jobId) => ({ jobId, channelId: getJob(payMe, jobId)!.reviewChannelId })),
+		reviewChannels:
+			request.state === 'pending' ? request.eligibleJobIds.map((jobId) => ({ jobId, channelId: getJob(payMe, jobId)!.reviewChannelId })) : [],
 		files: evidenceFiles(evidence)
 	};
 }

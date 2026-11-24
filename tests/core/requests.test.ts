@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-	addManagerRole,
+	setManagerRoles,
 	addTask,
-	addTaskToJob,
 	claimTicket,
 	createJob,
 	denyRequest,
@@ -12,13 +11,15 @@ import {
 	requestEntry,
 	requestForm,
 	retireTask,
+	setTaskJobs,
 	submitRequest,
+	postRound,
+	ticketJobs,
 	ticketTaskName,
 	withdrawRequest,
 	type Actor,
 	type Outcome,
 	type PayMe,
-	type PostRound,
 	type RoundPoster,
 	type RequestForm
 } from '../../src/core';
@@ -50,7 +51,7 @@ function jobChoice(outcome: Outcome<RequestForm>): string[] {
 function job(payMe: PayMe, name: string) {
 	const slug = name.toLowerCase();
 	const result = created(createJob(payMe, leadership(), { name, employeeRoleId: `role-${slug}`, reviewChannelId: `review-${slug}` }));
-	addManagerRole(payMe, leadership(), result.id, `role-${slug}-manager`, []);
+	setManagerRoles(payMe, leadership(), result.id, [`role-${slug}-manager`], []);
 	return result;
 }
 
@@ -63,14 +64,16 @@ function hire(payMe: PayMe, userId: string) {
 	recordRequestsThread(payMe, userId, { channelId: `channel-${userId}`, pinnedMessageId: `pin-${userId}`, threadId: `thread-${userId}` });
 }
 
-function postedRound(outcome: Outcome<unknown>): PostRound {
-	const round = outcome.ok && outcome.effects.find((effect): effect is PostRound => effect.type === 'post-round');
-	if (!round) throw new Error('Expected a round to post');
-	return round;
-}
-
 function submit(payMe: PayMe, actor: Actor, taskId: number) {
 	return created(submitRequest(payMe, actor, { taskId, notes: 'Done', link: null, files: [screenshot] }));
+}
+
+/** A request filed before each request named one Job, so it is eligible under every Job listed. */
+function legacyRequest(payMe: PayMe, employeeUserId: string, taskId: number, eligibleJobIds: number[]) {
+	return payMe.requests.create(
+		{ employeeUserId, taskId, eligibleJobIds, evidence: [{ kind: 'notes', text: 'Done' }] },
+		{ state: 'pending', actorUserId: employeeUserId }
+	);
 }
 
 describe('Opening the request form', () => {
@@ -88,7 +91,7 @@ describe('Opening the request form', () => {
 		expect(requestForm(payMe, member('user-alex', 'role-unrelated'))).toEqual({ ok: false, error: { code: 'no-jobs' } });
 	});
 
-	it("offers only active Tasks from the Employee's current Jobs, by name", () => {
+	it("offers only active Tasks from the Employee's current Jobs, by name, once per Job for a Task in several of them", () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
 		const miner = job(payMe, 'Miner');
@@ -102,7 +105,7 @@ describe('Opening the request form', () => {
 
 		const form = taskNames(requestForm(payMe, member('user-alex', 'role-courier', 'role-logistics')));
 
-		expect(form).toEqual(['Deliver Parcel', 'Load Cart', 'Stack Crates']);
+		expect(form).toEqual(['Deliver Parcel', 'Load Cart (Courier)', 'Load Cart (Logistics)', 'Stack Crates']);
 	});
 
 	describe('when the Employee holds Jobs with more than 25 active Tasks between them', () => {
@@ -158,7 +161,10 @@ describe('Opening the request form', () => {
 			const minerTask = taskForm(requestForm(payMe, alex, miner.id)).tasks[19];
 			const evidence = { notes: 'Done', link: null, files: [screenshot] };
 
-			expect(submitRequest(payMe, alex, { taskId: minerTask.id, ...evidence })).toMatchObject({ ok: true, value: { taskId: minerTask.id } });
+			expect(submitRequest(payMe, alex, { taskId: minerTask.taskId, ...evidence })).toMatchObject({
+				ok: true,
+				value: { taskId: minerTask.taskId, eligibleJobIds: [miner.id] }
+			});
 			expect(submitRequest(payMe, alex, { taskId: outside.id, ...evidence })).toEqual({ ok: false, error: { code: 'task-not-offered' } });
 		});
 	});
@@ -215,7 +221,7 @@ describe('Opening the request form', () => {
 			const form = courierWith({ name: 'Deliver Parcel', evidenceRequired: true, notesRequired: true });
 
 			expect(form).toMatchObject({
-				tasks: [{ name: 'Deliver Parcel', description: 'Rate 12.5' }],
+				tasks: [{ name: 'Deliver Parcel', description: 'Rate $12.5' }],
 				notesRequired: true,
 				notesHint: 'What did you do?',
 				linkHint: 'Optional. A link or a file is required.',
@@ -231,8 +237,8 @@ describe('Opening the request form', () => {
 
 			expect(form).toMatchObject({
 				tasks: [
-					{ name: 'Deliver Parcel', description: 'Rate 12.5' },
-					{ name: 'Scan Crate', description: 'Rate 12.5, no link or file needed, no notes needed' }
+					{ name: 'Deliver Parcel', description: 'Rate $12.5' },
+					{ name: 'Scan Crate', description: 'Rate $12.5, no link or file needed, no notes needed' }
 				],
 				notesRequired: false,
 				notesHint: 'What did you do? Required unless the Task says otherwise.',
@@ -289,7 +295,7 @@ describe('Submitting a Payment Request', () => {
 		]);
 	});
 
-	it('posts the request with its Evidence as one round: an entry in the Requests Thread and a review copy for each eligible Review Channel', () => {
+	it("posts the request with its Evidence as one round: an entry in the Requests Thread and a review copy in its Job's Review Channel", () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
 		const logistics = job(payMe, 'Logistics');
@@ -299,6 +305,7 @@ describe('Submitting a Payment Request', () => {
 
 		const outcome = submitRequest(payMe, member('user-alex', 'role-courier', 'role-logistics'), {
 			taskId: cart.id,
+			jobId: logistics.id,
 			notes: 'Loaded 64 crates',
 			link: 'https://example.com/proof',
 			files
@@ -323,13 +330,9 @@ describe('Submitting a Payment Request', () => {
 				},
 				actions: ['withdraw'],
 				reviewCard: { tone: 'info', title: 'R-1 · Load Cart', description: 'From <@user-alex> (Alex_42)', fields, footer: undefined },
-				reviewChannels: [
-					{ jobId: courier.id, channelId: 'review-courier' },
-					{ jobId: logistics.id, channelId: 'review-logistics' }
-				],
+				reviewChannels: [{ jobId: logistics.id, channelId: 'review-logistics' }],
 				files
-			},
-			{ type: 'private-reply', card: { tone: 'success', description: 'Submitted R-1 for Load Cart.' } }
+			}
 		]);
 	});
 
@@ -339,12 +342,7 @@ describe('Submitting a Payment Request', () => {
 		const logistics = job(payMe, 'Logistics');
 		const cart = task(payMe, 'Load Cart', courier.id, logistics.id);
 		hire(payMe, 'user-alex');
-		const outcome = submitRequest(payMe, member('user-alex', 'role-courier', 'role-logistics'), {
-			taskId: cart.id,
-			notes: 'Done',
-			link: null,
-			files: [screenshot]
-		});
+		const round = postRound(payMe, legacyRequest(payMe, 'user-alex', cart.id, [courier.id, logistics.id]), 'Submitted');
 		const recorder = recordingRecorder();
 		const posts: string[] = [];
 		const poster: RoundPoster = {
@@ -358,7 +356,7 @@ describe('Submitting a Payment Request', () => {
 			}
 		};
 
-		await carryOutRound(postedRound(outcome), poster, recorder);
+		await carryOutRound(round, poster, recorder);
 
 		expect(posts).toEqual([
 			'entry after 0 recorded',
@@ -378,12 +376,7 @@ describe('Submitting a Payment Request', () => {
 		const logistics = job(payMe, 'Logistics');
 		const cart = task(payMe, 'Load Cart', courier.id, logistics.id);
 		hire(payMe, 'user-alex');
-		const outcome = submitRequest(payMe, member('user-alex', 'role-courier', 'role-logistics'), {
-			taskId: cart.id,
-			notes: 'Done',
-			link: null,
-			files: [screenshot]
-		});
+		const round = postRound(payMe, legacyRequest(payMe, 'user-alex', cart.id, [courier.id, logistics.id]), 'Submitted');
 		const recorder = recordingRecorder();
 		const poster: RoundPoster = {
 			postEntry: async () => ({ channelId: 'thread-user-alex', messageId: 'message-entry' }),
@@ -392,7 +385,7 @@ describe('Submitting a Payment Request', () => {
 			}
 		};
 
-		await expect(carryOutRound(postedRound(outcome), poster, recorder)).rejects.toThrow('Missing Access');
+		await expect(carryOutRound(round, poster, recorder)).rejects.toThrow('Missing Access');
 
 		expect(recorder.recorded).toEqual([
 			{ requestNumber: 1, message: { round: 1, jobId: null, channelId: 'thread-user-alex', messageId: 'message-entry' } }
@@ -429,19 +422,32 @@ describe('Submitting a Payment Request', () => {
 		});
 	});
 
-	it('fixes the eligible Jobs at submission: the Jobs the Task belongs to that the Employee holds', () => {
+	it('requires a Job for a Task in more than one of their Jobs, and records the request under that Job alone', () => {
 		const payMe = createTestPayMe();
 		const courier = job(payMe, 'Courier');
 		const logistics = job(payMe, 'Logistics');
 		const miner = job(payMe, 'Miner');
 		const cart = task(payMe, 'Load Cart', courier.id, logistics.id, miner.id);
 		hire(payMe, 'user-alex');
+		const alex = member('user-alex', 'role-courier', 'role-miner');
+		const evidence = { taskId: cart.id, notes: 'Done', link: null, files: [screenshot] };
 
-		submit(payMe, member('user-alex', 'role-courier', 'role-miner'), cart.id);
-		addTaskToJob(payMe, leadership(), cart.id, job(payMe, 'Farmer').id);
-		submit(payMe, member('user-alex', 'role-logistics', 'role-farmer'), cart.id);
+		expect(submitRequest(payMe, alex, evidence)).toEqual({ ok: false, error: { code: 'job-required', task: 'Load Cart' } });
+		expect(submitRequest(payMe, alex, { ...evidence, jobId: logistics.id })).toEqual({ ok: false, error: { code: 'task-not-offered' } });
+		expect(created(submitRequest(payMe, alex, { ...evidence, jobId: miner.id })).eligibleJobIds).toEqual([miner.id]);
+		expect(created(submitRequest(payMe, member('user-alex', 'role-courier'), evidence)).eligibleJobIds).toEqual([courier.id]);
+	});
 
-		expect(payMe.requests.load(1)?.eligibleJobIds).toEqual([courier.id, miner.id]);
+	it('fixes the Job at submission, even if the Task joins more Jobs later', () => {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		const cart = task(payMe, 'Load Cart', courier.id);
+		hire(payMe, 'user-alex');
+
+		submit(payMe, member('user-alex', 'role-courier', 'role-farmer'), cart.id);
+		setTaskJobs(payMe, leadership(), cart.id, [courier.id, job(payMe, 'Farmer').id]);
+
+		expect(payMe.requests.load(1)?.eligibleJobIds).toEqual([courier.id]);
 	});
 
 	it('refuses a submission with neither a link nor a file', () => {
@@ -534,6 +540,18 @@ describe('Claiming a DOC ticket', () => {
 		hire(payMe, 'user-alex');
 		return { payMe, assistance, alex: member('user-alex', 'role-support') };
 	}
+
+	it('asks for a Job when the Employee holds more than one with the Task, and claims under the Job picked', () => {
+		const { payMe } = ticketScenario();
+		const moderation = job(payMe, 'Moderation');
+		created(setTaskJobs(payMe, leadership(), 1, [1, moderation.id]));
+		const both = member('user-alex', 'role-support', 'role-moderation');
+
+		expect(ticketJobs(payMe, member('user-alex', 'role-support'))).toEqual([]);
+		expect(ticketJobs(payMe, both).map((held) => held.name)).toEqual(['Moderation', 'Support']);
+		expect(claimTicket(payMe, both, '12345')).toEqual({ ok: false, error: { code: 'job-required', task: ticketTaskName } });
+		expect(created(claimTicket(payMe, both, '12345', moderation.id)).eligibleJobIds).toEqual([moderation.id]);
+	});
 
 	it('submits a request for the DOC Ticket Assistance Task with the ticket number as its only Evidence', () => {
 		const { payMe, assistance, alex } = ticketScenario();
@@ -637,11 +655,16 @@ describe('Requesting payment on behalf of an Employee', () => {
 	it('offers Leadership the Tasks of every Job the Employee holds', () => {
 		const { payMe, alex } = courierAndMiner();
 
-		expect(taskNames(requestForm(payMe, leadership(), null, alex))).toEqual(['Deliver Parcel', 'Load Cart', 'Mine Ore']);
+		expect(taskNames(requestForm(payMe, leadership(), null, alex))).toEqual([
+			'Deliver Parcel',
+			'Load Cart (Courier)',
+			'Load Cart (Miner)',
+			'Mine Ore'
+		]);
 	});
 
-	it('files the request for the Employee, recording the Manager as its submitter', () => {
-		const { payMe, courier, miner, cart, alex, courierManager } = courierAndMiner();
+	it('files the request for the Employee as Approved, recording the Manager as its submitter, with no review copies', () => {
+		const { payMe, courier, cart, alex, courierManager } = courierAndMiner();
 
 		const outcome = submitRequest(payMe, courierManager, { taskId: cart.id, notes: 'Saw it done', link: null, files: [screenshot] }, alex);
 
@@ -649,18 +672,18 @@ describe('Requesting payment on behalf of an Employee', () => {
 			ok: true,
 			value: {
 				employeeUserId: 'user-alex',
-				state: 'pending',
-				eligibleJobIds: [courier.id, miner.id],
-				history: [{ from: null, to: 'pending', actorUserId: 'user-sam', reason: null }]
+				state: 'approved',
+				eligibleJobIds: [courier.id],
+				history: [{ from: null, to: 'approved', actorUserId: 'user-sam', reason: null }]
 			},
 			effects: [
 				{
 					type: 'post-round',
 					employeeUserId: 'user-alex',
-					entryCard: { description: 'Submitted by <@user-sam> for <@user-alex>, Pending review.' },
-					reviewChannels: [{ jobId: courier.id }, { jobId: miner.id }]
-				},
-				{ type: 'private-reply', card: { description: 'Submitted R-1 for Load Cart on behalf of <@user-alex>.' } }
+					entryCard: { description: 'Submitted by <@user-sam> for <@user-alex>, Approved.' },
+					actions: [],
+					reviewChannels: []
+				}
 			]
 		});
 	});

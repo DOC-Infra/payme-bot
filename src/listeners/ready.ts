@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Listener } from '@sapphire/framework';
 import type { StoreRegistryValue } from '@sapphire/pieces';
-import { addMissingRequestButtons } from '../discord/runner';
+import { setUpServer } from '../discord/serverSetup';
 import { blue, gray, green, magenta, magentaBright, white, yellow } from 'colorette';
 
 const dev = process.env.NODE_ENV !== 'production';
@@ -13,18 +13,7 @@ export class UserEvent extends Listener {
 	public override async run() {
 		this.printBanner();
 		this.printStoreDebugInformation();
-		await this.cacheMembers();
-		await addMissingRequestButtons();
-	}
-
-	private async cacheMembers() {
-		const { client, config, logger } = this.container;
-		try {
-			const guild = await client.guilds.fetch(config.guildId);
-			await guild.members.fetch();
-		} catch (error) {
-			logger.error('Could not cache guild members', error);
-		}
+		for (const guildId of this.container.client.guilds.cache.keys()) await setUpServer(guildId);
 	}
 
 	private printBanner() {

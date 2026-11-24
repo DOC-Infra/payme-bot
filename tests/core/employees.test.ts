@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
-	addManagerRole,
+	setManagerRoles,
 	checkHire,
 	createJob,
 	getEmployee,
 	hireEmployee,
+	checkEmployeeLink,
 	linkEmployee,
 	pinnedMessageCard,
 	recordRequestsThread,
 	type Outcome,
 	type PayMe
 } from '../../src/core';
-import { createTestPayMe, leadership, leadershipRoleId, member } from '../support/payme';
+import { createTestPayMe, leadership, member } from '../support/payme';
 
 function created<T>(outcome: Outcome<T>): T {
 	if (!outcome.ok) throw new Error(`Expected success, got ${outcome.error.code}`);
@@ -29,7 +30,7 @@ describe('Hiring', () => {
 			employeeUserId: 'user-alex',
 			name: 'alex_42',
 			viewerUserIds: ['user-alex'],
-			viewerRoleIds: [leadershipRoleId],
+			viewerRoleIds: [],
 			pinnedMessage: pinnedMessageCard('user-alex', 'Alex_42'),
 			threadName: 'Requests: Alex_42'
 		});
@@ -48,13 +49,12 @@ describe('Hiring', () => {
 			createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' })
 		);
 		const miner = created(createJob(payMe, leadership(), { name: 'Miner', employeeRoleId: 'role-miner', reviewChannelId: 'review-miner' }));
-		addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager', []);
-		addManagerRole(payMe, leadership(), courier.id, leadershipRoleId, []);
-		addManagerRole(payMe, leadership(), miner.id, 'role-miner-manager', []);
+		setManagerRoles(payMe, leadership(), courier.id, ['role-courier-manager'], []);
+		setManagerRoles(payMe, leadership(), miner.id, ['role-miner-manager'], []);
 
 		const outcome = hireEmployee(payMe, leadership(), member('user-alex', 'role-courier'), 'Alex_42');
 
-		expect(outcome.ok && outcome.effects[0]).toMatchObject({ viewerRoleIds: [leadershipRoleId, 'role-courier-manager'] });
+		expect(outcome.ok && outcome.effects[0]).toMatchObject({ viewerRoleIds: ['role-courier-manager'] });
 	});
 
 	it('logs the hiring and Minecraft Name in the new Requests Thread without pinging the Employee', () => {
@@ -123,17 +123,33 @@ describe('Hiring', () => {
 });
 
 describe('Linking', () => {
-	it('lets Leadership link a member to their existing channel, starting a Requests Thread there', () => {
+	it('checks before asking for a Minecraft Name that the actor is Leadership and no other Employee has the channel', () => {
+		const payMe = createTestPayMe();
+		created(linkEmployee(payMe, leadership(), member('user-sam'), 'Sam_7', 'channel-sam'));
+
+		expect(checkEmployeeLink(payMe, leadership(), 'user-alex', 'channel-alex')).toBeNull();
+		expect(checkEmployeeLink(payMe, leadership(), 'user-sam', 'channel-sam')).toBeNull();
+		expect(checkEmployeeLink(payMe, leadership(), 'user-alex', 'channel-sam')).toEqual({
+			ok: false,
+			error: { code: 'employee-channel-taken', channelId: 'channel-sam' }
+		});
+		expect(checkEmployeeLink(payMe, member('user-casey', 'role-courier-manager'), 'user-alex', 'channel-alex')).toEqual({
+			ok: false,
+			error: { code: 'not-permitted' }
+		});
+	});
+
+	it("lets Leadership link a member to their existing channel, making it visible to their Jobs' Managers and starting a Requests Thread there", () => {
 		const payMe = createTestPayMe();
 		const courier = created(
 			createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' })
 		);
-		addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager', []);
+		setManagerRoles(payMe, leadership(), courier.id, ['role-courier-manager'], []);
 
 		const outcome = linkEmployee(payMe, leadership('user-boss'), member('user-sam', 'role-courier'), 'Sam_7', 'channel-sam');
 
 		expect(outcome.ok && outcome.effects).toEqual([
-			{ type: 'grant-channel-access', channelId: 'channel-sam', roleIds: [leadershipRoleId, 'role-courier-manager'] },
+			{ type: 'sync-employee-channel', channelId: 'channel-sam', employeeUserId: 'user-sam', viewerRoleIds: ['role-courier-manager'] },
 			{
 				type: 'start-requests-thread',
 				employeeUserId: 'user-sam',
@@ -158,13 +174,14 @@ describe('Linking', () => {
 		});
 	});
 
-	it('reuses the existing Requests Thread when re-linking to the same channel, logging the Minecraft Name change', () => {
+	it('reuses the existing Requests Thread when re-linking to the same channel, still syncing who can see it, and logs the Minecraft Name change', () => {
 		const payMe = createTestPayMe();
 		hiredWithThread(payMe, 'user-alex', 'Alex_42');
 
 		const outcome = linkEmployee(payMe, leadership('user-boss'), member('user-alex'), 'Alex_43', 'channel-alex');
 
 		expect(outcome.ok && outcome.effects).toEqual([
+			{ type: 'sync-employee-channel', channelId: 'channel-alex', employeeUserId: 'user-alex', viewerRoleIds: [] },
 			{
 				type: 'post-to-requests-thread',
 				employeeUserId: 'user-alex',
@@ -189,7 +206,7 @@ describe('Linking', () => {
 		const outcome = linkEmployee(payMe, leadership('user-boss'), member('user-alex'), 'Alex_42', 'channel-new');
 
 		expect(outcome.ok && outcome.effects).toEqual([
-			{ type: 'grant-channel-access', channelId: 'channel-new', roleIds: [leadershipRoleId] },
+			{ type: 'sync-employee-channel', channelId: 'channel-new', employeeUserId: 'user-alex', viewerRoleIds: [] },
 			{
 				type: 'start-requests-thread',
 				employeeUserId: 'user-alex',
@@ -240,13 +257,14 @@ describe('Linking', () => {
 		expect(getEmployee(payMe, 'user-alex')?.minecraftName).toBe('Alex_42');
 	});
 
-	it('logs nothing when re-linking changes nothing', () => {
+	it("logs nothing when re-linking changes nothing, but still brings the channel's visibility back in line", () => {
 		const payMe = createTestPayMe();
 		hiredWithThread(payMe, 'user-alex', 'Alex_42');
 
 		const outcome = linkEmployee(payMe, leadership(), member('user-alex'), 'Alex_42', 'channel-alex');
 
 		expect(outcome.ok && outcome.effects).toEqual([
+			{ type: 'sync-employee-channel', channelId: 'channel-alex', employeeUserId: 'user-alex', viewerRoleIds: [] },
 			{ type: 'private-reply', card: { tone: 'success', description: 'Linked <@user-alex> to <#channel-alex> with Minecraft Name Alex_42.' } }
 		]);
 	});

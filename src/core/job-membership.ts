@@ -18,11 +18,6 @@ export function managesJob(payMe: PayMe, member: Actor, job: Job): boolean {
 	return isLeadership(payMe, member) || job.managerRoleIds.some((roleId) => member.roleIds.includes(roleId));
 }
 
-/** The roles that can see an Employee's channel: Leadership and the Managers of each Job the Employee holds. */
-export function channelViewerRoleIds(payMe: PayMe, employee: Actor): string[] {
-	return [...new Set([payMe.config.leadershipRoleId, ...managerRoleIdsOfHeldJobs(payMe, employee)])];
-}
-
 /** The manager roles of each Job the member holds, once each: who to let into their channel when they take on Jobs. */
 export function managerRoleIdsOfHeldJobs(payMe: PayMe, member: Actor): string[] {
 	return [...new Set(jobsHeldBy(payMe, member).flatMap((job) => job.managerRoleIds))];

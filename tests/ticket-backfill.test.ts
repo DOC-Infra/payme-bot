@@ -54,7 +54,7 @@ describe('Backfilling the ticket of older ticket claims', () => {
 			{ number: 6, ticket: null },
 			{ number: 7, ticket: null }
 		]);
-		const requests = createPayMe(storage, { leadershipRoleId: 'role-leadership' }).requests;
+		const requests = createPayMe(storage).requests;
 		expect(requests.load(1)?.ticket).toBe('01234');
 		expect(requests.ticketClaimed('user-alex', '01234')).toBe(true);
 		expect(requests.ticketClaimed('user-alex', '55555')).toBe(false);

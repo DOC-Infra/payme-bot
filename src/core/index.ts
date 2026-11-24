@@ -17,3 +17,8 @@ export * from './reviewing';
 export * from './amending';
 export * from './my-requests';
 export * from './payouts';
+export * from './projects';
+export * from './dashboard';
+export * from './rates-channel';
+export * from './manage';
+export * from './server-settings';

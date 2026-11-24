@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addManagerRole, createJob, hireEmployee, recordRequestsThread, syncJobRoles, type Outcome, type PayMe } from '../../src/core';
+import { setManagerRoles, createJob, hireEmployee, recordRequestsThread, syncJobRoles, type Outcome, type PayMe } from '../../src/core';
 import { createTestPayMe, leadership, member } from '../support/payme';
 
 function created<T>(outcome: Outcome<T>): T {
@@ -9,7 +9,7 @@ function created<T>(outcome: Outcome<T>): T {
 
 function courierJob(payMe: PayMe) {
 	const courier = created(createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' }));
-	addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager', []);
+	setManagerRoles(payMe, leadership(), courier.id, ['role-courier-manager'], []);
 	return courier;
 }
 
@@ -52,12 +52,22 @@ describe('Role sync', () => {
 		hire(payMe, 'user-alex', 'channel-alex');
 		hire(payMe, 'user-sam', 'channel-sam');
 
-		const outcome = addManagerRole(payMe, leadership(), courier.id, 'role-courier-lead', ['user-alex', 'user-sam', 'user-pat']);
+		const outcome = setManagerRoles(
+			payMe,
+			leadership(),
+			courier.id,
+			['role-courier-manager', 'role-courier-lead'],
+			['user-alex', 'user-sam', 'user-pat']
+		);
 
 		expect(outcome.ok && outcome.effects).toEqual([
+			{ type: 'grant-channel-access', channelId: 'review-courier', roleIds: ['role-courier-lead'] },
 			{ type: 'grant-channel-access', channelId: 'channel-alex', roleIds: ['role-courier-lead'] },
 			{ type: 'grant-channel-access', channelId: 'channel-sam', roleIds: ['role-courier-lead'] },
-			{ type: 'private-reply', card: { tone: 'success', description: '<@&role-courier-lead> now manages the Courier Job.' } }
+			{
+				type: 'private-reply',
+				card: { tone: 'success', description: 'The Courier Job is now managed by <@&role-courier-manager>, <@&role-courier-lead>.' }
+			}
 		]);
 	});
 });

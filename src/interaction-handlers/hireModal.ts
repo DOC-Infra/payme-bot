@@ -6,6 +6,7 @@ import { fetchActor } from '../discord/actor';
 import { decodeCustomId } from '../discord/customIds';
 import { minecraftFieldId } from '../discord/hireModal';
 import { runAsActor } from '../discord/runner';
+import { payMeOf } from '../discord/servers';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.ModalSubmit
@@ -15,7 +16,7 @@ export class ModalHandler extends InteractionHandler {
 		await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 		const hiree = await fetchActor(interaction, hireeUserId);
 		const minecraftName = interaction.fields.getTextInputValue(minecraftFieldId).trim();
-		await runAsActor(interaction, { code: 'not-permitted' }, (actor) => hireEmployee(this.container.payMe, actor, hiree, minecraftName));
+		await runAsActor(interaction, { code: 'not-permitted' }, (actor) => hireEmployee(payMeOf(interaction), actor, hiree, minecraftName));
 	}
 
 	public override parse(interaction: ModalSubmitInteraction) {

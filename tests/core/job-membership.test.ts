@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { addManagerRole, channelViewerRoleIds, createJob, jobsHeldBy, jobsManagedBy, retireJob, type Outcome, type PayMe } from '../../src/core';
-import { createTestPayMe, leadership, leadershipRoleId, member } from '../support/payme';
+import {
+	setManagerRoles,
+	createJob,
+	isLeadership,
+	jobsHeldBy,
+	jobsManagedBy,
+	managerRoleIdsOfHeldJobs,
+	retireJob,
+	type Outcome,
+	type PayMe
+} from '../../src/core';
+import { createTestPayMe, leadership, member } from '../support/payme';
 
 function created<T>(outcome: Outcome<T>): T {
 	if (!outcome.ok) throw new Error(`Expected success, got ${outcome.error.code}`);
@@ -10,7 +20,7 @@ function created<T>(outcome: Outcome<T>): T {
 function job(payMe: PayMe, name: string) {
 	const slug = name.toLowerCase();
 	const result = created(createJob(payMe, leadership(), { name, employeeRoleId: `role-${slug}`, reviewChannelId: `review-${slug}` }));
-	addManagerRole(payMe, leadership(), result.id, `role-${slug}-manager`, []);
+	setManagerRoles(payMe, leadership(), result.id, [`role-${slug}-manager`], []);
 	return result;
 }
 
@@ -51,23 +61,27 @@ describe('Which Jobs a member manages', () => {
 });
 
 describe("Which roles can see an Employee's channel", () => {
-	it('lets Leadership and the Managers of each active Job the Employee holds see it, once each', () => {
+	it('lets the Managers of each active Job the Employee holds see it, once each; administrators see every channel anyway', () => {
 		const payMe = createTestPayMe();
-		const courier = job(payMe, 'Courier');
+		job(payMe, 'Courier');
 		const miner = job(payMe, 'Miner');
 		retireJob(payMe, leadership(), job(payMe, 'Logistics').id);
-		addManagerRole(payMe, leadership(), miner.id, 'role-courier-manager', []);
-		addManagerRole(payMe, leadership(), courier.id, leadershipRoleId, []);
+		setManagerRoles(payMe, leadership(), miner.id, ['role-miner-manager', 'role-courier-manager'], []);
 
 		const alex = member('user-alex', 'role-courier', 'role-miner', 'role-logistics');
 
-		expect(channelViewerRoleIds(payMe, alex)).toEqual([leadershipRoleId, 'role-courier-manager', 'role-miner-manager']);
+		expect(managerRoleIdsOfHeldJobs(payMe, alex)).toEqual(['role-courier-manager', 'role-miner-manager']);
+		expect(managerRoleIdsOfHeldJobs(payMe, member('user-sam'))).toEqual([]);
 	});
+});
 
-	it('lets only Leadership see the channel of an Employee who holds no Job', () => {
+describe('Leadership', () => {
+	it("is anyone with the server's Administrator permission, whatever their roles", () => {
 		const payMe = createTestPayMe();
 		job(payMe, 'Courier');
 
-		expect(channelViewerRoleIds(payMe, member('user-alex'))).toEqual([leadershipRoleId]);
+		expect(isLeadership(payMe, leadership('user-ana'))).toBe(true);
+		expect(isLeadership(payMe, member('user-bo', 'role-courier-manager', 'role-leadership'))).toBe(false);
+		expect(names(jobsManagedBy(payMe, leadership('user-ana')))).toEqual(['Courier']);
 	});
 });

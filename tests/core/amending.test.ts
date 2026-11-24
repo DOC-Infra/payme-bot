@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-	addManagerRole,
+	setManagerRoles,
 	addTask,
 	amendForm,
 	amendRequest,
@@ -8,7 +8,7 @@ import {
 	hireEmployee,
 	recordRequestsThread,
 	rejectRequest,
-	setNotesRequired,
+	editTask,
 	submitRequest,
 	withdrawRequest,
 	type Outcome,
@@ -29,7 +29,7 @@ function created<T>(outcome: Outcome<T>): T {
 function job(payMe: PayMe, name: string) {
 	const slug = name.toLowerCase();
 	const result = created(createJob(payMe, leadership(), { name, employeeRoleId: `role-${slug}`, reviewChannelId: `review-${slug}` }));
-	addManagerRole(payMe, leadership(), result.id, `role-${slug}-manager`, []);
+	setManagerRoles(payMe, leadership(), result.id, [`role-${slug}-manager`], []);
 	return result;
 }
 
@@ -122,7 +122,7 @@ describe('Withdrawing while a Manager decides', () => {
 describe('Amending a request for a Task that needs no notes', () => {
 	it('accepts blank notes alongside a link or file, but not an empty amendment', () => {
 		const { payMe } = rejectedParcel();
-		created(setNotesRequired(payMe, leadership(), payMe.requests.load(1)!.taskId, false));
+		created(editTask(payMe, leadership(), payMe.requests.load(1)!.taskId, { notesRequired: false }));
 
 		expect(amendRequest(payMe, alex, 1, { notes: ' ', link: null, files: [] })).toEqual({ ok: false, error: { code: 'amendment-empty' } });
 		expect(created(amendRequest(payMe, alex, 1, { notes: ' ', link: null, files: [clearer] })).state).toBe('pending');
@@ -134,7 +134,7 @@ describe('Opening the amend form', () => {
 		const { payMe } = rejectedParcel();
 
 		expect(amendForm(payMe, alex, 1)).toMatchObject({ ok: true, value: { notesRequired: true, notesHint: 'What did you change or add?' } });
-		created(setNotesRequired(payMe, leadership(), payMe.requests.load(1)!.taskId, false));
+		created(editTask(payMe, leadership(), payMe.requests.load(1)!.taskId, { notesRequired: false }));
 		expect(amendForm(payMe, alex, 1)).toMatchObject({
 			ok: true,
 			value: { notesRequired: false, notesHint: 'What did you change or add? Optional.' }

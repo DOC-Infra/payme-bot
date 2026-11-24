@@ -5,6 +5,7 @@ import { amendRequest } from '../core';
 import { decodeCustomId } from '../discord/customIds';
 import { amendFieldIds } from '../discord/entry';
 import { acknowledge, runAsActor } from '../discord/runner';
+import { payMeOf } from '../discord/servers';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.ModalSubmit
@@ -19,7 +20,7 @@ export class ModalHandler extends InteractionHandler {
 			link: fields.getTextInputValue(amendFieldIds.link).trim() || null,
 			files: [...files].map((file) => ({ name: file.name, url: file.url }))
 		};
-		await runAsActor(interaction, { code: 'not-your-request' }, (actor) => amendRequest(this.container.payMe, actor, requestNumber, input));
+		await runAsActor(interaction, { code: 'not-your-request' }, (actor) => amendRequest(payMeOf(interaction), actor, requestNumber, input));
 	}
 
 	public override parse(interaction: ModalSubmitInteraction) {

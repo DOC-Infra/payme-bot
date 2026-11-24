@@ -2,18 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
 	activeTasksForJobs,
 	addTask,
-	addTaskToJob,
-	changeRate,
+	editTask,
 	createJob,
 	formatAmount,
 	getTask,
-	listTasks,
-	removeTaskFromJob,
+	rateScheduleCard,
 	restoreTask,
 	retireJob,
 	retireTask,
-	setEvidenceRequired,
-	setNotesRequired,
+	setTaskJobs,
 	type Outcome,
 	type PayMe,
 	type Task
@@ -35,12 +32,13 @@ function addTasks(payMe: PayMe, count: number, jobIds: number[]): Task[] {
 
 describe('Amounts', () => {
 	it.each([
-		[150000, '1500'],
-		[150050, '1500.5'],
-		[150025, '1500.25'],
-		[123456789, '1234567.89'],
-		[5, '0.05'],
-		[0, '0']
+		[150000, '$1,500'],
+		[150050, '$1,500.5'],
+		[150025, '$1,500.25'],
+		[123456789, '$1,234,567.89'],
+		[99900, '$999'],
+		[5, '$0.05'],
+		[0, '$0']
 	])('formats %i hundredths as %s', (hundredths, text) => {
 		expect(formatAmount(hundredths)).toBe(text);
 	});
@@ -70,7 +68,7 @@ describe('Tasks', () => {
 		const task = created(addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', evidenceRequired: false, jobIds: [job.id] }));
 
 		expect(task.evidenceRequired).toBe(false);
-		expect(created(setEvidenceRequired(payMe, leadership(), task.id, true)).evidenceRequired).toBe(true);
+		expect(created(editTask(payMe, leadership(), task.id, { evidenceRequired: true })).evidenceRequired).toBe(true);
 	});
 
 	it('lets Leadership add a Task that needs no notes, and change that later', () => {
@@ -79,8 +77,8 @@ describe('Tasks', () => {
 		const task = created(addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', notesRequired: false, jobIds: [job.id] }));
 
 		expect(task.notesRequired).toBe(false);
-		expect(created(setNotesRequired(payMe, leadership(), task.id, true)).notesRequired).toBe(true);
-		expect(setNotesRequired(payMe, member('user-alex'), task.id, false).ok).toBe(false);
+		expect(created(editTask(payMe, leadership(), task.id, { notesRequired: true })).notesRequired).toBe(true);
+		expect(editTask(payMe, member('user-alex'), task.id, { notesRequired: false }).ok).toBe(false);
 		expect(getTask(payMe, task.id)?.notesRequired).toBe(true);
 	});
 
@@ -89,7 +87,7 @@ describe('Tasks', () => {
 		const job = created(createJob(payMe, leadership(), courier));
 		const task = created(addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', jobIds: [job.id] }));
 
-		expect(setEvidenceRequired(payMe, member('user-alex'), task.id, false).ok).toBe(false);
+		expect(editTask(payMe, member('user-alex'), task.id, { evidenceRequired: false }).ok).toBe(false);
 		expect(getTask(payMe, task.id)?.evidenceRequired).toBe(true);
 	});
 
@@ -180,8 +178,8 @@ describe('Tasks', () => {
 		const job = created(createJob(payMe, leadership(), courier));
 		const task = created(addTask(payMe, leadership(), { name: 'Deliver parcel', rate: '5', jobIds: [job.id] }));
 
-		expect(changeRate(payMe, leadership(), task.id, '7.25')).toMatchObject({ ok: true, value: { rate: 725 } });
-		expect(changeRate(payMe, leadership(), task.id, '$8')).toEqual({ ok: false, error: { code: 'invalid-rate', rate: '$8' } });
+		expect(editTask(payMe, leadership(), task.id, { rate: '7.25' })).toMatchObject({ ok: true, value: { rate: 725 } });
+		expect(editTask(payMe, leadership(), task.id, { rate: '$8' })).toEqual({ ok: false, error: { code: 'invalid-rate', rate: '$8' } });
 		expect(getTask(payMe, task.id)?.rate).toBe(725);
 	});
 
@@ -191,8 +189,11 @@ describe('Tasks', () => {
 		const minerJob = created(createJob(payMe, leadership(), miner));
 		const task = created(addTask(payMe, leadership(), { name: 'Haul ore', rate: '3', jobIds: [courierJob.id] }));
 
-		expect(addTaskToJob(payMe, leadership(), task.id, minerJob.id)).toMatchObject({ ok: true, value: { jobIds: [courierJob.id, minerJob.id] } });
-		expect(removeTaskFromJob(payMe, leadership(), task.id, courierJob.id)).toMatchObject({ ok: true, value: { jobIds: [minerJob.id] } });
+		expect(setTaskJobs(payMe, leadership(), task.id, [courierJob.id, minerJob.id])).toMatchObject({
+			ok: true,
+			value: { jobIds: [courierJob.id, minerJob.id] }
+		});
+		expect(setTaskJobs(payMe, leadership(), task.id, [minerJob.id])).toMatchObject({ ok: true, value: { jobIds: [minerJob.id] } });
 	});
 
 	it('refuses removing a Task from its only Job', () => {
@@ -200,7 +201,7 @@ describe('Tasks', () => {
 		const job = created(createJob(payMe, leadership(), courier));
 		const task = created(addTask(payMe, leadership(), { name: 'Deliver parcel', rate: '5', jobIds: [job.id] }));
 
-		expect(removeTaskFromJob(payMe, leadership(), task.id, job.id)).toEqual({ ok: false, error: { code: 'task-needs-a-job' } });
+		expect(setTaskJobs(payMe, leadership(), task.id, [])).toEqual({ ok: false, error: { code: 'task-needs-a-job' } });
 	});
 
 	it('refuses adding an active Task to a Job that already has 25 active Tasks', () => {
@@ -210,13 +211,13 @@ describe('Tasks', () => {
 		const [first] = addTasks(payMe, 25, [courierJob.id]);
 		const task = created(addTask(payMe, leadership(), { name: 'Haul ore', rate: '3', jobIds: [minerJob.id] }));
 
-		expect(addTaskToJob(payMe, leadership(), task.id, courierJob.id)).toEqual({
+		expect(setTaskJobs(payMe, leadership(), task.id, [minerJob.id, courierJob.id])).toEqual({
 			ok: false,
 			error: { code: 'too-many-tasks', job: 'Courier' }
 		});
-		expect(addTaskToJob(payMe, leadership(), first.id, courierJob.id)).toMatchObject({ ok: true });
+		expect(setTaskJobs(payMe, leadership(), first.id, [courierJob.id])).toMatchObject({ ok: true });
 		retireTask(payMe, leadership(), task.id);
-		expect(addTaskToJob(payMe, leadership(), task.id, courierJob.id)).toMatchObject({ ok: true });
+		expect(setTaskJobs(payMe, leadership(), task.id, [minerJob.id, courierJob.id])).toMatchObject({ ok: true });
 	});
 
 	it('refuses adding a Task to a retired Job', () => {
@@ -226,7 +227,10 @@ describe('Tasks', () => {
 		const task = created(addTask(payMe, leadership(), { name: 'Haul ore', rate: '3', jobIds: [courierJob.id] }));
 		retireJob(payMe, leadership(), minerJob.id);
 
-		expect(addTaskToJob(payMe, leadership(), task.id, minerJob.id)).toEqual({ ok: false, error: { code: 'job-retired', name: 'Miner' } });
+		expect(setTaskJobs(payMe, leadership(), task.id, [courierJob.id, minerJob.id])).toEqual({
+			ok: false,
+			error: { code: 'job-retired', name: 'Miner' }
+		});
 	});
 
 	it('lets Leadership retire a Task, keeping its Rate and Jobs', () => {
@@ -238,7 +242,7 @@ describe('Tasks', () => {
 		expect(getTask(payMe, task.id)).toEqual({ ...task, retired: true });
 	});
 
-	it('lets Leadership restore a Retired Task as it was, and points /task add at restoring', () => {
+	it('lets Leadership restore a Retired Task as it was, and points adding it again at restoring', () => {
 		const payMe = createTestPayMe();
 		const job = created(createJob(payMe, leadership(), courier));
 		const task = created(addTask(payMe, leadership(), { name: 'Deliver parcel', rate: '5', notesRequired: false, jobIds: [job.id] }));
@@ -290,7 +294,7 @@ describe('Tasks', () => {
 		expect(getTask(payMe, dig.id)?.retired).toBe(false);
 	});
 
-	it('shows the Rate Schedule to anyone', () => {
+	it('builds the Rate Schedule from every Task', () => {
 		const payMe = createTestPayMe();
 		const courierJob = created(createJob(payMe, leadership(), courier));
 		const minerJob = created(createJob(payMe, leadership(), miner));
@@ -299,31 +303,19 @@ describe('Tasks', () => {
 		retireTask(payMe, leadership(), parcel.id);
 		addTask(payMe, leadership(), { name: 'Attend meeting', rate: '5', evidenceRequired: false, jobIds: [courierJob.id] });
 
-		const outcome = listTasks(payMe);
-
-		expect(outcome).toMatchObject({ ok: true, value: [{ name: 'Attend meeting' }, { name: 'Deliver parcel' }, { name: 'Haul ore' }] });
-		expect(outcome.ok && outcome.effects).toEqual([
-			{
-				type: 'private-reply',
-				card: {
-					tone: 'info',
-					title: 'Rate Schedule',
-					description: [
-						'**Attend meeting** (no link or file needed): 5 (Courier)',
-						'**Deliver parcel** (retired): 1500 (Courier)',
-						'**Haul ore**: 3.5 (Courier, Miner)'
-					].join('\n')
-				}
-			}
-		]);
+		expect(rateScheduleCard(payMe)).toEqual({
+			tone: 'info',
+			title: 'Rate Schedule',
+			description: [
+				'**Attend meeting** (no link or file needed): $5 (Courier)',
+				'**Deliver parcel** (retired): $1,500 (Courier)',
+				'**Haul ore**: $3.5 (Courier, Miner)'
+			].join('\n')
+		});
 	});
 
 	it('says so when the Rate Schedule is empty', () => {
-		expect(listTasks(createTestPayMe())).toEqual({
-			ok: true,
-			value: [],
-			effects: [{ type: 'private-reply', card: { tone: 'neutral', description: 'The Rate Schedule is empty.' } }]
-		});
+		expect(rateScheduleCard(createTestPayMe())).toEqual({ tone: 'neutral', description: 'The Rate Schedule is empty.' });
 	});
 
 	it('finds the active Tasks of the given Jobs, once each, by name', () => {
@@ -351,9 +343,8 @@ describe('Tasks', () => {
 		const notPermitted = { ok: false, error: { code: 'not-permitted' } };
 
 		expect(addTask(payMe, employee, { name: 'Haul ore', rate: '3', jobIds: [courierJob.id] })).toEqual(notPermitted);
-		expect(changeRate(payMe, employee, task.id, '9')).toEqual(notPermitted);
-		expect(addTaskToJob(payMe, employee, task.id, minerJob.id)).toEqual(notPermitted);
-		expect(removeTaskFromJob(payMe, employee, task.id, courierJob.id)).toEqual(notPermitted);
+		expect(editTask(payMe, employee, task.id, { rate: '9' })).toEqual(notPermitted);
+		expect(setTaskJobs(payMe, employee, task.id, [minerJob.id])).toEqual(notPermitted);
 		expect(retireTask(payMe, employee, task.id)).toEqual(notPermitted);
 		expect(getTask(payMe, task.id)).toEqual(task);
 	});
@@ -363,9 +354,8 @@ describe('Tasks', () => {
 		const job = created(createJob(payMe, leadership(), courier));
 		const notFound = { ok: false, error: { code: 'task-not-found' } };
 
-		expect(changeRate(payMe, leadership(), 99, '9')).toEqual(notFound);
-		expect(addTaskToJob(payMe, leadership(), 99, job.id)).toEqual(notFound);
-		expect(removeTaskFromJob(payMe, leadership(), 99, job.id)).toEqual(notFound);
+		expect(editTask(payMe, leadership(), 99, { rate: '9' })).toEqual(notFound);
+		expect(setTaskJobs(payMe, leadership(), 99, [job.id])).toEqual(notFound);
 		expect(retireTask(payMe, leadership(), 99)).toEqual(notFound);
 	});
 

@@ -2,8 +2,9 @@ import type { Actor } from './actor';
 import { fail, type Failure } from './outcome';
 import type { PayMe } from './payme';
 
-export function isLeadership(payMe: PayMe, actor: Actor): boolean {
-	return actor.roleIds.includes(payMe.config.leadershipRoleId);
+/** Leadership is anyone with Discord's Administrator permission on the server. */
+export function isLeadership(_payMe: PayMe, actor: Actor): boolean {
+	return actor.administrator;
 }
 
 export function requireLeadership(payMe: PayMe, actor: Actor): Failure | null {

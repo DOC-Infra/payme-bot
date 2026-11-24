@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-	addManagerRole,
+	setManagerRoles,
 	addTask,
 	approveRequest,
-	changeRate,
+	editTask,
 	createJob,
 	denyRequest,
 	generatePayout,
@@ -31,7 +31,7 @@ function created<T>(outcome: Outcome<T>): T {
 function courierAlex() {
 	const payMe = createTestPayMe();
 	const courier = created(createJob(payMe, leadership(), { name: 'Courier', employeeRoleId: 'role-courier', reviewChannelId: 'review-courier' }));
-	addManagerRole(payMe, leadership(), courier.id, 'role-courier-manager', []);
+	setManagerRoles(payMe, leadership(), courier.id, ['role-courier-manager'], []);
 	const parcel = created(addTask(payMe, leadership(), { name: 'Deliver Parcel', rate: '12.5', jobIds: [courier.id] }));
 	const mail = created(addTask(payMe, leadership(), { name: 'Sort Mail', rate: '3', jobIds: [courier.id] }));
 	created(hireEmployee(payMe, leadership(), member('user-alex'), 'Alex_42'));
@@ -57,7 +57,7 @@ describe('Estimated amount owed', () => {
 	it('follows a Rate change made after approval', () => {
 		const { payMe, parcel } = courierAlex();
 		created(approveRequest(payMe, courierManager, submit(payMe, parcel.id)));
-		created(changeRate(payMe, leadership(), parcel.id, '20.25'));
+		created(editTask(payMe, leadership(), parcel.id, { rate: '20.25' }));
 
 		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 2025 } });
 	});
@@ -108,7 +108,7 @@ describe('/requests', () => {
 						tone: 'info',
 						title: 'Your open requests',
 						description: ['**R-1** Deliver Parcel: Approved', '**R-2** Sort Mail: Rejected', '**R-4** Sort Mail: Pending'].join('\n'),
-						fields: [{ name: 'Estimated amount owed', value: '**12.5**' }],
+						fields: [{ name: 'Estimated amount owed', value: '**$12.5**' }],
 						footer: 'An estimate at current Rates. The Rate when your Payout is generated applies.'
 					}
 				}
@@ -119,7 +119,7 @@ describe('/requests', () => {
 	it('uses the new Rate after a Rate change', () => {
 		const { payMe, parcel } = courierAlex();
 		created(approveRequest(payMe, courierManager, submit(payMe, parcel.id)));
-		created(changeRate(payMe, leadership(), parcel.id, '15'));
+		created(editTask(payMe, leadership(), parcel.id, { rate: '15' }));
 
 		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 1500 } });
 	});
@@ -128,7 +128,7 @@ describe('/requests', () => {
 		const { payMe, parcel } = courierAlex();
 		created(approveRequest(payMe, courierManager, submit(payMe, parcel.id)));
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(changeRate(payMe, leadership(), parcel.id, '20'));
+		created(editTask(payMe, leadership(), parcel.id, { rate: '20' }));
 		created(approveRequest(payMe, courierManager, submit(payMe, parcel.id)));
 
 		expect(myRequests(payMe, alex)).toMatchObject({ ok: true, value: { estimatedOwed: 3250 } });

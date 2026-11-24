@@ -1,9 +1,10 @@
+import { formatAmount } from './rates';
 import { maxFormOptions } from './tasks';
-import { payoutLabel, payoutStateName, requestLabel, stateName, type PayoutState, type RequestState } from './labels';
+import { payoutLabel, payoutStateName, requestLabel, shareLabel, stateName, type PayoutState, type RequestState } from './labels';
 
 export type PayMeError =
 	| { code: 'not-permitted' }
-	| { code: 'review-channel-unusable'; channelId: string; missing: string[] }
+	| { code: 'review-channel-unavailable'; name: string }
 	| { code: 'job-not-found' }
 	| { code: 'job-name-taken'; name: string }
 	| { code: 'job-retired'; name: string }
@@ -38,6 +39,8 @@ export type PayMeError =
 	| { code: 'payout-not-found' }
 	| { code: 'payout-already-open'; number: number }
 	| { code: 'nothing-owed' }
+	| { code: 'link-needs-a-member' }
+	| { code: 'job-required'; task: string }
 	| { code: 'employee-not-found' }
 	| { code: 'employee-no-requests-thread' }
 	| { code: 'not-their-manager' }
@@ -45,14 +48,25 @@ export type PayMeError =
 	| { code: 'not-your-request' }
 	| { code: 'cannot-amend'; number: number; state: RequestState }
 	| { code: 'cannot-withdraw'; number: number; state: RequestState }
-	| { code: 'cannot-pay'; number: number; state: RequestState };
+	| { code: 'cannot-pay'; number: number; state: RequestState }
+	| { code: 'invalid-amount'; amount: string }
+	| { code: 'project-not-found' }
+	| { code: 'project-name-taken'; name: string }
+	| { code: 'project-closed'; name: string }
+	| { code: 'not-project-manager'; job: string }
+	| { code: 'share-job-not-held'; job: string }
+	| { code: 'over-budget'; name: string; balance: number }
+	| { code: 'share-not-found' }
+	| { code: 'share-edit-empty' }
+	| { code: 'share-paid'; id: number }
+	| { code: 'share-in-payout'; id: number; payoutNumber: number };
 
 export function describeError(error: PayMeError): string {
 	switch (error.code) {
 		case 'not-permitted':
 			return 'Only Leadership can do that.';
-		case 'review-channel-unusable':
-			return `PayMe can't post review messages in <#${error.channelId}>. Give it these permissions there: ${error.missing.join(', ')}.`;
+		case 'review-channel-unavailable':
+			return `PayMe couldn't create or set up #${error.name} in the Payment Review category. Give it the Manage Channels and Manage Roles permissions, then try again.`;
 		case 'job-not-found':
 			return 'That Job does not exist.';
 		case 'job-name-taken':
@@ -63,12 +77,12 @@ export function describeError(error: PayMeError): string {
 			return 'That Task does not exist.';
 		case 'task-name-taken':
 			return error.retired
-				? `A Retired Task named ${error.name} already exists. Use /task restore to bring it back.`
+				? `A Retired Task named ${error.name} already exists. Restore it from the Tasks button on the Leadership dashboard.`
 				: `A Task named ${error.name} already exists.`;
 		case 'task-not-retired':
 			return `The ${error.name} Task is not retired.`;
 		case 'task-has-no-active-job':
-			return `The ${error.name} Task doesn't belong to any active Job. Add it to one with /task jobs add first.`;
+			return `The ${error.name} Task doesn't belong to any active Job. Give it an active Job with its Jobs button first.`;
 		case 'task-needs-a-job':
 			return 'A Task must belong to at least one Job.';
 		case 'too-many-tasks':
@@ -121,8 +135,12 @@ export function describeError(error: PayMeError): string {
 			return 'That Payout does not exist.';
 		case 'payout-already-open':
 			return `This Employee already has an Open Payout, ${payoutLabel(error.number)}. Mark it paid or discard it first.`;
+		case 'job-required':
+			return `${error.task} is in more than one Job. Pick the Job the work was for.`;
+		case 'link-needs-a-member':
+			return 'Right-click a message the Employee sent in their own channel. That one was sent by a bot or webhook.';
 		case 'nothing-owed':
-			return 'This Employee has no Approved requests waiting to be paid.';
+			return 'This Employee has no Approved requests or Shares waiting to be paid.';
 		case 'employee-not-found':
 			return 'That member is not an Employee.';
 		case 'employee-no-requests-thread':
@@ -139,5 +157,27 @@ export function describeError(error: PayMeError): string {
 			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Pending or Rejected requests can be withdrawn.`;
 		case 'cannot-pay':
 			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Approved requests can be paid.`;
+		case 'invalid-amount':
+			return `${error.amount} is not a valid amount. Use a plain number above zero with at most two decimal places and no currency symbol, like 1500 or 12.5.`;
+		case 'project-not-found':
+			return 'That Project does not exist.';
+		case 'project-name-taken':
+			return `A Project named ${error.name} already exists.`;
+		case 'project-closed':
+			return `The ${error.name} Project is closed.`;
+		case 'not-project-manager':
+			return `Only Managers of the ${error.job} Job, or Leadership, can do that.`;
+		case 'share-job-not-held':
+			return `That Employee doesn't hold the ${error.job} Job, or manage it, so they can't get a Share of its Projects.`;
+		case 'over-budget':
+			return `The ${error.name} Project only has ${formatAmount(error.balance)} left to give.`;
+		case 'share-not-found':
+			return 'That Share does not exist.';
+		case 'share-edit-empty':
+			return 'Give a new amount or note.';
+		case 'share-paid':
+			return `${shareLabel(error.id)} has already been paid, so it can't be changed.`;
+		case 'share-in-payout':
+			return `${shareLabel(error.id)} is in ${payoutLabel(error.payoutNumber)}, which is Open. Ask Leadership to discard that Payout first.`;
 	}
 }

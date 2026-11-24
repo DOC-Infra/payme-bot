@@ -6,13 +6,14 @@ import { toEmbeds } from '../discord/embeds';
 import { decodeCustomId } from '../discord/customIds';
 import { buildAmendModal, confirmWithdrawButton } from '../discord/entry';
 import { acknowledge, runAsActor, runOutcome } from '../discord/runner';
+import { payMeOf } from '../discord/servers';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
 })
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction, { action, requestNumber }: InteractionHandler.ParseResult<this>) {
-		const { payMe } = this.container;
+		const payMe = payMeOf(interaction);
 		return runAsActor(interaction, { code: 'not-your-request' }, async (actor) => {
 			if (action === 'confirm-withdraw') {
 				await acknowledge(interaction);

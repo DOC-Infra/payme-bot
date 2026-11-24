@@ -5,13 +5,14 @@ import { approveRequest, checkChange } from '../core';
 import { decodeCustomId } from '../discord/customIds';
 import { buildReasonModal } from '../discord/review';
 import { acknowledge, runAsActor } from '../discord/runner';
+import { payMeOf } from '../discord/servers';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
 })
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction, { action, requestNumber }: InteractionHandler.ParseResult<this>) {
-		const { payMe } = this.container;
+		const payMe = payMeOf(interaction);
 		return runAsActor(interaction, { code: 'not-a-reviewer' }, async (actor) => {
 			if (action === 'approve') {
 				await acknowledge(interaction);

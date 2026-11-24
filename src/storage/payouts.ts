@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { PayoutState } from '../core/labels';
-import type { Payout, PayoutLine } from '../core/payouts';
-import { payoutLines, payouts } from './schema';
+import type { Payout, PayoutLine, PayoutShareLine } from '../core/payouts';
+import { payoutLines, payoutShareLines, payouts } from './schema';
 import type { Storage } from './storage';
 
 type PayoutRow = typeof payouts.$inferSelect;
@@ -12,11 +12,12 @@ export interface NewPayoutRow {
 	generatedBy: string;
 	total: number;
 	lines: readonly PayoutLine[];
+	shares: readonly PayoutShareLine[];
 }
 
 export function insertPayout(storage: Storage, payout: NewPayoutRow): number {
 	const { db } = storage;
-	const { employeeUserId, minecraftName, generatedBy, total, lines } = payout;
+	const { employeeUserId, minecraftName, generatedBy, total, lines, shares } = payout;
 	const { number } = db
 		.insert(payouts)
 		.values({ employeeUserId, minecraftName, total, state: 'open', generatedBy })
@@ -25,6 +26,11 @@ export function insertPayout(storage: Storage, payout: NewPayoutRow): number {
 	if (lines.length > 0) {
 		db.insert(payoutLines)
 			.values(lines.map(({ requestNumber, taskId, jobId, rate }) => ({ payoutNumber: number, requestNumber, taskId, jobId, rate })))
+			.run();
+	}
+	if (shares.length > 0) {
+		db.insert(payoutShareLines)
+			.values(shares.map(({ shareId, projectId, jobId, amount }) => ({ payoutNumber: number, shareId, projectId, jobId, amount })))
 			.run();
 	}
 	return number;
@@ -71,5 +77,16 @@ function toPayout(storage: Storage, row: PayoutRow): Payout {
 		.where(eq(payoutLines.payoutNumber, row.number))
 		.orderBy(asc(payoutLines.requestNumber))
 		.all();
-	return { ...row, lines };
+	const shares = storage.db
+		.select({
+			shareId: payoutShareLines.shareId,
+			projectId: payoutShareLines.projectId,
+			jobId: payoutShareLines.jobId,
+			amount: payoutShareLines.amount
+		})
+		.from(payoutShareLines)
+		.where(eq(payoutShareLines.payoutNumber, row.number))
+		.orderBy(asc(payoutShareLines.shareId))
+		.all();
+	return { ...row, lines, shares };
 }

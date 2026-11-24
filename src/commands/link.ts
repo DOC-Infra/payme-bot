@@ -1,9 +1,10 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
-import { ChannelType, MessageFlags } from 'discord.js';
+import { ChannelType, MessageFlags, InteractionContextType } from 'discord.js';
 import { linkEmployee } from '../core';
 import { memberToActor } from '../discord/actor';
 import { runAsActor } from '../discord/runner';
+import { payMeOf } from '../discord/servers';
 
 @ApplyOptions<Command.Options>({
 	description: 'Link a member to their channel and Minecraft Name, or change them (Leadership only)'
@@ -13,6 +14,7 @@ export class UserCommand extends Command {
 		registry.registerChatInputCommand((builder) =>
 			builder
 				.setName(this.name)
+				.setContexts(InteractionContextType.Guild)
 				.setDescription(this.description)
 				.addUserOption((option) => option.setName('user').setDescription('The member to link').setRequired(true))
 				.addStringOption((option) => option.setName('minecraft').setDescription('Their Minecraft Name').setRequired(true).setMaxLength(16))
@@ -29,7 +31,7 @@ export class UserCommand extends Command {
 		const minecraftName = options.getString('minecraft', true);
 		const channelId = options.getChannel('channel', true).id;
 		await runAsActor(interaction, { code: 'not-permitted' }, (actor) =>
-			linkEmployee(this.container.payMe, actor, linked, minecraftName, channelId)
+			linkEmployee(payMeOf(interaction), actor, linked, minecraftName, channelId)
 		);
 	}
 }

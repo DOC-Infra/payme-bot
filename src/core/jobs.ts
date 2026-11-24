@@ -11,7 +11,7 @@ import {
 import { selectEmployee } from '../storage/employees';
 import { retireTasksWithNoActiveJob } from '../storage/tasks';
 import type { Actor } from './actor';
-import { notice, type Card, type Effect } from './effects';
+import { notice, type Effect } from './effects';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
@@ -36,16 +36,20 @@ export function allJobs(payMe: PayMe): Job[] {
 	return selectJobs(payMe.storage);
 }
 
-export function listJobs(payMe: PayMe, actor: Actor): Outcome<Job[]> {
+/** The name of the Review Channel PayMe creates or reuses for a Job, like `courier-review`. */
+export function reviewChannelName(jobName: string): string {
+	const slug = jobName
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '');
+	return `${slug || 'job'}-review`.slice(0, 100);
+}
+
+/** Why the actor can't create a Job with this name, checked before PayMe makes its Review Channel. */
+export function checkNewJob(payMe: PayMe, actor: Actor, name: string): Failure | null {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
-
-	const jobs = allJobs(payMe);
-	const card: Card =
-		jobs.length === 0
-			? notice('There are no Jobs yet.', 'neutral')
-			: { tone: 'info', title: 'Jobs', description: jobs.map(describeJob).join('\n\n') };
-	return succeed([{ type: 'private-reply', card }], jobs);
+	return selectJobIdByName(payMe.storage, name) === null ? null : fail({ code: 'job-name-taken', name });
 }
 
 export function createJob(payMe: PayMe, actor: Actor, details: JobDetails): Outcome<Job> {
@@ -61,8 +65,10 @@ export function createJob(payMe: PayMe, actor: Actor, details: JobDetails): Outc
 	});
 }
 
+/** Renaming the Job renames its Review Channel to match. */
 export function editJob(payMe: PayMe, actor: Actor, id: number, changes: Partial<JobDetails>): Outcome<Job> {
-	return changeJob(payMe, actor, id, (job) => {
+	let renamed: Effect | null = null;
+	const outcome = changeJob(payMe, actor, id, (job) => {
 		const name = changes.name ?? job.name;
 		const holder = selectJobIdByName(payMe.storage, name);
 		if (holder !== null && holder !== id) return fail({ code: 'job-name-taken', name });
@@ -72,30 +78,44 @@ export function editJob(payMe: PayMe, actor: Actor, id: number, changes: Partial
 			employeeRoleId: changes.employeeRoleId ?? job.employeeRoleId,
 			reviewChannelId: changes.reviewChannelId ?? job.reviewChannelId
 		});
+		if (name !== job.name)
+			renamed = { type: 'rename-channel', channelId: changes.reviewChannelId ?? job.reviewChannelId, name: reviewChannelName(name) };
 		return `Updated the ${name} Job.`;
 	});
+	if (!outcome.ok || !renamed) return outcome;
+	return { ...outcome, effects: [renamed, ...outcome.effects] };
 }
 
-/** `holderUserIds` are the members who currently hold the Job's Employee role; their Employee Channels become visible to the new manager role. */
-export function addManagerRole(payMe: PayMe, actor: Actor, id: number, roleId: string, holderUserIds: string[]): Outcome<Job> {
+/**
+ * Makes these exactly the Job's manager roles. The Review Channel follows: roles added can see it, roles removed no longer can.
+ * `holderUserIds` are the members who hold the Job's Employee role; their Employee Channels become visible to each role added.
+ */
+export function setManagerRoles(payMe: PayMe, actor: Actor, id: number, roleIds: readonly string[], holderUserIds: string[]): Outcome<Job> {
+	let added: string[] = [];
+	let removed: string[] = [];
 	const outcome = changeJob(payMe, actor, id, (job) => {
-		insertManagerRole(payMe.storage, id, roleId);
-		return `<@&${roleId}> now manages the ${job.name} Job.`;
+		const wanted = [...new Set(roleIds)];
+		added = wanted.filter((roleId) => !job.managerRoleIds.includes(roleId));
+		removed = job.managerRoleIds.filter((roleId) => !wanted.includes(roleId));
+		for (const roleId of removed) deleteManagerRole(payMe.storage, id, roleId);
+		for (const roleId of added) insertManagerRole(payMe.storage, id, roleId);
+		const managers = wanted.length ? wanted.map((roleId) => `<@&${roleId}>`).join(', ') : 'no roles';
+		return `The ${job.name} Job is now managed by ${managers}.`;
 	});
 	if (!outcome.ok) return outcome;
 
-	const grants: Effect[] = holderUserIds.flatMap((userId) => {
-		const channelId = selectEmployee(payMe.storage, userId)?.channelId;
-		return channelId ? [{ type: 'grant-channel-access', channelId, roleIds: [roleId] }] : [];
-	});
-	return { ...outcome, effects: [...grants, ...outcome.effects] };
-}
-
-export function removeManagerRole(payMe: PayMe, actor: Actor, id: number, roleId: string): Outcome<Job> {
-	return changeJob(payMe, actor, id, (job) => {
-		deleteManagerRole(payMe.storage, id, roleId);
-		return `<@&${roleId}> no longer manages the ${job.name} Job.`;
-	});
+	const { reviewChannelId } = outcome.value;
+	const review: Effect[] = [
+		...(added.length ? [{ type: 'grant-channel-access' as const, channelId: reviewChannelId, roleIds: added }] : []),
+		...(removed.length ? [{ type: 'revoke-channel-access' as const, channelId: reviewChannelId, roleIds: removed }] : [])
+	];
+	const grants: Effect[] = added.length
+		? holderUserIds.flatMap((userId) => {
+				const channelId = selectEmployee(payMe.storage, userId)?.channelId;
+				return channelId ? [{ type: 'grant-channel-access' as const, channelId, roleIds: added }] : [];
+			})
+		: [];
+	return { ...outcome, effects: [...review, ...grants, ...outcome.effects] };
 }
 
 export function retireJob(payMe: PayMe, actor: Actor, id: number): Outcome<Job> {
@@ -106,7 +126,7 @@ export function retireJob(payMe: PayMe, actor: Actor, id: number): Outcome<Job> 
 	});
 }
 
-function describeJob(job: Job): string {
+export function describeJob(job: Job): string {
 	const managers = job.managerRoleIds.length === 0 ? 'none' : job.managerRoleIds.map((id) => `<@&${id}>`).join(', ');
 	return [
 		`**${job.name}**${job.retired ? ' (retired)' : ''}`,
