@@ -3,9 +3,9 @@
 PayMe is a Discord bot that takes each Payment Request from submission to payment for Employees on our Minecraft server.
 
 1. An Employee submits a Payment Request with `/request`, choosing one Task and attaching Evidence.
-2. A Manager of an eligible Job approves it, rejects it (sends it back for changes) or denies it.
-3. Leadership generates a Payout, which locks in the current Rates. PayMe then shows a Pay Command to paste into Minecraft.
-4. Leadership runs the command in-game and marks the Payout paid.
+2. A Manager of the request's Job approves it, rejects it (sends it back for changes) or denies it.
+3. Leadership generates Payouts from the dashboard in #payouts, which locks in the current Rates. PayMe then shows a Pay Command for each one to paste into Minecraft.
+4. Leadership runs each command in-game and marks its Payout paid.
 
 Every step is logged in the Employee's Requests Thread, which is the permanent record. PayMe never moves money itself.
 
@@ -28,7 +28,8 @@ Vocabulary follows [GLOSSARY.md](GLOSSARY.md). Design decisions are in [docs/adr
 | `/project share-edit share [amount] [note]` \| `share-remove share` | Managers, Leadership | Change or remove a Share that has not been paid out. A Share in an Open Payout can't change until Leadership discards that Payout |
 | `/project show \| list` | Managers, Leadership | Show a Project's Budget, what is left and every Share, for Projects of Jobs you manage |
 | `/rates-channel set channel` \| `unset` | Leadership | Keep every active Job's Tasks and Rates posted in a channel, one embed per Job. PayMe edits those messages whenever a Task, Rate or Job changes. Setting another channel moves the Rates there; unsetting deletes PayMe's messages |
-| `/payouts` | Leadership, Managers | Leadership generates, marks paid and discards Payouts. Managers get a read-only view of Employees in their Jobs |
+| `/payouts` | Leadership, Managers | Leadership generates, marks paid and discards Payouts one Employee at a time. Managers get a read-only view of Employees in their Jobs |
+| `/home-server` | Anyone | Choose which PayMe server your requests go to when you use PayMe as a user app outside its servers. See [As a user app](#as-a-user-app) |
 
 Approve, Reject and Deny are buttons on each review message in a Review Channel. Amend & resubmit and Withdraw are buttons on each request entry in the Requests Thread. Withdrawing marks that entry Withdrawn and deletes the request's review messages from every Review Channel. A Task in more than one of the Employee's Jobs appears on the request form once per Job, like `Load Cart (Courier)` and `Load Cart (Miner)`, and the request goes to that Job's Review Channel only. Claim ticket asks for the Job too when the `DOC Ticket Assistance` Task is in more than one of them. A Request payment button on the pinned message in each Employee Channel opens the same form as `/request`. When a Manager or Leadership presses it in another Employee's channel, the form is for that Employee, as with **Request payment for**. Next to it, Claim ticket asks for a 5-digit DOC ticket number and submits it as a Payment Request for the `DOC Ticket Assistance` Task. The ticket number is the Evidence, and an Employee can't claim the same ticket twice unless their earlier request for it was Denied or Withdrawn. Different Employees can each claim the same ticket.
 
@@ -38,7 +39,16 @@ Jobs and Tasks have no commands: Leadership manages them from the dashboard belo
 
 PayMe keeps a category called **Payment Review**, finding it by name (any capitalisation) or creating it on startup. In it, PayMe creates **#payouts**, private to administrators, and a Review Channel for each Job it creates, named after the Job like `#courier-review` and visible to the Job's manager roles and administrators. A channel with that name already in the category is reused, with PayMe and those roles let in. New Employee Channels go in a category called **Employees**, which PayMe finds or creates the same way, until an administrator picks another with the dashboard's Settings button. Changing a Job's manager roles changes who can see its Review Channel, and renaming the Job renames the channel.
 
-PayMe pins a dashboard in #payouts. It shows how many requests are pending review and what is owed for each Job, every Open Payout waiting to be marked paid, and what is left in each Open Project. It updates a couple of seconds after anything changes. Its Generate Payouts button generates a Payout for every Employee who is owed something and has no Open Payout, then privately shows every Open Payout with its Pay Command and Mark paid and Discard buttons. Its Projects button opens the same private view as `/project list`. Its Jobs button lists every Job with a menu to open one and a New Job button (name and Employee role); an open Job has Edit, Manager roles and Retire, which asks you to confirm. Its Tasks button shows the Rate Schedule with a menu to pick a Job, then one of that Job's Tasks; there is a New Task button (name, Rate, Jobs, and whether requests need a link or file and notes), and an open Task has Edit (Rate and requirements), Jobs, and Retire or Restore, and its member picker opens the request form for that Employee, as with **Request payment for**. PayMe finds its pinned dashboard again on restart, and posts a new one if it was deleted or unpinned.
+PayMe pins a dashboard in #payouts. It shows how many requests are pending review and what is owed for each Job, every Open Payout waiting to be marked paid, and what is left in each Open Project, and it updates a couple of seconds after anything changes. Everything it opens is private to whoever pressed it:
+
+- **Generate Payouts** generates a Payout for every Employee who is owed something and has no Open Payout, then shows every Open Payout with its Pay Command and Mark paid and Discard buttons.
+- **Projects** opens the same view as `/project list`.
+- **Jobs** lists every Job, with a menu to open one and a New Job button that asks for its name and Employee role. An open Job has Edit, Manager roles, and Retire, which asks you to confirm.
+- **Tasks** shows the Rate Schedule with a menu to pick a Job, then one of that Job's Tasks. New Task asks for the name, Rate, Jobs, and whether requests need a link or file and notes. An open Task has Edit (Rate and requirements), Jobs and Retire, and a Retired one has Jobs and Restore.
+- **Settings** picks the category new Employee Channels are created in.
+- The member picker below the buttons opens the request form for that Employee, as with **Request payment for**.
+
+PayMe finds its pinned dashboard again on restart, and posts a new one if it was deleted or unpinned.
 
 ## Discord setup
 
@@ -58,7 +68,7 @@ Each user's home server is kept in `data/app.db`, apart from every server's own 
 
 ## Running it
 
-You need Node 24 and pnpm. PayMe stores data in SQLite through `better-sqlite3`, a native module that pnpm builds on install.
+You need Node 24 and pnpm 11. PayMe stores data in SQLite through `better-sqlite3`, a native module that pnpm builds on install.
 
 ```sh
 pnpm install
@@ -69,7 +79,7 @@ PayMe needs no configuration file. Set the bot's token in the environment, eithe
 | Variable | Required | Value |
 |---|---|---|
 | `DISCORD_TOKEN` | yes | The bot token |
-| `DATA_DIR` | no | Where each server's database is kept, as `<server id>.db`. Defaults to `data` in the project root |
+| `DATA_DIR` | no | Where each server's database is kept, as `<server id>.db`, along with `app.db`. Defaults to `data` in the project root, and to `/data` in the Docker image |
 
 The bot refuses to start without `DISCORD_TOKEN`. Database migrations run automatically for each server's database.
 
@@ -77,6 +87,50 @@ The bot refuses to start without `DISCORD_TOKEN`. Database migrations run automa
 pnpm watch:start   # development: rebuild and restart on change
 pnpm build && pnpm start   # production
 ```
+
+### With Docker
+
+Every push to `main` and every version tag like `v1.2.0` publishes an image to the GitHub Container Registry, built for amd64 and arm64 after typecheck, lint and tests pass. Pull requests build the image without publishing it.
+
+```sh
+docker run -d --name payme --restart unless-stopped \
+  -e DISCORD_TOKEN=your-token \
+  -v payme-data:/data \
+  ghcr.io/doc-infra/payme-bot:latest
+```
+
+Keep `/data` on a volume: it holds every server's database and `app.db`, so they survive new images. Back it up. PayMe only connects out to Discord, so the container needs no published port. The image runs as the unprivileged `node` user. Tags are `latest` for `main`, `1.2.0` and `1.2` for version tags, and `sha-<commit>` for every build. To build the image yourself, run `docker build -t payme .`.
+
+If the package is private, which is the default for an organisation's images, log in before pulling with `docker login ghcr.io`, using a personal access token with the `read:packages` scope.
+
+#### With Docker Compose
+
+Save this as `compose.yaml`:
+
+```yaml
+services:
+  payme:
+    image: ghcr.io/doc-infra/payme-bot:latest
+    restart: unless-stopped
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+    volumes:
+      - payme-data:/data
+
+volumes:
+  payme-data:
+```
+
+Put the token in a `.env` file next to it, which Compose reads for `${DISCORD_TOKEN}`. Keep that file out of version control.
+
+```sh
+echo 'DISCORD_TOKEN=your-token' > .env
+docker compose up -d        # start
+docker compose logs -f      # follow the logs, including missing-permission warnings
+docker compose pull && docker compose up -d   # update to the newest image
+```
+
+To keep the databases in a folder you can see and back up, replace `payme-data:/data` with a path like `./data:/data`, and make that folder writable by the container's `node` user (user ID 1000), for example with `sudo chown 1000:1000 data`. Pin a tag like `ghcr.io/doc-infra/payme-bot:1.2.0` instead of `latest` to update only when you choose.
 
 ## Development
 
@@ -89,11 +143,13 @@ pnpm lint        # Prettier check (pnpm format to fix)
 Code layout:
 
 - `src/core/` is the PayMe domain core and has no Discord imports. Each operation takes the acting member as plain data and returns an outcome describing the Discord effects to carry out, or a typed error.
-- `src/storage/` holds the Drizzle schema (`schema.ts`), the queries built on it, and the versioned SQL migrations. A schema change needs both a new migration and a matching edit to `schema.ts`.
-- `src/discord/` contains the runner, which carries out effects, plus shared Discord helpers.
+- `src/storage/` holds the Drizzle schema (`schema.ts`), the queries built on it, and the versioned SQL migrations. A schema change needs both a new migration and a matching edit to `schema.ts`. Each server's database uses these; `app.ts` is the separate app-wide database of users' home servers.
+- `src/discord/` contains the runner, which carries out effects in the right server, plus shared Discord helpers: `servers.ts` opens each server's database, `serverSetup.ts` prepares a server when PayMe starts or joins it, and the dashboard, Rates Channel, management forms and home servers each have their own module.
 - `src/commands/`, `src/interaction-handlers/` and `src/listeners/` are thin Sapphire pieces that call the core.
 
-Tests in `tests/` exercise the core through its public operations against an in-memory database. The Discord layer has no automated tests, so check it by hand on a test server.
+Tests in `tests/core/` exercise the core through its public operations against an in-memory database. Tests in `tests/discord/` cover the parts of the Discord layer that need no connection: custom IDs, choosing a home server, and every form passing Discord's own limits. The rest of the Discord layer has no automated tests, so check it by hand on a test server.
+
+GitHub Actions runs typecheck, lint and tests on every push and pull request, then builds the Docker image (see `.github/workflows/image.yml`).
 
 Create new Sapphire pieces with the CLI, for example `pnpm sapphire generate slashcommand <name>`.
 

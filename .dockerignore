@@ -1,0 +1,16 @@
+# Built inside the image, or not needed in it
+node_modules
+dist
+tests
+coverage
+.github
+.git
+*.md
+docs
+
+# Never copy data or secrets into an image
+data
+*.db
+*.db-*
+**/.env
+**/.env.*

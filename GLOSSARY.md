@@ -17,7 +17,7 @@ The in-game username an Employee is paid to. Only Leadership sets or changes it.
 _Avoid_: IGN, username, account
 
 **Employee Channel**:
-A private channel for one Employee, created when they are hired and visible only to that Employee, the Managers of their Jobs, and Leadership. It holds that Employee's Requests Thread.
+A private channel for one Employee, created when they are hired or adopted when they are linked, and visible only to that Employee, the Managers of their Jobs, and Leadership. It holds that Employee's Requests Thread.
 _Avoid_: DM, inbox, ticket
 
 **Requests Thread**:
@@ -39,12 +39,16 @@ A predefined kind of work that an Employee can be paid for. A Task belongs to on
 _Avoid_: Job, assignment, activity
 
 **Rate**:
-The amount paid for one completion of a Task: a plain number that may include decimals, with no currency symbol. The Rate that counts is the one in effect when the Payout is generated.
+The amount paid for one completion of a Task, which may include cents. It is entered as a plain number like 1500 or 12.5 and shown in dollars like $1,500. The Rate that counts is the one in effect when the Payout is generated.
 _Avoid_: Price, wage, fee
 
 **Rate Schedule**:
 The full list of Tasks and their current Rates, maintained by Leadership.
 _Avoid_: Price list, catalog
+
+**Rates Channel**:
+A channel Leadership chooses where PayMe keeps every active Job's Tasks and Rates posted, updating them as they change, for Employees to read.
+_Avoid_: Price channel, rate board
 
 **Retired Task**:
 A Task that can no longer be requested but still exists so that past Payment Requests can refer to it. Leadership can restore it, which makes it requestable again with the same name, Rate and Jobs.
@@ -55,7 +59,7 @@ An Employee's claim to be paid for exactly one completion of one Task under one 
 _Avoid_: Claim, submission, ticket, invoice
 
 **Review Channel**:
-A Job's channel where its Managers review Payment Requests. Each request appears there with a copy of its Evidence, so reviewers never need to open the Employee Channel.
+A Job's channel where its Managers review Payment Requests. PayMe creates one for each Job in the Payment Review category. Each request appears there with a copy of its Evidence, so reviewers never need to open the Employee Channel.
 _Avoid_: Queue, approvals channel
 
 **DOC Ticket**:
@@ -103,8 +107,12 @@ A final state: the Payout that includes the Payment Request has been marked paid
 
 ### Paying
 
+**Home Server**:
+The server a Payment Request made outside any server PayMe is installed in is filed in: one where the Employee is hired and the person filing is a member, picked by the user when several fit.
+_Avoid_: Main server, default server
+
 **Payout**:
-A snapshot, taken when Leadership generates a Pay Command, of one Employee's Approved Payment Requests together with their Rates, their unpaid Shares and the total at that moment. Marking it paid makes those requests Paid and those Shares paid. Discarding it leaves the requests Approved and the Shares owed.
+A snapshot, taken when Leadership generates it, of one Employee's Approved Payment Requests together with their Rates, their unpaid Shares and the total at that moment. Marking it paid makes those requests Paid and those Shares paid. Discarding it leaves the requests Approved and the Shares owed.
 _Avoid_: Batch, payroll, payment run
 
 **Pay Command**:
