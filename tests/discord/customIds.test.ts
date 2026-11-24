@@ -6,7 +6,9 @@ const user = '123456789012345678';
 const everyKind: CustomId[] = [
 	{ kind: 'request-button' },
 	{ kind: 'claim-ticket-button' },
-	{ kind: 'claim-ticket-modal' },
+	{ kind: 'claim-ticket-modal', home: null },
+	{ kind: 'claim-ticket-modal', home: user },
+	{ kind: 'ticket-home-pick' },
 	{ kind: 'request-job-select', home: user, employeeUserId: null },
 	{ kind: 'request-job-select', home: user, employeeUserId: user },
 	{ kind: 'request-modal', home: user, employeeUserId: null },
@@ -83,6 +85,8 @@ describe('custom IDs', () => {
 		'request-job',
 		'home-pick:x',
 		'home-set:1',
+		'claim-ticket-modal:abc',
+		'ticket-home-pick:1',
 		'hire',
 		'hire:abc',
 		'link:1',
@@ -139,6 +143,6 @@ describe('custom IDs', () => {
 	});
 
 	it('keeps the Claim ticket button and modal apart', () => {
-		expect(encodeCustomId({ kind: 'claim-ticket-button' })).not.toBe(encodeCustomId({ kind: 'claim-ticket-modal' }));
+		expect(encodeCustomId({ kind: 'claim-ticket-button' })).not.toBe(encodeCustomId({ kind: 'claim-ticket-modal', home: null }));
 	});
 });

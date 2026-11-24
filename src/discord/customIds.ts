@@ -14,7 +14,8 @@ export type ProjectModal = { action: 'create' } | { action: 'share' | 'fund'; pr
 export type CustomId =
 	| { kind: 'request-button' }
 	| { kind: 'claim-ticket-button' }
-	| { kind: 'claim-ticket-modal' }
+	| { kind: 'claim-ticket-modal'; home: string | null }
+	| { kind: 'ticket-home-pick' }
 	| { kind: 'request-job-select'; home: string; employeeUserId: string | null }
 	| { kind: 'request-modal'; home: string; employeeUserId: string | null }
 	| { kind: 'home-pick'; employeeUserId: string | null }
@@ -66,7 +67,9 @@ export function encodeCustomId(id: CustomId): string {
 		case 'claim-ticket-button':
 			return 'claim-ticket';
 		case 'claim-ticket-modal':
-			return 'claim-ticket-modal';
+			return join('claim-ticket-modal', id.home);
+		case 'ticket-home-pick':
+			return 'ticket-home-pick';
 		case 'request-job-select':
 			return join('request-job', id.home, id.employeeUserId);
 		case 'request-modal':
@@ -121,7 +124,8 @@ export function decodeCustomId(customId: string): CustomId | null {
 const decoders = new Map<string, (parts: string[]) => CustomId | null>([
 	['request-payment', (parts) => (parts.length ? null : { kind: 'request-button' })],
 	['claim-ticket', (parts) => (parts.length ? null : { kind: 'claim-ticket-button' })],
-	['claim-ticket-modal', (parts) => (parts.length ? null : { kind: 'claim-ticket-modal' })],
+	['claim-ticket-modal', (parts) => optionalUser(parts, (home) => ({ kind: 'claim-ticket-modal', home }))],
+	['ticket-home-pick', (parts) => (parts.length ? null : { kind: 'ticket-home-pick' })],
 	['request-job', ([home, ...rest]) => inHome(home, rest, (employeeUserId) => ({ kind: 'request-job-select', home, employeeUserId }))],
 	['request', ([home, ...rest]) => inHome(home, rest, (employeeUserId) => ({ kind: 'request-modal', home, employeeUserId }))],
 	['home-pick', (parts) => optionalUser(parts, (employeeUserId) => ({ kind: 'home-pick', employeeUserId }))],

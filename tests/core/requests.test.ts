@@ -15,6 +15,7 @@ import {
 	submitRequest,
 	postRound,
 	ticketJobs,
+	ticketNumberIn,
 	ticketTaskName,
 	withdrawRequest,
 	type Actor,
@@ -533,6 +534,17 @@ describe('Submitting a Payment Request', () => {
 });
 
 describe('Claiming a DOC ticket', () => {
+	it.each([
+		['Ticket #48213 is closed', '48213'],
+		['48213', '48213'],
+		['Helped on 12345 and 67890', '12345'],
+		['Order 123456 is not a ticket', null],
+		['Ticket 1234', null],
+		['', null]
+	])('finds the ticket number in %j', (text, ticket) => {
+		expect(ticketNumberIn(text)).toBe(ticket);
+	});
+
 	function ticketScenario() {
 		const payMe = createTestPayMe();
 		const support = job(payMe, 'Support');
@@ -541,13 +553,14 @@ describe('Claiming a DOC ticket', () => {
 		return { payMe, assistance, alex: member('user-alex', 'role-support') };
 	}
 
-	it('asks for a Job when the Employee holds more than one with the Task, and claims under the Job picked', () => {
+	it('offers every Job the Employee holds with the Task, requires picking one when there are several, and claims under it', () => {
 		const { payMe } = ticketScenario();
 		const moderation = job(payMe, 'Moderation');
 		created(setTaskJobs(payMe, leadership(), 1, [1, moderation.id]));
 		const both = member('user-alex', 'role-support', 'role-moderation');
 
-		expect(ticketJobs(payMe, member('user-alex', 'role-support'))).toEqual([]);
+		expect(ticketJobs(payMe, member('user-alex', 'role-support')).map((held) => held.name)).toEqual(['Support']);
+		expect(ticketJobs(payMe, member('user-alex', 'role-other'))).toEqual([]);
 		expect(ticketJobs(payMe, both).map((held) => held.name)).toEqual(['Moderation', 'Support']);
 		expect(claimTicket(payMe, both, '12345')).toEqual({ ok: false, error: { code: 'job-required', task: ticketTaskName } });
 		expect(created(claimTicket(payMe, both, '12345', moderation.id)).eligibleJobIds).toEqual([moderation.id]);

@@ -5,15 +5,14 @@ import { ticketJobs } from '../core';
 import { decodeCustomId } from '../discord/customIds';
 import { buildClaimTicketModal } from '../discord/requestModal';
 import { runAsActor } from '../discord/runner';
-import { payMeOf } from '../discord/servers';
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
 })
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction) {
-		await runAsActor(interaction, { code: 'not-hired' }, async (actor) => {
-			await interaction.showModal(buildClaimTicketModal(ticketJobs(payMeOf(interaction), actor)));
+		await runAsActor(interaction, { code: 'not-hired' }, async (actor, payMe) => {
+			await interaction.showModal(buildClaimTicketModal(ticketJobs(payMe, actor)));
 			return null;
 		});
 	}
