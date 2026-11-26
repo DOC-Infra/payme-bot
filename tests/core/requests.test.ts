@@ -10,6 +10,7 @@ import {
 	carryOutRound,
 	requestEntry,
 	requestForm,
+	retireJob,
 	retireTask,
 	setTaskJobs,
 	submitRequest,
@@ -90,6 +91,26 @@ describe('Opening the request form', () => {
 		hire(payMe, 'user-alex');
 
 		expect(requestForm(payMe, member('user-alex', 'role-unrelated'))).toEqual({ ok: false, error: { code: 'no-jobs' } });
+	});
+
+	it('offers Leadership the Tasks of every active Job, even Jobs they do not hold', () => {
+		const payMe = createTestPayMe();
+		const courier = job(payMe, 'Courier');
+		const miner = job(payMe, 'Miner');
+		const retired = job(payMe, 'Retired');
+		task(payMe, 'Deliver Parcel', courier.id);
+		const ore = task(payMe, 'Mine Ore', miner.id);
+		task(payMe, 'Old Work', retired.id);
+		created(retireJob(payMe, leadership(), retired.id));
+		hire(payMe, 'user-leadership');
+
+		expect(taskNames(requestForm(payMe, leadership()))).toEqual(['Deliver Parcel', 'Mine Ore']);
+		expect(requestForm(payMe, leadership(), retired.id)).toEqual({ ok: false, error: { code: 'job-not-held' } });
+		expect(submit(payMe, leadership(), ore.id)).toMatchObject({
+			employeeUserId: 'user-leadership',
+			eligibleJobIds: [miner.id],
+			state: 'pending'
+		});
 	});
 
 	it("offers only active Tasks from the Employee's current Jobs, by name, once per Job for a Task in several of them", () => {
@@ -564,6 +585,14 @@ describe('Claiming a DOC ticket', () => {
 		expect(ticketJobs(payMe, both).map((held) => held.name)).toEqual(['Moderation', 'Support']);
 		expect(claimTicket(payMe, both, '12345')).toEqual({ ok: false, error: { code: 'job-required', task: ticketTaskName } });
 		expect(created(claimTicket(payMe, both, '12345', moderation.id)).eligibleJobIds).toEqual([moderation.id]);
+	});
+
+	it('lets Leadership claim a ticket under any Job with the Task, without holding it', () => {
+		const { payMe } = ticketScenario();
+		hire(payMe, 'user-leadership');
+
+		expect(ticketJobs(payMe, leadership()).map((offered) => offered.name)).toEqual(['Support']);
+		expect(created(claimTicket(payMe, leadership(), '12345')).eligibleJobIds).toEqual([1]);
 	});
 
 	it('submits a request for the DOC Ticket Assistance Task with the ticket number as its only Evidence', () => {

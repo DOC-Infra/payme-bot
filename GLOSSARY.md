@@ -29,7 +29,7 @@ A server member who manages one or more Jobs, determined by that Job's manager r
 _Avoid_: Reviewer, approver, mod
 
 **Leadership**:
-The server members with Discord's Administrator permission on the server. Leadership is the same across all Jobs. Leadership defines Jobs, hires Employees, sets Minecraft Names, maintains the Rate Schedule and pays Employees for Approved Payment Requests. Leadership can also do everything a Manager can, for every Job.
+The server members with Discord's Administrator permission on the server. Leadership is the same across all Jobs. Leadership defines Jobs, hires Employees, sets Minecraft Names, maintains the Rate Schedule and pays Employees for Approved Payment Requests. Leadership can also do everything a Manager can, for every Job, and when hired can request pay under any active Job, whether or not they hold it.
 _Avoid_: Senior Manager, admin, payer, owner
 
 ## Work and pay

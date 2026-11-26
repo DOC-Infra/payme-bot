@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import { ApplicationIntegrationType, InteractionContextType } from 'discord.js';
-import { jobsHeldBy } from '../core';
+import { jobsRequestableBy } from '../core';
 import { fetchActorIn } from '../discord/actor';
 import { homeFor } from '../discord/home';
 import { startRequest } from '../discord/requestModal';
@@ -28,12 +28,12 @@ export class UserCommand extends Command {
 		return startRequest(interaction, null, null, interaction.options.getInteger('job'));
 	}
 
-	/** The Jobs the user holds in the server the request would go to, which may not be this one when PayMe is their user app. */
+	/** The Jobs the user can request under in the server the request would go to, which may not be this one when PayMe is their user app. */
 	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {
 		const query = interaction.options.getFocused().toLowerCase();
 		const choice = homeFor(interaction.guildId, interaction.user.id, interaction.user.id);
 		const actor = choice.kind === 'home' ? await fetchActorIn(choice.guildId, interaction.user.id) : null;
-		const jobs = actor && choice.kind === 'home' ? jobsHeldBy(payMeFor(choice.guildId), actor) : [];
+		const jobs = actor && choice.kind === 'home' ? jobsRequestableBy(payMeFor(choice.guildId), actor) : [];
 		const matches = jobs.filter((job) => job.name.toLowerCase().includes(query)).slice(0, 25);
 		await interaction.respond(matches.map((job) => ({ name: job.name, value: job.id })));
 	}
