@@ -17,7 +17,7 @@ import {
 	type UserSelectMenuInteraction
 } from 'discord.js';
 import { encodeCustomId, type CustomId } from './customIds';
-import { fail, requestForm, ticketJobs, type Actor, type Job, type PayMe, type TaskForm } from '../core';
+import { fail, linkIn, maxLinkLength, requestForm, ticketJobs, type Actor, type Job, type PayMe, type TaskForm } from '../core';
 import { fetchActorIn } from './actor';
 import { homeFor, serverName } from './home';
 import { runAsActor, runOutcome } from './runner';
@@ -172,7 +172,8 @@ async function askForHome(interaction: FormInteraction, id: CustomId, guildIds: 
 
 /**
  * Shows the actor the Payment Request form for `employee` (the actor themselves when null), filed in `home`, or returns why they
- * can't have one. When the Tasks don't fit on one form, asks the actor to pick a Job first. `notes` fill in the form's notes.
+ * can't have one. When the Tasks don't fit on one form, asks the actor to pick a Job first. `notes` fill in the form's notes, and its Link
+ * with the first link they mention.
  */
 export function openRequestForm(
 	interaction: FormInteraction,
@@ -221,7 +222,9 @@ export function buildRequestModal(form: TaskForm, home: string, employeeUserId: 
 		.setRequired(form.notesRequired)
 		.setMaxLength(maxNotesLength);
 	if (notesValue) notes.setValue(notesValue);
-	const link = new TextInputBuilder().setCustomId(fieldIds.link).setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(500);
+	const link = new TextInputBuilder().setCustomId(fieldIds.link).setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(maxLinkLength);
+	const linkValue = notesValue && linkIn(notesValue);
+	if (linkValue) link.setValue(linkValue);
 	const files = new FileUploadBuilder().setCustomId(fieldIds.files).setRequired(false).setMaxValues(10);
 
 	return new ModalBuilder()

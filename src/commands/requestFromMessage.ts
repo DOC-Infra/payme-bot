@@ -5,7 +5,7 @@ import { startRequest } from '../discord/requestModal';
 
 @ApplyOptions<Command.Options>({
 	name: 'Request payment',
-	description: "Submit a Payment Request for this message's author, with its text as the notes"
+	description: 'Submit a Payment Request for yourself, with the message text as the notes'
 })
 export class UserCommand extends Command {
 	public override registerApplicationCommands(registry: Command.Registry) {
@@ -20,7 +20,6 @@ export class UserCommand extends Command {
 
 	public override async contextMenuRun(interaction: Command.ContextMenuCommandInteraction) {
 		if (!interaction.isMessageContextMenuCommand()) return;
-		const { author, content } = interaction.targetMessage;
-		await startRequest(interaction, author.id, content);
+		await startRequest(interaction, null, interaction.targetMessage.content);
 	}
 }

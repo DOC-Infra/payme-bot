@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Job, Share, Task } from '../../src/core';
+import type { Job, Share, Task, TaskForm } from '../../src/core';
 import { buildSettingsModal } from '../../src/discord/dashboard';
 import { buildAmendModal } from '../../src/discord/entry';
 import { buildHireModal, buildLinkModal } from '../../src/discord/hireModal';
@@ -33,6 +33,20 @@ const share: Share = {
 	at: '2026-11-24T00:00:00.000Z'
 };
 
+const longForm: TaskForm = {
+	kind: 'tasks',
+	tasks: Array.from({ length: 25 }, (_, index) => ({
+		taskId: index + 1,
+		jobId: 1,
+		name: `${longName.slice(0, 90)} (Job ${index})`,
+		description: 'Rate $1,234,567.89, no link or file needed, no notes needed'
+	})),
+	notesRequired: false,
+	notesHint: 'What did you do? Required unless the Task says otherwise.',
+	linkHint: 'Optional. A link or a file is required unless the Task says otherwise.',
+	filesHint: 'Optional screenshots. A link or a file is required unless the Task says otherwise.'
+};
+
 // Discord's builders check every limit, such as 100 characters for a field description, only when the form is sent. Building each
 // form here runs the same checks, so a too-long text fails a test instead of a button press.
 const forms = {
@@ -53,25 +67,8 @@ const forms = {
 	'give Share': () => buildGiveShareModal(1, longName),
 	'edit Share': () => buildEditShareModal(share),
 	'claim ticket': () => buildClaimTicketModal([]),
-	request: () =>
-		buildRequestModal(
-			{
-				kind: 'tasks',
-				tasks: Array.from({ length: 25 }, (_, index) => ({
-					taskId: index + 1,
-					jobId: 1,
-					name: `${longName.slice(0, 90)} (Job ${index})`,
-					description: 'Rate $1,234,567.89, no link or file needed, no notes needed'
-				})),
-				notesRequired: false,
-				notesHint: 'What did you do? Required unless the Task says otherwise.',
-				linkHint: 'Optional. A link or a file is required unless the Task says otherwise.',
-				filesHint: 'Optional screenshots. A link or a file is required unless the Task says otherwise.'
-			},
-			id,
-			id,
-			'n'.repeat(1000)
-		),
+	request: () => buildRequestModal(longForm, id, id, 'n'.repeat(1000)),
+	'request with a link in its notes': () => buildRequestModal(longForm, id, null, `${'n'.repeat(400)} https://example.com/${'x'.repeat(480)}`),
 	'claim ticket with a Job to pick': () => buildClaimTicketModal(jobs),
 	'claim ticket with its one Job picked': () => buildClaimTicketModal([job(1)]),
 	'claim ticket in a home server, number filled in': () => buildClaimTicketModal(jobs, id, '12345'),
@@ -82,5 +79,19 @@ const forms = {
 describe('Every form PayMe shows', () => {
 	it.each(Object.entries(forms))('passes Discord’s checks: %s', (_, build) => {
 		expect(() => build().toJSON()).not.toThrow();
+	});
+});
+
+describe('The request form', () => {
+	function linkField(notes: string | null) {
+		const form = buildRequestModal(longForm, id, null, notes).toJSON();
+		const label = form.components.find((component) => 'label' in component && component.label === 'Link');
+		return label && 'component' in label && 'value' in label.component ? label.component.value : undefined;
+	}
+
+	it('fills in the Link with the first link the notes mention, and leaves it empty when they mention none', () => {
+		expect(linkField('Built the wall, see https://imgur.com/a/abc123.')).toBe('https://imgur.com/a/abc123');
+		expect(linkField('Built the wall')).toBeUndefined();
+		expect(linkField(null)).toBeUndefined();
 	});
 });

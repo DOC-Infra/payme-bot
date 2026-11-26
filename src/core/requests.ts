@@ -167,6 +167,17 @@ export function ticketNumberIn(text: string): string | null {
 	return /(?<!\d)\d{5}(?!\d)/.exec(text)?.[0] ?? null;
 }
 
+/** The longest link a request takes. */
+export const maxLinkLength = 500;
+
+/** The first http or https link a message mentions, without punctuation that ends the sentence around it, or null. */
+export function linkIn(text: string): string | null {
+	const found = /https?:\/\/[^\s<>]+/.exec(text)?.[0];
+	if (!found) return null;
+	const link = found.replace(/[.,;:!?'"]+$/, '').replace(/\)+$/, (closing) => (found.includes('(') ? closing : ''));
+	return link.length <= maxLinkLength ? link : null;
+}
+
 /** The Jobs the actor can claim a ticket under: those they hold that have the DOC Ticket Assistance Task. */
 export function ticketJobs(payMe: PayMe, actor: Actor): Job[] {
 	const taskId = selectTaskIdByName(payMe.storage, ticketTaskName);
