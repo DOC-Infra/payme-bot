@@ -18,7 +18,7 @@ Vocabulary follows [GLOSSARY.md](GLOSSARY.md). Design decisions are in [docs/adr
 1. Open the [Discord developer portal](https://discord.com/developers/applications) and click **New Application**.
 2. Under **Bot**, click **Reset Token** and copy the token. This is your `DISCORD_TOKEN`; keep it secret.
 3. On the same page, turn on the **Server Members Intent**.
-4. Under **OAuth2 → URL Generator**, tick the `bot` and `applications.commands` scopes, then tick the bot permissions listed in [Discord setup](#discord-setup) (or just **Administrator**).
+4. Under **OAuth2 → URL Generator**, tick the `bot` and `applications.commands` scopes, then tick **Administrator** and the bot permissions listed in [Discord setup](#discord-setup). PayMe needs Administrator only for initial setup; see [Set up your server](#3-set-up-your-server).
 5. Open the generated URL and add PayMe to your server.
 
 ### 2. Run PayMe
@@ -48,13 +48,17 @@ Within a few seconds the bot comes online and creates the **Payment Review** and
 
 ### 3. Set up your server
 
-You need Discord's **Administrator** permission for these steps.
+You need Discord's **Administrator** permission for these steps. They assume your server already has a Discord role for each Job's Employees (like `Courier`) and one for its managers (like `Courier Manager`), and a channel for each Employee.
 
-1. Create a Discord role for each Job's Employees (like `Courier`) and one for its managers (like `Courier Manager`).
-2. In **#payouts**, press **Jobs → New Job**, enter the Job name and its Employee role, then open the Job and use **Manager roles** to add its manager role. PayMe creates the Job's Review Channel.
-3. Press **Tasks → New Task** to add each Task with its Rate and Jobs.
-4. Hire each Employee with `/hire user minecraft`. Give them the Job's Employee role so they can request payment under it.
-5. Optional: run `/rates-channel set channel` to post the Rates where Employees can see them.
+PayMe's role must have **Administrator** during these steps, so it can see and adopt every existing Employee Channel whatever its permissions.
+
+1. In **#payouts**, press **Jobs → New Job**, enter the Job name and pick its existing Employee role, then open the Job and use **Manager roles** to add its existing manager role. PayMe creates the Job's Review Channel.
+2. Press **Tasks → New Task** to add each Task with its Rate and Jobs.
+3. Link each Employee to their existing channel. The quickest way is to right-click one of their messages in that channel → Apps → **Link Employee** and enter their Minecraft Name; `/link user minecraft channel` does the same. PayMe pins the Request payment message in the channel, starts their Requests Thread, and limits who can see the channel to the Employee and their Jobs' manager roles. Linking also gives PayMe's own member access to the channel, so it keeps working there without Administrator.
+4. Optional: run `/rates-channel set channel` to post the Rates where Employees can see them.
+5. Once every Employee Channel is linked, remove **Administrator** from PayMe's role. Keep the permissions listed in [Discord setup](#discord-setup).
+
+Employees request payment under the Jobs whose Employee role they hold. For someone new who has no channel yet, use `/hire user minecraft` instead of linking: PayMe creates their Employee Channel in the **Employees** category.
 
 Employees can now use `/request`. See [Commands](#commands) for everything else, and [Running it](#running-it) for configuration and Docker Compose.
 
@@ -103,9 +107,9 @@ PayMe finds its pinned dashboard again on restart, and posts a new one if it was
 PayMe can be added to any number of servers. Each server's data is kept in its own database, and nothing is shared between servers. Leadership on a server is everyone with Discord's **Administrator** permission there.
 
 - In the Discord developer portal, turn on the **Server Members** privileged intent.
-- Invite the bot with these permissions: Manage Channels, Manage Roles, View Channels, Send Messages, Read Message History, Embed Links, Attach Files, Manage Messages, Pin Messages, Create Public Threads, Send Messages in Threads and Manage Threads. Discord refuses to let PayMe create a channel if its role lacks any of them, so PayMe logs the missing ones by name when it joins or starts. Giving its role Administrator also works.
-- To bring in Employee Channels that already exist, make sure PayMe's role can see each one and has Manage Permissions in it, or give the role Administrator. A private channel or category that hides it from PayMe's role blocks linking, and PayMe names the missing permissions when you try.
-- Create each Job's Employee and manager roles. PayMe creates the Payment Review and Employees categories, #payouts and each Job's Review Channel itself, as soon as it joins a server.
+- Invite the bot with these permissions: Manage Channels, Manage Roles, View Channels, Send Messages, Read Message History, Embed Links, Attach Files, Manage Messages, Pin Messages, Create Public Threads, Send Messages in Threads and Manage Threads. Discord refuses to let PayMe create a channel if its role lacks any of them, so PayMe logs the missing ones by name when it joins or starts. During initial setup its role must also have Administrator; remove it once every existing Employee Channel is linked.
+- To bring in Employee Channels that already exist, give PayMe's role Administrator until they are all linked. Without it, a channel or category that hides it from PayMe's role, or denies it Manage Permissions, blocks linking, and PayMe names the missing permissions when you try. Linking an Employee later, after Administrator is removed, needs that access in their channel.
+- PayMe does not create roles: each Job uses the Employee and manager roles your server already has. PayMe creates the Payment Review and Employees categories, #payouts and each Job's Review Channel itself, as soon as it joins a server.
 
 ### As a user app
 
