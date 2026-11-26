@@ -180,6 +180,8 @@ export interface UpdateReviewCopies {
 export interface ShowPayout {
 	type: 'show-payout';
 	payoutNumber: number;
+	/** The version shown, which the Mark paid and Discard buttons carry. */
+	revision: number;
 	card: Card;
 	settleButtons: boolean;
 }

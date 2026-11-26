@@ -235,15 +235,29 @@ describe('Paying Shares', () => {
 	it('pays a Share with its Payout, and frees it for a new Payout when the Payout is discarded', () => {
 		const { payMe, project } = withRequestAndShare();
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(discardPayout(payMe, leadership(), 1));
+		created(discardPayout(payMe, leadership(), 1, 1));
 
 		expect(owedTo(payMe, 'user-alex')).toMatchObject({ unpaidShareIds: [1] });
 
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(markPayoutPaid(payMe, leadership(), 2));
+		created(markPayoutPaid(payMe, leadership(), 2, 1));
 
 		expect(getProject(payMe, project.id)!.shares).toMatchObject([{ id: 1, paid: true }]);
 		expect(totalOwed(owedTo(payMe, 'user-alex'))).toBe(0);
+	});
+
+	it('adds requests approved after a Payout of only Shares to that Payout when it is generated again', () => {
+		const { payMe, builder, project } = bridge();
+		created(giveShare(payMe, morgan, project.id, alex, { amount: '400', note: null }));
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		const wall = created(addTask(payMe, leadership(), { name: 'Build Wall', rate: '50', jobIds: [builder.id] }));
+		const request = created(submitRequest(payMe, alex, { taskId: wall.id, notes: 'Done', link: 'https://example.com', files: [] }));
+		created(approveRequest(payMe, leadership(), request.number));
+
+		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({
+			ok: true,
+			value: { number: 1, total: 45000, lines: [{ requestNumber: 1 }], shares: [{ shareId: 1 }] }
+		});
 	});
 
 	it('generates a Payout for an Employee owed only Shares', () => {
@@ -403,7 +417,7 @@ describe('Changing a Share before it is paid out', () => {
 		expect(editShare(payMe, morgan, 1, { amount: '1' })).toEqual({ ok: false, error: { code: 'share-in-payout', id: 1, payoutNumber: 1 } });
 		expect(removeShare(payMe, morgan, 1)).toEqual({ ok: false, error: { code: 'share-in-payout', id: 1, payoutNumber: 1 } });
 
-		created(discardPayout(payMe, leadership(), 1));
+		created(discardPayout(payMe, leadership(), 1, 1));
 		created(removeShare(payMe, morgan, 1));
 		expect(generatePayout(payMe, leadership(), 'user-alex')).toEqual({ ok: false, error: { code: 'nothing-owed' } });
 	});
@@ -411,7 +425,7 @@ describe('Changing a Share before it is paid out', () => {
 	it('refuses once the Share is paid', () => {
 		const { payMe } = withShare();
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(markPayoutPaid(payMe, leadership(), 1));
+		created(markPayoutPaid(payMe, leadership(), 1, 1));
 
 		expect(editShare(payMe, morgan, 1, { amount: '1' })).toEqual({ ok: false, error: { code: 'share-paid', id: 1 } });
 		expect(removeShare(payMe, morgan, 1)).toEqual({ ok: false, error: { code: 'share-paid', id: 1 } });

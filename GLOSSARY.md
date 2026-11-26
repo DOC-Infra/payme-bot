@@ -112,7 +112,7 @@ The server a Payment Request made outside any server PayMe is installed in is fi
 _Avoid_: Main server, default server
 
 **Payout**:
-A snapshot, taken when Leadership generates it, of one Employee's Approved Payment Requests together with their Rates, their unpaid Shares and the total at that moment. Marking it paid makes those requests Paid and those Shares paid. Discarding it leaves the requests Approved and the Shares owed.
+A snapshot, taken when Leadership generates it, of one Employee's Approved Payment Requests together with their Rates, their unpaid Shares and the total at that moment. Until it is marked paid or discarded it is Open, and generating it again updates it in place, keeping its number, to hold everything the Employee is owed then at the Rates then. Marking it paid makes those requests Paid and those Shares paid. Discarding it leaves the requests Approved and the Shares owed.
 _Avoid_: Batch, payroll, payment run
 
 **Pay Command**:

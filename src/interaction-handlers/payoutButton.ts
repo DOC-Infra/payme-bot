@@ -23,7 +23,7 @@ export class ButtonHandler extends InteractionHandler {
 	private press(payMe: PayMe, actor: Actor, button: PayoutButton) {
 		if (button.action === 'generate') return generatePayout(payMe, actor, button.employeeUserId);
 		if (button.action === 'show') return showPayout(payMe, actor, button.payoutNumber);
-		if (button.action === 'paid') return markPayoutPaid(payMe, actor, button.payoutNumber);
-		return discardPayout(payMe, actor, button.payoutNumber);
+		if (button.action === 'paid') return markPayoutPaid(payMe, actor, button.payoutNumber, button.revision);
+		return discardPayout(payMe, actor, button.payoutNumber, button.revision);
 	}
 }

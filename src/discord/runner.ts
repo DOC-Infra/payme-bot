@@ -174,7 +174,7 @@ const handlers: Handlers = {
 		return replyPrivately(
 			interaction,
 			effect.card,
-			effect.settleButtons ? settleButtons(effect.payoutNumber) : [],
+			effect.settleButtons ? settleButtons(effect.payoutNumber, effect.revision) : [],
 			acknowledged.has(interaction)
 		);
 	},
