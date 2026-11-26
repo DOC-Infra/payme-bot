@@ -18,6 +18,8 @@ export interface AppropriationView {
 	spentByJob: JobSpend[];
 	/** What paying everything owed today would cost; Approved requests are estimated at current Rates (ADR 0001). Only for the current month. */
 	committed: number | null;
+	/** The part of `committed` that is only an estimate. */
+	committedEstimate: number | null;
 	/** Open Projects' money not yet given as Shares. Only for the current month. */
 	reserved: number | null;
 	remaining: number | null;
@@ -41,7 +43,6 @@ export function setAppropriation(payMe: PayMe, actor: Actor, amountText: string,
 	return succeed([{ type: 'private-reply', card: notice(`The Appropriation is ${formatAmount(amount)} a month from ${monthName(fromMonth)}.`) }]);
 }
 
-/** `month` defaults to the month `now` is in. */
 export function showAppropriation(payMe: PayMe, actor: Actor, monthText: string | null, now = new Date()): Outcome<AppropriationView> {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
@@ -51,16 +52,18 @@ export function showAppropriation(payMe: PayMe, actor: Actor, monthText: string 
 	const appropriation = selectAppropriationFor(payMe.storage, month);
 	const spentByJob = spendByJob(payMe, month);
 	const spent = spentByJob.reduce((sum, job) => sum + job.amount, 0);
-	const current = month === monthOf(now);
-	const committed = current ? committedToday(payMe) : null;
-	const remaining = appropriation === null ? null : appropriation - spent;
+	const isCurrentMonth = month === monthOf(now);
+	const owed = isCurrentMonth ? committedToday(payMe) : null;
+	const committed = owed?.committed ?? null;
+	const remaining = isCurrentMonth && appropriation !== null ? appropriation - spent : null;
 	const view: AppropriationView = {
 		month,
 		appropriation,
 		spent,
 		spentByJob,
 		committed,
-		reserved: current ? reservedToday(payMe) : null,
+		committedEstimate: owed?.estimated ?? null,
+		reserved: isCurrentMonth ? reservedToday(payMe) : null,
 		remaining,
 		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed
 	};
@@ -68,15 +71,16 @@ export function showAppropriation(payMe: PayMe, actor: Actor, monthText: string 
 }
 
 function appropriationCard(view: AppropriationView): Card {
-	const line = (label: string, amount: number | null, suffix = '') => (amount === null ? [] : [`**${label}**: ${formatAmount(amount)}${suffix}`]);
+	const row = (label: string, amount: number | null, suffix = '') => (amount === null ? [] : [`**${label}**: ${formatAmount(amount)}${suffix}`]);
+	const estimate = view.committedEstimate ? `, including ${formatAmount(view.committedEstimate)} estimated at current Rates` : '';
 	const jobs = view.spentByJob.map((job) => `- ${job.job}: ${formatAmount(job.amount)}`);
 	const description = [
 		view.appropriation === null ? '**Appropriation**: Not set' : `**Appropriation**: ${formatAmount(view.appropriation)}`,
-		...line('Spent', view.spent),
-		...line('Committed', view.committed, ', estimated at current Rates'),
-		...line('Reserved', view.reserved, ' in Open Projects'),
-		...line('Remaining', view.remaining),
-		...line('Remaining after commitments', view.remainingAfterCommitted),
+		...row('Spent', view.spent),
+		...row('Committed', view.committed, estimate),
+		...row('Reserved', view.reserved, ' in Open Projects'),
+		...row('Remaining', view.remaining),
+		...row('Remaining after commitments', view.remainingAfterCommitted),
 		'',
 		'**Spent by Job**',
 		...(jobs.length ? jobs : ['Nothing was paid.'])
@@ -84,9 +88,9 @@ function appropriationCard(view: AppropriationView): Card {
 	return { tone: 'info', title: `Appropriation · ${monthName(view.month)}`, description, footer: 'Months are calendar months in UTC.' };
 }
 
-function committedToday(payMe: PayMe): number {
+function committedToday(payMe: PayMe): { committed: number; estimated: number } {
 	const owed = owedSummary(payMe);
-	return owed.total + owed.openPayouts.reduce((sum, payout) => sum + payout.total, 0);
+	return { committed: owed.total + owed.openPayouts.reduce((sum, payout) => sum + payout.total, 0), estimated: owed.estimated };
 }
 
 function reservedToday(payMe: PayMe): number {
@@ -118,6 +122,11 @@ export function monthOf(time: Date | string): string {
 }
 
 export function monthName(month: string): string {
-	const [year, number] = month.split('-').map(Number);
-	return new Date(Date.UTC(year, number - 1)).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+	const [year, monthNumber] = month.split('-').map(Number);
+	return new Date(Date.UTC(year, monthNumber - 1)).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
+/** Next month and the twelve before it, newest first, for picking a month. */
+export function recentMonths(now: Date): string[] {
+	return Array.from({ length: 13 }, (_, index) => monthOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1 - index))));
 }

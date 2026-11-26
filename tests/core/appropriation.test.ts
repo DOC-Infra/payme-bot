@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addTask,
+	recentMonths,
 	approveRequest,
 	closeProject,
 	createJob,
@@ -139,13 +140,14 @@ describe('The current month', () => {
 			appropriation: 500000,
 			spent: 100000,
 			committed: 155000,
+			committedEstimate: 100000,
 			reserved: 75000,
 			remaining: 400000,
 			remainingAfterCommitted: 245000
 		});
 	});
 
-	it('leaves out Committed and Reserved for any other month, which shows only its Spend', () => {
+	it('shows only the Appropriation and Spend for any other month', () => {
 		const { payMe, parcel } = courierAndLogistics();
 		created(setAppropriation(payMe, leadership(), '5000', '2026-10'));
 		approve(payMe, alex, parcel.id);
@@ -154,8 +156,9 @@ describe('The current month', () => {
 			appropriation: 500000,
 			spent: 0,
 			committed: null,
+			committedEstimate: null,
 			reserved: null,
-			remaining: 500000,
+			remaining: null,
 			remainingAfterCommitted: null
 		});
 	});
@@ -188,7 +191,7 @@ describe('What Leadership sees', () => {
 						description: [
 							'**Appropriation**: $5,000',
 							'**Spent**: $1,000',
-							'**Committed**: $300, estimated at current Rates',
+							'**Committed**: $300, including $300 estimated at current Rates',
 							'**Reserved**: $1,000 in Open Projects',
 							'**Remaining**: $4,000',
 							'**Remaining after commitments**: $3,700',
@@ -215,5 +218,15 @@ describe('What Leadership sees', () => {
 				}
 			]
 		});
+	});
+});
+
+describe('Months to pick from', () => {
+	it('offers next month and the twelve before it, newest first, across a year boundary', () => {
+		const months = recentMonths(new Date('2026-12-31T23:00:00Z'));
+
+		expect(months).toHaveLength(13);
+		expect(months.slice(0, 3)).toEqual(['2027-01', '2026-12', '2026-11']);
+		expect(months.at(-1)).toBe('2026-01');
 	});
 });

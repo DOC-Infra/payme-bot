@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import { InteractionContextType, MessageFlags, type SlashCommandStringOption } from 'discord.js';
-import { monthName, monthOf, setAppropriation, showAppropriation } from '../core';
+import { monthName, recentMonths, setAppropriation, showAppropriation } from '../core';
 import { runAsActor } from '../discord/runner';
 import { payMeOf } from '../discord/servers';
 
@@ -47,12 +47,9 @@ export class UserCommand extends Command {
 		);
 	}
 
-	/** Next month and the twelve before it, newest first. */
 	public override async autocompleteRun(interaction: Command.AutocompleteInteraction) {
 		const query = interaction.options.getFocused().toLowerCase();
-		const now = new Date();
-		const months = Array.from({ length: 13 }, (_, index) => monthOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1 - index))));
-		const choices = months.map((month) => ({ name: monthName(month), value: month }));
+		const choices = recentMonths(new Date()).map((month) => ({ name: monthName(month), value: month }));
 		await interaction.respond(choices.filter((choice) => `${choice.name} ${choice.value}`.toLowerCase().includes(query)).slice(0, 25));
 	}
 }
