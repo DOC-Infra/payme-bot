@@ -51,6 +51,7 @@ export type PayMeError =
 	| { code: 'cannot-withdraw'; number: number; state: RequestState }
 	| { code: 'cannot-pay'; number: number; state: RequestState }
 	| { code: 'invalid-amount'; amount: string }
+	| { code: 'invalid-month'; month: string }
 	| { code: 'project-not-found' }
 	| { code: 'project-name-taken'; name: string }
 	| { code: 'project-closed'; name: string }
@@ -164,6 +165,8 @@ export function describeError(error: PayMeError): string {
 			return `${requestLabel(error.number)} is ${stateName(error.state)}. Only Approved requests can be paid.`;
 		case 'invalid-amount':
 			return `${error.amount} is not a valid amount. Use a plain number above zero with at most two decimal places and no currency symbol, like 1500 or 12.5.`;
+		case 'invalid-month':
+			return `${error.month} is not a valid month. Use the year and month, like 2026-11.`;
 		case 'project-not-found':
 			return 'That Project does not exist.';
 		case 'project-name-taken':

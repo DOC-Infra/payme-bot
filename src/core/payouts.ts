@@ -69,6 +69,10 @@ export function getPayout(payMe: PayMe, number: number): Payout | null {
 	return selectPayout(payMe.storage, number);
 }
 
+export function paidPayouts(payMe: PayMe): Payout[] {
+	return selectPayoutsInState(payMe.storage, 'paid');
+}
+
 interface Owing {
 	approved: PaymentRequest[];
 	unpaid: PaymentRequest[];

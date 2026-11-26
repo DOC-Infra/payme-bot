@@ -22,3 +22,4 @@ export * from './dashboard';
 export * from './rates-channel';
 export * from './manage';
 export * from './server-settings';
+export * from './appropriation';
