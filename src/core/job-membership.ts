@@ -8,6 +8,12 @@ export function jobsHeldBy(payMe: PayMe, member: Actor): Job[] {
 	return allJobs(payMe).filter((job) => !job.retired && member.roleIds.includes(job.employeeRoleId));
 }
 
+/** The Jobs the member can request pay under: those they hold, or every active Job for Leadership. */
+export function jobsRequestableBy(payMe: PayMe, member: Actor): Job[] {
+	if (isLeadership(payMe, member)) return allJobs(payMe).filter((job) => !job.retired);
+	return jobsHeldBy(payMe, member);
+}
+
 /** The Jobs the member manages, Retired ones included so their requests can still be reviewed and paid. Leadership manages every Job. */
 export function jobsManagedBy(payMe: PayMe, member: Actor): Job[] {
 	return allJobs(payMe).filter((job) => managesJob(payMe, member, job));

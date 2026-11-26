@@ -2,7 +2,7 @@ import { selectTaskIdByName } from '../storage/tasks';
 import type { Actor } from './actor';
 import { type Card, type CardField, type Effect, type EvidenceFile, type MessageRef, type PostRound } from './effects';
 import { getEmployee, type Employee } from './employees';
-import { jobsHeldBy, managesJob } from './job-membership';
+import { jobsRequestableBy, managesJob } from './job-membership';
 import { getJob, type Job } from './jobs';
 import { entryActions, submit } from './lifecycle';
 import { requestLabel, stateName, stateTone, type RequestState } from './labels';
@@ -128,7 +128,10 @@ function formTasks(task: Task, jobs: readonly Job[]): FormTask[] {
 
 interface Requester {
 	employee: Employee;
-	/** The active Jobs the Employee holds the actor may request pay under: all of them for the Employee, those they manage for anyone else. */
+	/**
+	 * The active Jobs the actor may request the Employee's pay under: every Job the Employee can request under (those they hold, or all of
+	 * them for Leadership), narrowed to those the actor manages when filing for someone else.
+	 */
 	offeredJobs: Job[];
 }
 
@@ -138,8 +141,8 @@ function findRequester(payMe: PayMe, actor: Actor, member: Actor): Failure | Req
 	if (!employee) return fail({ code: forOther ? 'employee-not-found' : 'not-hired' });
 	if (!employee.threadId) return fail({ code: forOther ? 'employee-no-requests-thread' : 'no-requests-thread' });
 
-	const heldJobs = jobsHeldBy(payMe, member);
-	const offeredJobs = forOther ? heldJobs.filter((job) => managesJob(payMe, actor, job)) : heldJobs;
+	const requestable = jobsRequestableBy(payMe, member);
+	const offeredJobs = forOther ? requestable.filter((job) => managesJob(payMe, actor, job)) : requestable;
 	if (offeredJobs.length === 0) return fail({ code: forOther ? 'not-their-manager' : 'no-jobs' });
 	return { employee, offeredJobs };
 }
@@ -178,12 +181,12 @@ export function linkIn(text: string): string | null {
 	return link.length <= maxLinkLength ? link : null;
 }
 
-/** The Jobs the actor can claim a ticket under: those they hold that have the DOC Ticket Assistance Task. */
+/** The Jobs the actor can claim a ticket under: those they can request under that have the DOC Ticket Assistance Task. */
 export function ticketJobs(payMe: PayMe, actor: Actor): Job[] {
 	const taskId = selectTaskIdByName(payMe.storage, ticketTaskName);
 	const task = taskId === null ? null : getTask(payMe, taskId);
 	if (!task || task.retired) return [];
-	return jobsHeldBy(payMe, actor)
+	return jobsRequestableBy(payMe, actor)
 		.filter((job) => task.jobIds.includes(job.id))
 		.slice(0, maxFormOptions);
 }
