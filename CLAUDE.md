@@ -8,7 +8,7 @@ Prefer the Sapphire CLI for creating new pieces over hand-writing them: `pnpm sa
 
 ### Issue tracker
 
-Issues and specs live in GitHub Issues on esize/payme, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs live in GitHub Issues on DOC-Infra/payme-bot, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

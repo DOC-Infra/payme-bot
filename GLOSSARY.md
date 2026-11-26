@@ -118,3 +118,49 @@ _Avoid_: Batch, payroll, payment run
 **Pay Command**:
 The in-game command, in the form `/gov payout GovCommerce <to> <amount> [reason]`, that settles one Payout.
 _Avoid_: Payment, transfer
+
+## Appropriation and spending
+
+**Appropriation**:
+The fixed amount the server is granted for one calendar month (UTC) by an authority outside PayMe. Leadership records it as an amount that applies from a given month onward, until they record another. Money not spent in a month lapses. PayMe compares Spend against it and warns, but never blocks a payment for going over it.
+_Avoid_: Budget (that is a Project's funding), allowance, department budget
+
+**Spend**:
+The money that left the account in a month: Payouts by the date they were marked paid, and Paid Disbursements by the date they were paid. Voided Disbursements are not Spend.
+_Avoid_: Expenditure, cost, outflow
+
+**Committed**:
+What would be paid if Leadership paid everything owed today: Open Payouts, unpaid Shares, Approved Payment Requests not in an Open Payout (an estimate, at current Rates) and Requested Disbursements. It belongs to no month.
+_Avoid_: Pending spend, liabilities
+
+**Reserved**:
+Money funded into a Project's Budget that has not been given as Shares yet. Nobody is owed it, but Leadership has set it aside.
+_Avoid_: Earmarked, held
+
+**Spending Category**:
+What money was spent on, used to compare Spend against the Appropriation. Each one may have a target share of the Appropriation, as a percentage, and lists the Jobs whose Employees and Managers may request Disbursements from it. **Employee Pay** is built in and holds every Payout and Share. A Retired Spending Category takes no new Disbursements but stays in history, and Leadership can restore it.
+_Avoid_: Pool, fund, line item
+
+**Disbursement**:
+A one-off payment from a Spending Category to a recipient's Minecraft Name, labelled like D-12. Employees and Managers of the Category's Jobs, or Leadership, request it with a public card wherever the discussion about it happens. Leadership pays it with a Pay Command. Its amount is fixed when requested; to change it, the request is withdrawn and made again. Leadership can also record one already paid outside PayMe.
+_Avoid_: Expenditure, grant (a grant is one kind of Disbursement), payout
+
+### Disbursement states
+
+**Requested**:
+The state of a Disbursement waiting for Leadership to pay or decline it. It counts as Committed.
+
+**Paid**:
+Leadership has marked the Disbursement paid. It counts as Spend in the month it was paid.
+
+**Declined**:
+A final state: Leadership has refused the Disbursement with a required reason.
+_Avoid_: Denied, rejected
+
+**Withdrawn**:
+A final state: the requester or Leadership has retracted the Disbursement while it was Requested.
+_Avoid_: Cancelled
+
+**Voided**:
+A final state: Leadership has found a Paid Disbursement to be recorded wrongly and voided it with a required reason. It stays visible but is not Spend.
+_Avoid_: Deleted, reversed
