@@ -11,6 +11,53 @@ Every step is logged in the Employee's Requests Thread, which is the permanent r
 
 Vocabulary follows [GLOSSARY.md](GLOSSARY.md). Design decisions are in [docs/adr/](docs/adr/), and the full spec is GitHub issue #1.
 
+## Quick start
+
+### 1. Create the Discord bot
+
+1. Open the [Discord developer portal](https://discord.com/developers/applications) and click **New Application**.
+2. Under **Bot**, click **Reset Token** and copy the token. This is your `DISCORD_TOKEN`; keep it secret.
+3. On the same page, turn on the **Server Members Intent**.
+4. Under **OAuth2 → URL Generator**, tick the `bot` and `applications.commands` scopes, then tick the bot permissions listed in [Discord setup](#discord-setup) (or just **Administrator**).
+5. Open the generated URL and add PayMe to your server.
+
+### 2. Run PayMe
+
+Pick one.
+
+**Docker** (recommended for a server that stays up):
+
+```sh
+docker run -d --name payme --restart unless-stopped \
+  -e DISCORD_TOKEN=your-token \
+  -v payme-data:/data \
+  ghcr.io/doc-infra/payme-bot:latest
+```
+
+**From source** (needs Node 24 and pnpm 11):
+
+```sh
+git clone https://github.com/DOC-Infra/payme-bot.git
+cd payme-bot
+pnpm install
+echo 'DISCORD_TOKEN=your-token' > src/.env.local
+pnpm build && pnpm start
+```
+
+Within a few seconds the bot comes online and creates the **Payment Review** and **Employees** categories and the **#payouts** channel with its pinned dashboard. If it logs missing permissions, give its role those permissions and restart it.
+
+### 3. Set up your server
+
+You need Discord's **Administrator** permission for these steps.
+
+1. Create a Discord role for each Job's Employees (like `Courier`) and one for its managers (like `Courier Manager`).
+2. In **#payouts**, press **Jobs → New Job**, enter the Job name and its Employee role, then open the Job and use **Manager roles** to add its manager role. PayMe creates the Job's Review Channel.
+3. Press **Tasks → New Task** to add each Task with its Rate and Jobs.
+4. Hire each Employee with `/hire user minecraft`. Give them the Job's Employee role so they can request payment under it.
+5. Optional: run `/rates-channel set channel` to post the Rates where Employees can see them.
+
+Employees can now use `/request`. See [Commands](#commands) for everything else, and [Running it](#running-it) for configuration and Docker Compose.
+
 ## Commands
 
 | Command | Who | What it does |
