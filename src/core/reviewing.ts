@@ -2,7 +2,7 @@ import type { Actor } from './actor';
 import { changeState, type RequestChange } from './lifecycle';
 import { succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import { logStateChange, updateEntryActions, updateReviewCopies, type PaymentRequest } from './requests';
+import { logStateChange, updateEntryActions, updateRequestEntry, updateReviewCopies, type PaymentRequest } from './requests';
 
 export function approveRequest(payMe: PayMe, actor: Actor, number: number): Outcome<PaymentRequest> {
 	return decide(payMe, actor, number, 'approve', null);
@@ -21,5 +21,6 @@ function decide(payMe: PayMe, actor: Actor, number: number, change: RequestChang
 	if (!decided.ok) return decided;
 
 	const request = decided.value;
-	return succeed([updateReviewCopies(payMe, request), updateEntryActions(request), logStateChange(payMe, request, change !== 'approve')], request);
+	if (change === 'approve') return succeed([updateReviewCopies(payMe, request), updateRequestEntry(payMe, request)], request);
+	return succeed([updateReviewCopies(payMe, request), updateEntryActions(request), logStateChange(payMe, request, true)], request);
 }

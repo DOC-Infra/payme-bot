@@ -110,18 +110,31 @@ describe('What a decision posts', () => {
 		]
 	});
 
-	it('updates every review copy with the outcome and reviewer, removes the Withdraw button, and logs an approval without pinging the Employee', () => {
+	it('updates every review copy and the Requests Thread entry to show the approval, without posting a new message', () => {
 		const { payMe } = pendingParcel();
 
-		expect(approveRequest(payMe, courierManager, 1)).toMatchObject({
+		expect(approveRequest(payMe, courierManager, 1)).toEqual({
+			ok: true,
+			value: expect.anything(),
 			effects: [
-				{ type: 'update-review-copies', requestNumber: 1, round: 1, card: copy('success', '**Approved** by <@user-casey>') },
-				{ type: 'update-entry-actions', requestNumber: 1, round: 1, actions: [] },
+				expect.objectContaining({
+					type: 'update-review-copies',
+					requestNumber: 1,
+					round: 1,
+					card: copy('success', '**Approved** by <@user-casey>')
+				}),
 				{
-					type: 'post-to-requests-thread',
-					employeeUserId: 'user-alex',
-					card: { tone: 'success', title: 'R-1 · Deliver Parcel', description: '**Approved** by <@user-casey>' },
-					ping: false
+					type: 'update-request-entry',
+					requestNumber: 1,
+					round: 1,
+					card: {
+						tone: 'success',
+						title: 'R-1 · Deliver Parcel',
+						description: '**Approved** by <@user-casey>',
+						fields: [{ name: 'Notes', value: 'Done' }],
+						footer: undefined
+					},
+					actions: []
 				}
 			]
 		});
@@ -182,7 +195,7 @@ describe('Which review copies a decision changes', () => {
 		['approves', (payMe: PayMe) => approveRequest(payMe, courierManager, 1)],
 		['rejects', (payMe: PayMe) => rejectRequest(payMe, courierManager, 1, 'Blurry')],
 		['denies', (payMe: PayMe) => denyRequest(payMe, courierManager, 1, 'Duplicate')]
-	])('edits every review copy of the round when a Manager %s, but not the Requests Thread entry', (_, decide) => {
+	])('edits every review copy of the round when a Manager %s', (_, decide) => {
 		const { payMe } = postedCart();
 
 		expect(decide(payMe)).toMatchObject({
