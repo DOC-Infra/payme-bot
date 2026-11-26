@@ -91,6 +91,7 @@ describe('Setting the Appropriation', () => {
 		const payMe = createTestPayMe();
 
 		expect(setAppropriation(payMe, leadership(), '$5,000', '2026-11')).toMatchObject({ error: { code: 'invalid-amount' } });
+		expect(setAppropriation(payMe, leadership(), '0', '2026-11')).toMatchObject({ error: { code: 'invalid-amount' } });
 		expect(setAppropriation(payMe, leadership(), '5000', 'November')).toMatchObject({ error: { code: 'invalid-month' } });
 		expect(setAppropriation(payMe, leadership(), '5000', '2026-13')).toMatchObject({ error: { code: 'invalid-month' } });
 		expect(showAppropriation(payMe, leadership(), '2026-1', november)).toMatchObject({ error: { code: 'invalid-month' } });
