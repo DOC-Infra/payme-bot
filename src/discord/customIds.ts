@@ -3,7 +3,10 @@ import type { EntryAction } from '../core';
 export type ReviewAction = 'approve' | 'reject' | 'deny';
 export type ReasonAction = Exclude<ReviewAction, 'approve'>;
 export type EntryButton = EntryAction | 'confirm-withdraw';
-export type PayoutButton = { action: 'generate'; employeeUserId: string } | { action: 'show' | 'paid' | 'discard'; payoutNumber: number };
+export type PayoutButton =
+	| { action: 'generate'; employeeUserId: string }
+	| { action: 'show'; payoutNumber: number }
+	| { action: 'paid' | 'discard'; payoutNumber: number; revision: number };
 export type ProjectButton = { action: 'create' } | { action: (typeof projectButtons)[number]; projectId: number };
 export type DashboardButton = (typeof dashboardButtons)[number];
 export type ManageButtonAction = (typeof manageButtons)[number];
@@ -41,7 +44,7 @@ export type CustomId =
 const entryButtons = ['amend', 'withdraw', 'confirm-withdraw'] as const;
 const reviewActions = ['approve', 'reject', 'deny'] as const;
 const reasonActions = ['reject', 'deny'] as const;
-const payoutActions = ['show', 'paid', 'discard'] as const;
+const settleActions = ['paid', 'discard'] as const;
 const projectButtons = ['share', 'change-share', 'fund', 'close', 'confirm-close'] as const;
 const projectModals = ['share', 'fund'] as const;
 const dashboardButtons = ['payouts', 'projects', 'jobs', 'tasks', 'settings'] as const;
@@ -91,7 +94,9 @@ export function encodeCustomId(id: CustomId): string {
 		case 'reason-modal':
 			return join('review-reason', id.action, id.requestNumber);
 		case 'payout-button':
-			return join('payout', id.action, id.action === 'generate' ? id.employeeUserId : id.payoutNumber);
+			if (id.action === 'generate') return join('payout', id.action, id.employeeUserId);
+			if (id.action === 'show') return join('payout', id.action, id.payoutNumber);
+			return join('payout', id.action, id.payoutNumber, id.revision);
 		case 'project-button':
 			return join('project', id.action, id.action === 'create' ? null : id.projectId);
 		case 'project-modal':
@@ -180,7 +185,16 @@ function decodePayout(parts: string[]): CustomId | null {
 		const [, userId, ...rest] = parts;
 		return isDigits(userId) && !rest.length ? { kind: 'payout-button', action: 'generate', employeeUserId: userId } : null;
 	}
-	return withAction(parts, payoutActions, (action, payoutNumber) => ({ kind: 'payout-button', action, payoutNumber }));
+	if (parts[0] === 'show') return withAction(parts, ['show'], (action, payoutNumber) => ({ kind: 'payout-button', action, payoutNumber }));
+	return decodeSettle(parts);
+}
+
+/** Buttons made before Payouts had revisions carry none, and every Payout then was at revision 1. */
+function decodeSettle(parts: string[]): CustomId | null {
+	const [action, number, revision = '1', ...rest] = parts;
+	const known = settleActions.find((candidate) => candidate === action);
+	if (!known || !isDigits(number) || !isDigits(revision) || rest.length) return null;
+	return { kind: 'payout-button', action: known, payoutNumber: Number(number), revision: Number(revision) };
 }
 
 function inHome(home: string | undefined, rest: string[], build: (userId: string | null) => CustomId): CustomId | null {

@@ -1,4 +1,4 @@
-import { insertPayout, selectOpenPayout, selectPayout, selectPayoutsInState, settlePayout } from '../storage/payouts';
+import { insertPayout, replaceOpenPayout, selectOpenPayout, selectPayout, selectPayoutsInState, settlePayout } from '../storage/payouts';
 import { markSharesPaid, selectUnpaidShares } from '../storage/projects';
 import type { Actor } from './actor';
 import { notice, type Card, type Effect, type PayoutAction } from './effects';
@@ -36,6 +36,8 @@ export interface Payout {
 	minecraftName: string;
 	total: number;
 	state: PayoutState;
+	/** 1 when generated, and one more each time it is updated while Open. */
+	revision: number;
 	lines: PayoutLine[];
 	shares: PayoutShareLine[];
 	generatedBy: string;
@@ -84,7 +86,7 @@ function loadOwing(payMe: PayMe, employeeUserId?: string): Owing {
 	const shares = selectUnpaidShares(payMe.storage, employeeUserId);
 	const lockedShares = new Set(openPayouts.flatMap((payout) => payout.shares.map((line) => line.shareId)));
 	const unpaidShares = shares.filter((share) => !lockedShares.has(share.id));
-	return { approved, unpaid, openPayouts, rates: currentRates(payMe, unpaid), shares, unpaidShares };
+	return { approved, unpaid, openPayouts, rates: currentRates(payMe, approved), shares, unpaidShares };
 }
 
 function loadOpenPayouts(payMe: PayMe, employeeUserId?: string): Payout[] {
@@ -210,15 +212,25 @@ function owedForJobs(owing: Owing, jobs: readonly Job[]): string[] {
 function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
 	const view = owedAndHistory(payMe, loadOwing(payMe));
 	const actions = view.owed.map((employee): PayoutAction =>
-		employee.openPayout
+		employee.openPayout && !owesMore(employee)
 			? {
 					kind: 'show',
 					payoutNumber: employee.openPayout.number,
 					label: `${payoutLabel(employee.openPayout.number)} for ${employee.minecraftName}`
 				}
-			: { kind: 'generate', employeeUserId: employee.employeeUserId, label: `Generate for ${employee.minecraftName}` }
+			: { kind: 'generate', employeeUserId: employee.employeeUserId, label: generateLabel(employee) }
 	);
 	return succeed([{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts', description: owedLines(view).join('\n') }, actions }], view);
+}
+
+/** Owed something not yet in their Open Payout, if they have one. */
+function owesMore(employee: EmployeeOwed): boolean {
+	return employee.unpaidRequestNumbers.length > 0 || employee.unpaidShareIds.length > 0;
+}
+
+function generateLabel(employee: EmployeeOwed): string {
+	if (!employee.openPayout) return `Generate for ${employee.minecraftName}`;
+	return `Update ${payoutLabel(employee.openPayout.number)} for ${employee.minecraftName}`;
 }
 
 function owedLines(view: PayoutsView): string[] {
@@ -261,19 +273,15 @@ export function generatePayout(payMe: PayMe, actor: Actor, employeeUserId: strin
 	const { storage } = payMe;
 	return storage.transaction(() => {
 		if (!getEmployee(payMe, employeeUserId)) return fail({ code: 'employee-not-found' });
-		const owing = loadOwing(payMe, employeeUserId);
-		const [open] = owing.openPayouts;
-		if (open) return fail({ code: 'payout-already-open', number: open.number });
-
-		const payout = insertPayoutFor(payMe, actor, owing, employeeUserId);
+		const payout = writePayout(payMe, actor, loadOwing(payMe, employeeUserId), employeeUserId);
 		if (!payout) return fail({ code: 'nothing-owed' });
 		return succeed([payoutEffect(payMe, payout)], payout);
 	});
 }
 
 /**
- * Generates a Payout for every Employee who is owed something and has no Open Payout, then shows every Open Payout, new or not,
- * so Leadership can run each Pay Command and mark it paid.
+ * Generates a Payout for every Employee who is owed something, then shows them all so Leadership can run each Pay Command and
+ * mark it paid. An Employee's Open Payout is updated in place to take in everything they are owed now.
  */
 export function generateAllPayouts(payMe: PayMe, actor: Actor): Outcome<Payout[]> {
 	const refused = requireLeadership(payMe, actor);
@@ -281,17 +289,21 @@ export function generateAllPayouts(payMe: PayMe, actor: Actor): Outcome<Payout[]
 
 	return payMe.storage.transaction(() => {
 		const owing = loadOwing(payMe);
-		const alreadyOpen = owing.openPayouts;
-		const owedUserIds = new Set([...owing.unpaid, ...owing.unpaidShares].map((item) => item.employeeUserId));
-		const generated = [...owedUserIds]
-			.filter((userId) => !alreadyOpen.some((payout) => payout.employeeUserId === userId))
-			.flatMap((userId) => insertPayoutFor(payMe, actor, owingOf(owing, userId), userId) ?? []);
-		const payouts = [...alreadyOpen, ...generated].sort((a, b) => a.number - b.number);
+		const owedUserIds = new Set([...owing.approved, ...owing.shares].map((item) => item.employeeUserId));
+		const payouts = [...owedUserIds]
+			.flatMap((userId) => writePayout(payMe, actor, owingOf(owing, userId), userId) ?? [])
+			.sort((a, b) => a.number - b.number);
 		if (payouts.length === 0) return succeed([{ type: 'private-reply', card: notice('Nobody is owed anything.', 'neutral') }], payouts);
 
+		const updated = owing.openPayouts.length;
+		const generated = payouts.length - updated;
 		const total = payouts.reduce((sum, payout) => sum + payout.total, 0);
-		const already = alreadyOpen.length ? ` ${alreadyOpen.length} ${alreadyOpen.length === 1 ? 'was' : 'were'} already Open.` : '';
-		const summary = `Generated ${generated.length} ${generated.length === 1 ? 'Payout' : 'Payouts'}.${already} ${formatAmount(total)} to pay in all; run each Pay Command below, then mark it paid.`;
+		const counts = [
+			generated ? `generated ${generated} ${generated === 1 ? 'Payout' : 'Payouts'}` : '',
+			updated ? `updated ${updated} Open ${updated === 1 ? 'Payout' : 'Payouts'}` : ''
+		].filter(Boolean);
+		const done = counts.join(' and ');
+		const summary = `${done[0].toUpperCase()}${done.slice(1)}. ${formatAmount(total)} to pay in all; run each Pay Command below, then mark it paid.`;
 		return succeed([{ type: 'private-reply', card: notice(summary, 'info') }, ...payouts.map((payout) => payoutEffect(payMe, payout))], payouts);
 	});
 }
@@ -309,28 +321,37 @@ function owingOf(owing: Owing, employeeUserId: string): Owing {
 	};
 }
 
-/** Freezes the Employee's unpaid requests and Shares into a new Open Payout, or returns null when there are none. */
-function insertPayoutFor(payMe: PayMe, actor: Actor, owing: Owing, employeeUserId: string): Payout | null {
-	const lines = owing.unpaid.map((request): PayoutLine => ({
+/**
+ * Freezes everything the Employee is owed now, at current Rates, into their Open Payout, or a new one when they have none.
+ * Returns null when they are owed nothing.
+ */
+function writePayout(payMe: PayMe, actor: Actor, owing: Owing, employeeUserId: string): Payout | null {
+	const lines = owing.approved.map((request): PayoutLine => ({
 		requestNumber: request.number,
 		taskId: request.taskId,
 		jobId: lineJobId(request),
 		rate: rateOf(owing, request)
 	}));
-	const shares = owing.unpaidShares.map(({ id, projectId, jobId, amount }): PayoutShareLine => ({ shareId: id, projectId, jobId, amount }));
+	const shares = owing.shares.map(({ id, projectId, jobId, amount }): PayoutShareLine => ({ shareId: id, projectId, jobId, amount }));
 	if (lines.length === 0 && shares.length === 0) return null;
 	const { minecraftName } = getEmployee(payMe, employeeUserId)!;
-	const total = sumOfRates(lines) + sumOfAmounts(shares);
-	const number = insertPayout(payMe.storage, { employeeUserId, minecraftName, generatedBy: actor.userId, total, lines, shares });
-	return getPayout(payMe, number)!;
+	const payout = { employeeUserId, minecraftName, generatedBy: actor.userId, total: sumOfRates(lines) + sumOfAmounts(shares), lines, shares };
+	const [open] = owing.openPayouts;
+	if (!open) return getPayout(payMe, insertPayout(payMe.storage, payout))!;
+	// Nothing settles a Payout outside this transaction, so an Open one staying Open is guaranteed. Throwing rolls everything back.
+	if (!replaceOpenPayout(payMe.storage, open.number, payout)) throw new Error(`${payoutLabel(open.number)} is no longer Open`);
+	return getPayout(payMe, open.number)!;
 }
 
-export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number): Outcome<Payout> {
+/** `revision` is the version of the Payout that was shown, so an older Pay Command can't be marked paid as the latest one. */
+export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number, revision: number): Outcome<Payout> {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
 
 	const { storage } = payMe;
 	return storage.transaction(() => {
+		const stale = staleRevision(payMe, number, revision);
+		if (stale) return stale;
 		if (!settlePayout(storage, number, 'paid', actor.userId)) return notOpen(payMe, number);
 
 		const payout = getPayout(payMe, number)!;
@@ -357,17 +378,26 @@ export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number): Outc
 	});
 }
 
-export function discardPayout(payMe: PayMe, actor: Actor, number: number): Outcome<Payout> {
+export function discardPayout(payMe: PayMe, actor: Actor, number: number, revision: number): Outcome<Payout> {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
 
 	const { storage } = payMe;
 	return storage.transaction(() => {
+		const stale = staleRevision(payMe, number, revision);
+		if (stale) return stale;
 		if (!settlePayout(storage, number, 'discarded', actor.userId)) return notOpen(payMe, number);
 
 		const payout = getPayout(payMe, number)!;
 		return succeed([payoutEffect(payMe, payout)], payout);
 	});
+}
+
+/** Refuses an Open Payout that has been updated since `revision` was shown. */
+function staleRevision(payMe: PayMe, number: number, revision: number) {
+	const payout = getPayout(payMe, number);
+	if (!payout || payout.state !== 'open' || payout.revision === revision) return null;
+	return fail({ code: 'payout-updated', number });
 }
 
 function notOpen(payMe: PayMe, number: number) {
@@ -390,6 +420,7 @@ function payoutEffect(payMe: PayMe, payout: Payout): Effect {
 	return {
 		type: 'show-payout',
 		payoutNumber: payout.number,
+		revision: payout.revision,
 		settleButtons: open,
 		card: {
 			tone: payoutTone(payout.state),

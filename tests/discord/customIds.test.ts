@@ -29,8 +29,8 @@ const everyKind: CustomId[] = [
 	{ kind: 'reason-modal', action: 'deny', requestNumber: 12 },
 	{ kind: 'payout-button', action: 'generate', employeeUserId: user },
 	{ kind: 'payout-button', action: 'show', payoutNumber: 3 },
-	{ kind: 'payout-button', action: 'paid', payoutNumber: 3 },
-	{ kind: 'payout-button', action: 'discard', payoutNumber: 3 },
+	{ kind: 'payout-button', action: 'paid', payoutNumber: 3, revision: 2 },
+	{ kind: 'payout-button', action: 'discard', payoutNumber: 3, revision: 1 },
 	{ kind: 'project-button', action: 'create' },
 	{ kind: 'project-button', action: 'share', projectId: 4 },
 	{ kind: 'project-button', action: 'change-share', projectId: 4 },
@@ -103,6 +103,8 @@ describe('custom IDs', () => {
 		'payout:generate',
 		'payout:show:abc',
 		'payout:settle:3',
+		'payout:paid:3:x',
+		'payout:show:3:2',
 		'project:create:4',
 		'project:share',
 		'project:remove:4',
@@ -136,8 +138,9 @@ describe('custom IDs', () => {
 		['review:deny:12', { kind: 'review-button', action: 'deny', requestNumber: 12 }],
 		[`payout:generate:${user}`, { kind: 'payout-button', action: 'generate', employeeUserId: user }],
 		['payout:show:3', { kind: 'payout-button', action: 'show', payoutNumber: 3 }],
-		['payout:paid:3', { kind: 'payout-button', action: 'paid', payoutNumber: 3 }],
-		['payout:discard:3', { kind: 'payout-button', action: 'discard', payoutNumber: 3 }]
+		['payout:paid:3', { kind: 'payout-button', action: 'paid', payoutNumber: 3, revision: 1 }],
+		['payout:discard:3', { kind: 'payout-button', action: 'discard', payoutNumber: 3, revision: 1 }],
+		['payout:paid:3:2', { kind: 'payout-button', action: 'paid', payoutNumber: 3, revision: 2 }]
 	])('decodes %j from messages already posted', (customId, id) => {
 		expect(decodeCustomId(customId)).toEqual(id);
 	});

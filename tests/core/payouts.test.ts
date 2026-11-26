@@ -114,7 +114,7 @@ describe('What is owed', () => {
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 		approved(payMe, alex, mail.id);
-		created(discardPayout(payMe, leadership(), 1));
+		created(discardPayout(payMe, leadership(), 1, 1));
 
 		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({
 			ok: true,
@@ -195,7 +195,7 @@ describe('The Pay Command', () => {
 });
 
 describe('Generating every Payout at once', () => {
-	it('generates one for each Employee owed something, keeps an Open one as it is, and shows them all', () => {
+	it('generates one for each Employee owed something, updates an Open one with what is owed since, and shows them all', () => {
 		const { payMe, parcel, mail } = courierAlex();
 		const bo = member('user-bo', 'role-courier');
 		const casey = member('user-casey', 'role-courier');
@@ -212,21 +212,22 @@ describe('Generating every Payout at once', () => {
 		expect(outcome).toMatchObject({
 			ok: true,
 			value: [
-				{ number: 1, employeeUserId: 'user-alex', total: 100000 },
+				{ number: 1, employeeUserId: 'user-alex', total: 150025, lines: [{ requestNumber: 1 }, { requestNumber: 2 }] },
 				{ number: 2, employeeUserId: 'user-bo', total: 50025 }
 			],
 			effects: [
 				{
 					type: 'private-reply',
 					card: {
-						description: 'Generated 1 Payout. 1 was already Open. $1,500.25 to pay in all; run each Pay Command below, then mark it paid.'
+						description:
+							'Generated 1 Payout and updated 1 Open Payout. $2,000.5 to pay in all; run each Pay Command below, then mark it paid.'
 					}
 				},
 				{ type: 'show-payout', payoutNumber: 1, settleButtons: true },
 				{ type: 'show-payout', payoutNumber: 2, settleButtons: true }
 			]
 		});
-		expect(owedTo(payMe, 'user-alex').unpaidRequestNumbers).toEqual([2]);
+		expect(owedTo(payMe, 'user-alex')).toMatchObject({ unpaidRequestNumbers: [], openPayout: { number: 1, total: 150025 } });
 	});
 
 	it('tells Leadership when nobody is owed anything, and refuses anyone else', () => {
@@ -248,7 +249,7 @@ describe('Marking a Payout paid', () => {
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 		approved(payMe, alex, mail.id);
 
-		expect(markPayoutPaid(payMe, leadership('user-lin'), 1)).toMatchObject({ ok: true, value: { state: 'paid', settledBy: 'user-lin' } });
+		expect(markPayoutPaid(payMe, leadership('user-lin'), 1, 1)).toMatchObject({ ok: true, value: { state: 'paid', settledBy: 'user-lin' } });
 		expect(payMe.requests.load(1)?.state).toBe('paid');
 		expect(payMe.requests.load(1)?.history.at(-1)).toMatchObject({ from: 'approved', to: 'paid', actorUserId: 'user-lin' });
 		expect(payMe.requests.load(2)?.state).toBe('approved');
@@ -261,7 +262,7 @@ describe('Marking a Payout paid', () => {
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 		created(editTask(payMe, leadership(), parcel.id, { rate: '2000' }));
 
-		const payout = created(markPayoutPaid(payMe, leadership(), 1));
+		const payout = created(markPayoutPaid(payMe, leadership(), 1, 1));
 
 		expect(payout).toMatchObject({ total: 100000, lines: [{ rate: 100000 }] });
 		expect(payCommand(payout)).toBe('/gov payout GovCommerce Alex_42 1000 PayMe P-1');
@@ -275,7 +276,7 @@ describe('Marking a Payout paid', () => {
 		payMe.requests.recordMessage(1, { round: 1, jobId: courier.id, channelId: 'review-courier', messageId: 'copy-1' });
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 
-		expect(markPayoutPaid(payMe, leadership('user-lin'), 1)).toMatchObject({
+		expect(markPayoutPaid(payMe, leadership('user-lin'), 1, 1)).toMatchObject({
 			effects: [
 				{
 					type: 'update-review-copies',
@@ -320,13 +321,56 @@ describe('Marking a Payout paid', () => {
 });
 
 describe('One Open Payout per Employee', () => {
-	it('refuses a second Payout while one is Open, even for requests approved since', () => {
+	it('updates the Open Payout in place with requests approved since, instead of opening a second one', () => {
 		const { payMe, parcel, mail } = courierAlex();
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 		approved(payMe, alex, mail.id);
 
-		expect(generatePayout(payMe, leadership(), 'user-alex')).toEqual({ ok: false, error: { code: 'payout-already-open', number: 1 } });
+		const outcome = generatePayout(payMe, leadership(), 'user-alex');
+
+		expect(outcome).toMatchObject({
+			ok: true,
+			value: { number: 1, state: 'open', total: 150025, lines: [{ requestNumber: 1 }, { requestNumber: 2 }] }
+		});
+		expect(outcome.ok && payCommand(outcome.value)).toBe('/gov payout GovCommerce Alex_42 1500.25 PayMe P-1');
+		expect(getPayout(payMe, 2)).toBeNull();
+	});
+
+	it('applies current Rates to the whole Payout when it is updated', () => {
+		const { payMe, parcel } = courierAlex();
+		approved(payMe, alex, parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		created(editTask(payMe, leadership(), parcel.id, { rate: '1200' }));
+
+		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({
+			ok: true,
+			value: { number: 1, total: 120000, lines: [{ rate: 120000 }] }
+		});
+	});
+
+	it('pays exactly what the updated Payout holds when it is marked paid', () => {
+		const { payMe, parcel, mail } = courierAlex();
+		approved(payMe, alex, parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		approved(payMe, alex, mail.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		created(markPayoutPaid(payMe, leadership(), 1, 2));
+
+		expect(totalOwed(owedTo(payMe, 'user-alex'))).toBe(0);
+	});
+
+	it('refuses to mark paid or discard from a message showing the Payout before it was updated, and changes nothing', () => {
+		const { payMe, parcel, mail } = courierAlex();
+		approved(payMe, alex, parcel.id);
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		approved(payMe, alex, mail.id);
+		const updated = generatePayout(payMe, leadership(), 'user-alex');
+
+		expect(updated).toMatchObject({ ok: true, value: { revision: 2 }, effects: [{ type: 'show-payout', payoutNumber: 1, revision: 2 }] });
+		expect(markPayoutPaid(payMe, leadership(), 1, 1)).toEqual({ ok: false, error: { code: 'payout-updated', number: 1 } });
+		expect(discardPayout(payMe, leadership(), 1, 1)).toEqual({ ok: false, error: { code: 'payout-updated', number: 1 } });
+		expect(getPayout(payMe, 1)).toMatchObject({ state: 'open', revision: 2, total: 150025 });
 	});
 
 	it('allows the next Payout once the Open one is paid', () => {
@@ -334,7 +378,7 @@ describe('One Open Payout per Employee', () => {
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 		approved(payMe, alex, mail.id);
-		created(markPayoutPaid(payMe, leadership(), 1));
+		created(markPayoutPaid(payMe, leadership(), 1, 1));
 
 		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({ ok: true, value: { number: 2, lines: [{ requestNumber: 2 }] } });
 	});
@@ -351,10 +395,10 @@ describe('One Open Payout per Employee', () => {
 		const { payMe, parcel } = courierAlex();
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(markPayoutPaid(payMe, leadership(), 1));
+		created(markPayoutPaid(payMe, leadership(), 1, 1));
 
-		expect(markPayoutPaid(payMe, leadership(), 1)).toEqual({ ok: false, error: { code: 'payout-not-open', number: 1, state: 'paid' } });
-		expect(markPayoutPaid(payMe, leadership(), 9)).toEqual({ ok: false, error: { code: 'payout-not-found' } });
+		expect(markPayoutPaid(payMe, leadership(), 1, 1)).toEqual({ ok: false, error: { code: 'payout-not-open', number: 1, state: 'paid' } });
+		expect(markPayoutPaid(payMe, leadership(), 9, 1)).toEqual({ ok: false, error: { code: 'payout-not-found' } });
 	});
 });
 
@@ -365,7 +409,7 @@ describe('Discarding a Payout', () => {
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 		created(editTask(payMe, leadership(), parcel.id, { rate: '1200' }));
 
-		expect(discardPayout(payMe, leadership('user-lin'), 1)).toMatchObject({
+		expect(discardPayout(payMe, leadership('user-lin'), 1, 1)).toMatchObject({
 			ok: true,
 			value: { state: 'discarded', settledBy: 'user-lin' },
 			effects: [
@@ -391,9 +435,9 @@ describe('Discarding a Payout', () => {
 		const { payMe, parcel } = courierAlex();
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(markPayoutPaid(payMe, leadership(), 1));
+		created(markPayoutPaid(payMe, leadership(), 1, 1));
 
-		expect(discardPayout(payMe, leadership(), 1)).toEqual({ ok: false, error: { code: 'payout-not-open', number: 1, state: 'paid' } });
+		expect(discardPayout(payMe, leadership(), 1, 1)).toEqual({ ok: false, error: { code: 'payout-not-open', number: 1, state: 'paid' } });
 		expect(payMe.requests.load(1)?.state).toBe('paid');
 	});
 });
@@ -407,7 +451,7 @@ describe('Retired Tasks and Jobs', () => {
 		created(retireJob(payMe, leadership(), courier.id));
 
 		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({ ok: true, value: { total: 150025 } });
-		expect(markPayoutPaid(payMe, leadership(), 1)).toMatchObject({ ok: true });
+		expect(markPayoutPaid(payMe, leadership(), 1, 1)).toMatchObject({ ok: true });
 		expect([payMe.requests.load(1)?.state, payMe.requests.load(2)?.state]).toEqual(['paid', 'paid']);
 	});
 });
@@ -445,7 +489,7 @@ describe('The payouts view', () => {
 		const { payMe } = twoEmployees();
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 		created(generatePayout(payMe, leadership(), 'user-bo'));
-		created(markPayoutPaid(payMe, leadership(), 2));
+		created(markPayoutPaid(payMe, leadership(), 2, 1));
 
 		const view = created(showPayouts(payMe, leadership(), []));
 		expect(view.owed).toMatchObject([{ employeeUserId: 'user-alex', unpaidRequestNumbers: [], estimatedTotal: 0, openPayout: { number: 1 } }]);
@@ -475,6 +519,17 @@ describe('The payouts view', () => {
 					]
 				}
 			]
+		});
+	});
+
+	it('offers to update an Open Payout once the Employee is owed more than it holds', () => {
+		const { payMe, mail } = twoEmployees();
+		created(generatePayout(payMe, leadership(), 'user-alex'));
+		approved(payMe, alex, mail.id);
+
+		expect(created(showPayouts(payMe, leadership(), [])).owed[0]).toMatchObject({ employeeUserId: 'user-alex', unpaidRequestNumbers: [4] });
+		expect(showPayouts(payMe, leadership(), [])).toMatchObject({
+			effects: [{ actions: [{ kind: 'generate', employeeUserId: 'user-alex', label: 'Update P-1 for Alex_42' }, { kind: 'generate' }] }]
 		});
 	});
 
@@ -525,12 +580,12 @@ describe('Settle buttons on a Payout', () => {
 		approved(payMe, alex, parcel.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
 
-		expect(settleButtons(markPayoutPaid(payMe, leadership(), 1))).toEqual([false]);
+		expect(settleButtons(markPayoutPaid(payMe, leadership(), 1, 1))).toEqual([false]);
 		expect(settleButtons(showPayout(payMe, leadership(), 1))).toEqual([false]);
 
 		approved(payMe, alex, mail.id);
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		expect(settleButtons(discardPayout(payMe, leadership(), 2))).toEqual([false]);
+		expect(settleButtons(discardPayout(payMe, leadership(), 2, 1))).toEqual([false]);
 		expect(settleButtons(showPayout(payMe, leadership(), 2))).toEqual([false]);
 	});
 
@@ -557,8 +612,8 @@ describe('Who can pay', () => {
 		for (const actor of [member('user-casey', 'role-courier-manager'), alex]) {
 			expect(showPayout(payMe, actor, 1)).toEqual(notPermitted);
 			expect(generatePayout(payMe, actor, 'user-bo')).toEqual(notPermitted);
-			expect(markPayoutPaid(payMe, actor, 1)).toEqual(notPermitted);
-			expect(discardPayout(payMe, actor, 1)).toEqual(notPermitted);
+			expect(markPayoutPaid(payMe, actor, 1, 1)).toEqual(notPermitted);
+			expect(discardPayout(payMe, actor, 1, 1)).toEqual(notPermitted);
 		}
 		expect(getPayout(payMe, 1)?.state).toBe('open');
 		expect(getPayout(payMe, 2)).toBeNull();
@@ -615,11 +670,11 @@ describe("A Manager's payouts view", () => {
 	it('lists the Paid and Discarded Payouts of the Job holders as history with number, total, date and state, newest first', () => {
 		const { payMe, members } = courierAndLogistics();
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(discardPayout(payMe, leadership(), 1));
+		created(discardPayout(payMe, leadership(), 1, 1));
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(markPayoutPaid(payMe, leadership(), 2));
+		created(markPayoutPaid(payMe, leadership(), 2, 1));
 		created(generatePayout(payMe, leadership(), 'user-bo'));
-		created(markPayoutPaid(payMe, leadership(), 3));
+		created(markPayoutPaid(payMe, leadership(), 3, 1));
 
 		const outcome = showPayouts(payMe, casey, members);
 
@@ -663,7 +718,7 @@ describe("A Manager's payouts view", () => {
 	it('does not count a member as holding a Retired Job', () => {
 		const { payMe, courier, members } = courierAndLogistics();
 		created(generatePayout(payMe, leadership(), 'user-alex'));
-		created(markPayoutPaid(payMe, leadership(), 1));
+		created(markPayoutPaid(payMe, leadership(), 1, 1));
 		created(retireJob(payMe, leadership(), courier.id));
 
 		expect(showPayouts(payMe, casey, members)).toMatchObject({ ok: true, value: { owed: [], history: [] } });

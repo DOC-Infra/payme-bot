@@ -37,7 +37,6 @@ export type PayMeError =
 	| { code: 'not-a-reviewer' }
 	| { code: 'reason-required' }
 	| { code: 'payout-not-found' }
-	| { code: 'payout-already-open'; number: number }
 	| { code: 'nothing-owed' }
 	| { code: 'link-needs-a-member' }
 	| { code: 'employee-channel-unusable'; channelId: string; missing: string[] }
@@ -46,6 +45,7 @@ export type PayMeError =
 	| { code: 'employee-no-requests-thread' }
 	| { code: 'not-their-manager' }
 	| { code: 'payout-not-open'; number: number; state: PayoutState }
+	| { code: 'payout-updated'; number: number }
 	| { code: 'not-your-request' }
 	| { code: 'cannot-amend'; number: number; state: RequestState }
 	| { code: 'cannot-withdraw'; number: number; state: RequestState }
@@ -134,8 +134,6 @@ export function describeError(error: PayMeError): string {
 			return 'Give a reason so the Employee knows why.';
 		case 'payout-not-found':
 			return 'That Payout does not exist.';
-		case 'payout-already-open':
-			return `This Employee already has an Open Payout, ${payoutLabel(error.number)}. Mark it paid or discard it first.`;
 		case 'job-required':
 			return `${error.task} is in more than one Job. Pick the Job the work was for.`;
 		case 'employee-channel-unusable':
@@ -152,6 +150,10 @@ export function describeError(error: PayMeError): string {
 			return 'You can only request payment for an Employee under a Job they hold and you manage.';
 		case 'payout-not-open':
 			return `${payoutLabel(error.number)} is no longer Open: it is ${payoutStateName(error.state)}.`;
+		case 'payout-updated': {
+			const label = payoutLabel(error.number);
+			return `${label} has been updated since this was shown, so its total and Pay Command may have changed. Nothing was changed. Open the latest ${label} from Generate Payouts or /payouts.`;
+		}
 		case 'not-your-request':
 			return 'Only the Employee who submitted this Payment Request can do that.';
 		case 'cannot-amend':

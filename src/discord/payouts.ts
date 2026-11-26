@@ -10,10 +10,10 @@ export function payoutActionButtons(actions: readonly PayoutAction[]): ButtonBui
 	);
 }
 
-export function settleButtons(payoutNumber: number): ButtonBuilder[] {
+export function settleButtons(payoutNumber: number, revision: number): ButtonBuilder[] {
 	return [
-		button({ action: 'paid', payoutNumber }, 'Mark paid', ButtonStyle.Success),
-		button({ action: 'discard', payoutNumber }, 'Discard', ButtonStyle.Danger)
+		button({ action: 'paid', payoutNumber, revision }, 'Mark paid', ButtonStyle.Success),
+		button({ action: 'discard', payoutNumber, revision }, 'Discard', ButtonStyle.Danger)
 	];
 }
 

@@ -16,24 +16,44 @@ export interface NewPayoutRow {
 }
 
 export function insertPayout(storage: Storage, payout: NewPayoutRow): number {
-	const { db } = storage;
-	const { employeeUserId, minecraftName, generatedBy, total, lines, shares } = payout;
-	const { number } = db
+	const { employeeUserId, minecraftName, generatedBy, total } = payout;
+	const { number } = storage.db
 		.insert(payouts)
 		.values({ employeeUserId, minecraftName, total, state: 'open', generatedBy })
 		.returning({ number: payouts.number })
 		.get();
+	insertLines(storage, number, payout);
+	return number;
+}
+
+/** Rebuilds an Open Payout from `payout`, keeping its number. False if it was no longer Open. */
+export function replaceOpenPayout(storage: Storage, number: number, payout: NewPayoutRow): boolean {
+	const { db } = storage;
+	const { minecraftName, generatedBy, total } = payout;
+	const { changes } = db
+		.update(payouts)
+		.set({ minecraftName, total, generatedBy, revision: sql`${payouts.revision} + 1`, generatedAt: sql`strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` })
+		.where(and(eq(payouts.number, number), eq(payouts.state, 'open')))
+		.run();
+	if (changes === 0) return false;
+	db.delete(payoutLines).where(eq(payoutLines.payoutNumber, number)).run();
+	db.delete(payoutShareLines).where(eq(payoutShareLines.payoutNumber, number)).run();
+	insertLines(storage, number, payout);
+	return true;
+}
+
+function insertLines(storage: Storage, payoutNumber: number, { lines, shares }: NewPayoutRow): void {
+	const { db } = storage;
 	if (lines.length > 0) {
 		db.insert(payoutLines)
-			.values(lines.map(({ requestNumber, taskId, jobId, rate }) => ({ payoutNumber: number, requestNumber, taskId, jobId, rate })))
+			.values(lines.map(({ requestNumber, taskId, jobId, rate }) => ({ payoutNumber, requestNumber, taskId, jobId, rate })))
 			.run();
 	}
 	if (shares.length > 0) {
 		db.insert(payoutShareLines)
-			.values(shares.map(({ shareId, projectId, jobId, amount }) => ({ payoutNumber: number, shareId, projectId, jobId, amount })))
+			.values(shares.map(({ shareId, projectId, jobId, amount }) => ({ payoutNumber, shareId, projectId, jobId, amount })))
 			.run();
 	}
-	return number;
 }
 
 /** Moves an Open Payout to `to`, recording who settled it. False if it was no longer Open. */

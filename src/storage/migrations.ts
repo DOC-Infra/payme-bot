@@ -195,5 +195,9 @@ export const migrations: Migration[] = [
 				value TEXT NOT NULL
 			);
 		`
+	},
+	{
+		name: '0012-payout-revision',
+		sql: `ALTER TABLE payouts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;`
 	}
 ];

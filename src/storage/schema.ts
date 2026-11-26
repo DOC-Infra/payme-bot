@@ -124,6 +124,8 @@ export const payouts = sqliteTable('payouts', {
 	minecraftName: text('minecraft_name').notNull(),
 	total: integer('total').notNull(),
 	state: text('state', { enum: payoutStates }).notNull(),
+	/** Goes up each time the Open Payout is updated, so a message showing an older version can't settle it. */
+	revision: integer('revision').notNull().default(1),
 	generatedBy: text('generated_by').notNull(),
 	generatedAt: text('generated_at').notNull().default(now),
 	settledBy: text('settled_by'),
