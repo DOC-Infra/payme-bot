@@ -16,6 +16,7 @@ import {
 	submitRequest,
 	postRound,
 	ticketJobs,
+	linkIn,
 	ticketNumberIn,
 	ticketTaskName,
 	withdrawRequest,
@@ -551,6 +552,22 @@ describe('Submitting a Payment Request', () => {
 
 		expect(submitRequest(payMe, member('user-sam', 'role-courier'), input)).toEqual({ ok: false, error: { code: 'not-hired' } });
 		expect(submitRequest(payMe, member('user-alex'), input)).toEqual({ ok: false, error: { code: 'no-jobs' } });
+	});
+});
+
+describe('Finding a link in a message', () => {
+	it.each([
+		['Built it: https://imgur.com/a/abc123', 'https://imgur.com/a/abc123'],
+		['see http://example.com/x?y=1&z=2.', 'http://example.com/x?y=1&z=2'],
+		['(proof: https://example.com/shot.png)', 'https://example.com/shot.png'],
+		['https://en.wikipedia.org/wiki/Bridge_(structure)', 'https://en.wikipedia.org/wiki/Bridge_(structure)'],
+		['<https://example.com/no-embed>', 'https://example.com/no-embed'],
+		['first https://a.example/1 then https://b.example/2', 'https://a.example/1'],
+		['no link here, just example.com', null],
+		[`https://example.com/${'x'.repeat(500)}`, null],
+		['', null]
+	])('finds the link in %j', (text, link) => {
+		expect(linkIn(text)).toBe(link);
 	});
 });
 
