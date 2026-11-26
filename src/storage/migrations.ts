@@ -199,5 +199,17 @@ export const migrations: Migration[] = [
 	{
 		name: '0012-payout-revision',
 		sql: `ALTER TABLE payouts ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;`
+	},
+	{
+		name: '0013-appropriations',
+		sql: `
+			CREATE TABLE appropriations (
+				id INTEGER PRIMARY KEY,
+				from_month TEXT NOT NULL,
+				amount INTEGER NOT NULL,
+				actor_user_id TEXT NOT NULL,
+				at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			);
+		`
 	}
 ];

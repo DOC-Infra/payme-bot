@@ -69,6 +69,10 @@ export function getPayout(payMe: PayMe, number: number): Payout | null {
 	return selectPayout(payMe.storage, number);
 }
 
+export function paidPayouts(payMe: PayMe): Payout[] {
+	return selectPayoutsInState(payMe.storage, 'paid');
+}
+
 interface Owing {
 	approved: PaymentRequest[];
 	unpaid: PaymentRequest[];
@@ -143,6 +147,8 @@ export interface OwedSummary {
 	employees: number;
 	/** Unpaid Approved requests at current Rates, plus unpaid Shares, not yet in an Open Payout. */
 	total: number;
+	/** The part of `total` that is Approved requests at current Rates, and so only an estimate (ADR 0001). */
+	estimated: number;
 	/** The same, by the Job each would be paid under. A request eligible under no Job counts only in `total`. */
 	byJob: ReadonlyMap<number, number>;
 	openPayouts: Payout[];
@@ -155,9 +161,11 @@ export function owedSummary(payMe: PayMe): OwedSummary {
 	for (const request of owing.unpaid) if (request.eligibleJobIds.length > 0) add(lineJobId(request), rateOf(owing, request));
 	for (const share of owing.unpaidShares) add(share.jobId, share.amount);
 	const items = [...owing.unpaid, ...owing.unpaidShares];
+	const estimated = owing.unpaid.reduce((sum, request) => sum + rateOf(owing, request), 0);
 	return {
 		employees: new Set(items.map((item) => item.employeeUserId)).size,
-		total: owing.unpaid.reduce((sum, request) => sum + rateOf(owing, request), 0) + sumOfAmounts(owing.unpaidShares),
+		total: estimated + sumOfAmounts(owing.unpaidShares),
+		estimated,
 		byJob,
 		openPayouts: owing.openPayouts
 	};

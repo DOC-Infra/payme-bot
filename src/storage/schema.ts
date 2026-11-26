@@ -208,6 +208,15 @@ export const payoutShareLines = sqliteTable(
 	(table) => [primaryKey({ columns: [table.payoutNumber, table.shareId] })]
 );
 
+/** Each time Leadership sets the Appropriation: `amount` applies from `fromMonth` (YYYY-MM) until a later month is set. */
+export const appropriations = sqliteTable('appropriations', {
+	id: integer('id').primaryKey(),
+	fromMonth: text('from_month').notNull(),
+	amount: integer('amount').notNull(),
+	actorUserId: text('actor_user_id').notNull(),
+	at: text('at').notNull().default(now)
+});
+
 /** One value per key, for things Leadership sets from Discord, like the Rates Channel. */
 export const settings = sqliteTable('settings', {
 	key: text('key').primaryKey(),
