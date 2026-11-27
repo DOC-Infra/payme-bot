@@ -296,7 +296,7 @@ describe('The report', () => {
 
 	it('reports each Spending Category against the target it had that month, listing only those it had then', () => {
 		const { payMe } = twoMonths();
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '10', november));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '10' }, november));
 		created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
 
 		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11', november)).summary.split('\n')).toEqual([
@@ -430,7 +430,7 @@ describe('Warnings when going over the Appropriation', () => {
 	it('warns when marking a Payout paid takes Employee Pay over its target, alongside any Appropriation warning', () => {
 		const { payMe, parcel } = courierAndLogistics();
 		created(setAppropriation(payMe, leadership(), '1500', '2000-01'));
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '50', new Date()));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '50' }, new Date()));
 		approve(payMe, alex, parcel.id);
 		const first = created(generatePayout(payMe, leadership(), alex.userId));
 		const firstPaid = markPayoutPaid(payMe, leadership(), first.number, first.revision);
@@ -460,7 +460,7 @@ describe('Warnings when going over the Appropriation', () => {
 	it('warns when funding a Project takes Employee Pay with its commitments over its target', () => {
 		const { payMe, warehouse } = courierAndLogistics();
 		created(setAppropriation(payMe, leadership(), '10000', '2000-01'));
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '15', new Date()));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '15' }, new Date()));
 
 		expect(warnings(fundProject(payMe, leadership(), warehouse.id, '400'))).toEqual([]);
 		expect(
@@ -488,8 +488,8 @@ describe('Spending Category targets', () => {
 	it('applies a target from the month it is set, leaving earlier months with the target they had', () => {
 		const payMe = createTestPayMe();
 		created(setAppropriation(payMe, leadership(), '5000', '2026-09'));
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '60', october));
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '12.5', november));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '60' }, october));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '12.5' }, november));
 
 		expect(rowsIn(payMe, '2026-09')).toEqual([expect.objectContaining({ name: 'Employee Pay', targetPercent: null, target: null })]);
 		expect(rowsIn(payMe, '2026-10')).toEqual([expect.objectContaining({ targetPercent: 6000, target: 300000 })]);
@@ -498,8 +498,8 @@ describe('Spending Category targets', () => {
 
 	it('can be cleared, and shows no target in dollars in a month with no Appropriation', () => {
 		const payMe = createTestPayMe();
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '60', october));
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '', november));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '60' }, october));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '' }, november));
 
 		expect(rowsIn(payMe, '2026-10')).toEqual([expect.objectContaining({ targetPercent: 6000, target: null })]);
 		expect(rowsIn(payMe, '2026-11')).toEqual([expect.objectContaining({ targetPercent: null, target: null })]);
@@ -509,10 +509,10 @@ describe('Spending Category targets', () => {
 		const payMe = createTestPayMe();
 		created(setAppropriation(payMe, leadership(), '5000', '2026-09'));
 		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
-		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, '60', october));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '60' }, october));
 		created(retireSpendingCategory(payMe, leadership(), grants.id));
 
-		expect(created(setSpendingCategoryTarget(payMe, leadership(), 1, '100', november))).toBeTruthy();
+		expect(created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '100' }, november))).toBeTruthy();
 		expect(rowsIn(payMe, '2026-10').map((row) => [row.name, row.targetPercent])).toEqual([
 			['Employee Pay', null],
 			['Grants', 6000]
@@ -531,7 +531,7 @@ describe('Spending Category targets', () => {
 	it('leaves no cent over or under when target dollars round', () => {
 		const payMe = createTestPayMe();
 		created(setAppropriation(payMe, leadership(), '0.03', '2026-11'));
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '50', november));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '50' }, november));
 
 		const view = created(showAppropriation(payMe, leadership(), null, november));
 		expect(view.categories[0].target! + view.unassigned.amount!).toBe(3);
@@ -540,25 +540,90 @@ describe('Spending Category targets', () => {
 	it('refuses targets that would total over 100%, a percentage it cannot read, and anyone but Leadership', () => {
 		const payMe = createTestPayMe();
 		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '60', november));
-		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, '40', november));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '60' }, november));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '40' }, november));
 
-		expect(setSpendingCategoryTarget(payMe, leadership(), grants.id, '40.01', november)).toEqual({
+		expect(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '40.01' }, november)).toEqual({
 			ok: false,
 			error: { code: 'targets-over-100', total: 10001 }
 		});
 		for (const text of ['0', '101', '12.345', '50%', 'half'])
-			expect(setSpendingCategoryTarget(payMe, leadership(), 1, text, november)).toMatchObject({ error: { code: 'invalid-percent' } });
-		expect(setSpendingCategoryTarget(payMe, member('user-casey'), 1, '10', november)).toMatchObject({ error: { code: 'not-permitted' } });
-		expect(setSpendingCategoryTarget(payMe, leadership(), 99, '10', november)).toMatchObject({ error: { code: 'spending-category-not-found' } });
+			expect(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: text }, november)).toMatchObject({
+				error: { code: 'invalid-percent' }
+			});
+		expect(setSpendingCategoryTarget(payMe, member('user-casey'), 1, { percent: '10' }, november)).toMatchObject({
+			error: { code: 'not-permitted' }
+		});
+		expect(setSpendingCategoryTarget(payMe, leadership(), 99, { percent: '10' }, november)).toMatchObject({
+			error: { code: 'spending-category-not-found' }
+		});
+	});
+
+	it('takes a target as a fixed amount, known in dollars even in a month with no Appropriation', () => {
+		const payMe = createTestPayMe();
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '50' }, october));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '', amount: '1000' }, october));
+
+		const inOctober = created(showAppropriation(payMe, leadership(), '2026-10', november));
+		expect(inOctober.categories.map((row) => [row.name, row.targetPercent, row.target])).toEqual([
+			['Employee Pay', 5000, null],
+			['Grants', null, 100000]
+		]);
+		expect(inOctober.unassigned).toEqual({ percent: null, amount: null });
+
+		created(setAppropriation(payMe, leadership(), '5000', '2026-11'));
+		const shown = showAppropriation(payMe, leadership(), null, november);
+		expect(created(shown).unassigned).toEqual({ percent: 3000, amount: 150000 });
+		expect(shown).toMatchObject({
+			effects: [{ card: { description: expect.stringContaining('- Grants: target $1,000 · Spent $0') } }]
+		});
+		expect(shown).toMatchObject({ effects: [{ card: { description: expect.stringContaining('- Unassigned: 30% ($1,500)') } }] });
+	});
+
+	it('shows how far amount targets go over a lower Appropriation set later', () => {
+		const payMe = createTestPayMe();
+		created(setAppropriation(payMe, leadership(), '5000', '2026-10'));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '', amount: '4000' }, october));
+		created(setAppropriation(payMe, leadership(), '3000', '2026-11'));
+
+		const shown = showAppropriation(payMe, leadership(), null, november);
+		expect(created(shown).unassigned.amount).toBe(-100000);
+		expect(shown).toMatchObject({
+			effects: [{ card: { description: expect.stringContaining('- Unassigned: none, the targets are $1,000 over the Appropriation') } }]
+		});
+	});
+
+	it('refuses an amount target with a percentage, one it cannot read, and targets over the Appropriation', () => {
+		const payMe = createTestPayMe();
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		created(setAppropriation(payMe, leadership(), '5000', '2026-11'));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '60' }, november));
+
+		expect(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '10', amount: '100' }, november)).toEqual({
+			ok: false,
+			error: { code: 'target-percent-and-amount' }
+		});
+		for (const amount of ['0', '$100', '12.345'])
+			expect(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '', amount }, november)).toMatchObject({
+				error: { code: 'invalid-amount' }
+			});
+		expect(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '', amount: '2000.01' }, november)).toEqual({
+			ok: false,
+			error: { code: 'targets-over-appropriation', total: 500001, appropriation: 500000 }
+		});
+		expect(created(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '', amount: '2000' }, november))).toBeTruthy();
+		expect(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '60.01' }, november)).toMatchObject({
+			error: { code: 'targets-over-appropriation' }
+		});
 	});
 
 	it('flags a Category whose Spent is over its target, and shows what no target covers', () => {
 		const { payMe, parcel } = courierAndLogistics();
 		created(setAppropriation(payMe, leadership(), '5000', '2026-11'));
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '10', november));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '10' }, november));
 		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
-		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, '30', november));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '30' }, november));
 		created(addSpendingCategory(payMe, leadership(), { name: 'Events', jobIds: [] }));
 		approve(payMe, alex, parcel.id);
 		paidAt(payMe, alex, '2026-11-02T10:00:00.000Z');
@@ -730,7 +795,7 @@ describe('Disbursements in the Appropriation', () => {
 		const payMe = createTestPayMe();
 		created(setAppropriation(payMe, leadership(), '600', '2000-01'));
 		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
-		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, '50', new Date()));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, { percent: '50' }, new Date()));
 		const ask = (amount: string) =>
 			created(
 				requestDisbursement(payMe, leadership(), { categoryId: grants.id, recipient: 'Bakery_Bob', amount, reason: 'Grant', link: null })

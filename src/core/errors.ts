@@ -76,6 +76,8 @@ export type PayMeError =
 	| { code: 'cannot-withdraw-disbursement'; number: number; state: DisbursementState }
 	| { code: 'invalid-percent'; percent: string }
 	| { code: 'targets-over-100'; total: number }
+	| { code: 'targets-over-appropriation'; total: number; appropriation: number }
+	| { code: 'target-percent-and-amount' }
 	| { code: 'spending-category-name-required' }
 	| { code: 'spending-category-name-taken'; name: string; retired: boolean }
 	| { code: 'spending-category-built-in'; name: string }
@@ -205,6 +207,10 @@ export function describeError(error: PayMeError): string {
 			return `${error.percent} is not a valid target. Use a percentage above 0 and at most 100, with no % sign, like 25 or 12.5.`;
 		case 'targets-over-100':
 			return `That would make the targets add up to ${formatPercent(error.total)} of the Appropriation. Lower another target first.`;
+		case 'targets-over-appropriation':
+			return `That would make this month's targets add up to ${formatAmount(error.total)}, over its ${formatAmount(error.appropriation)} Appropriation. Lower another target first.`;
+		case 'target-percent-and-amount':
+			return 'Give the target as a percentage or as an amount, not both.';
 		case 'spending-category-unavailable':
 			return `Disbursements can't be requested from ${error.name}.`;
 		case 'disbursement-not-allowed':

@@ -214,10 +214,19 @@ describe('Managing Spending Categories from the dashboard', () => {
 describe('A Spending Category with a target', () => {
 	it('shows its target for this month', () => {
 		const payMe = createTestPayMe();
-		created(setSpendingCategoryTarget(payMe, leadership(), 1, '62.5'));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '62.5' }));
 
 		expect(spendingCategoryView(payMe, leadership(), 1)).toMatchObject({
 			effects: [{ card: { description: '**Employee Pay** (built in): every Payout and Share · target 62.5% this month' } }]
+		});
+	});
+
+	it('shows a target given as an amount', () => {
+		const payMe = createTestPayMe();
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, { percent: '', amount: '1500' }));
+
+		expect(spendingCategoryView(payMe, leadership(), 1)).toMatchObject({
+			effects: [{ card: { description: '**Employee Pay** (built in): every Payout and Share · target $1,500 this month' } }]
 		});
 	});
 });
