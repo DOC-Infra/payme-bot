@@ -239,6 +239,18 @@ export const spendingCategoryJobs = sqliteTable(
 	(table) => [primaryKey({ columns: [table.categoryId, table.jobId] })]
 );
 
+/** Each time Leadership sets a Spending Category's target: `percent` (hundredths of a percent, null for none) applies from `fromMonth`. */
+export const spendingCategoryTargets = sqliteTable('spending_category_targets', {
+	id: integer('id').primaryKey(),
+	categoryId: integer('category_id')
+		.notNull()
+		.references(() => spendingCategories.id),
+	fromMonth: text('from_month').notNull(),
+	percent: integer('percent'),
+	actorUserId: text('actor_user_id').notNull(),
+	at: text('at').notNull().default(now)
+});
+
 /** One value per key, for things Leadership sets from Discord, like the Rates Channel. */
 export const settings = sqliteTable('settings', {
 	key: text('key').primaryKey(),

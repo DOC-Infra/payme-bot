@@ -10,7 +10,9 @@ import { payoutLabel, requestLabel, shareLabel } from './labels';
 import { owedSummary, paidPayouts, type Payout } from './payouts';
 import { allProjects, balanceOf, getProject } from './projects';
 import { getTask } from './tasks';
-import { formatAmount, parseRate, plainAmount } from './rates';
+import { monthName, monthOf, parseMonth } from './months';
+import { formatAmount, formatPercent, parseRate, plainAmount, wholePercent } from './rates';
+import { allSpendingCategories, employeePayId, spendingCategoryTargets, totalTarget, type SpendingCategory } from './spending-categories';
 
 export interface AppropriationView {
 	/** YYYY-MM, a calendar month in UTC. */
@@ -27,6 +29,59 @@ export interface AppropriationView {
 	reserved: number | null;
 	remaining: number | null;
 	remainingAfterCommitted: number | null;
+	/** Employee Pay first, then active Spending Categories and Retired ones that had a target in the month. */
+	categories: CategorySpend[];
+	/** The part of the Appropriation no target covers. */
+	unassigned: { percent: number; amount: number | null };
+}
+
+export interface CategorySpend {
+	id: number;
+	name: string;
+	/** Hundredths of a percent of the Appropriation. */
+	targetPercent: number | null;
+	/** The target in dollars, when the month has an Appropriation. */
+	target: number | null;
+	spent: number;
+	/** Only for the current month. */
+	committed: number | null;
+	/** Open Projects' money not yet given as Shares, under Employee Pay. Only for the current month. */
+	reserved: number | null;
+	overTarget: boolean;
+}
+
+interface MonthTotals {
+	spent: number;
+	committed: number | null;
+	reserved: number | null;
+}
+
+/** Until Disbursements exist, everything spent, committed and reserved is Employee Pay. */
+function categorySpendOf(
+	category: SpendingCategory,
+	targetPercent: number | null,
+	dollarsOf: (percent: number | null) => number | null,
+	totals: MonthTotals
+): CategorySpend {
+	const share = (amount: number | null) => (amount === null ? null : category.builtIn ? amount : 0);
+	const spent = share(totals.spent)!;
+	const target = dollarsOf(targetPercent);
+	return {
+		id: category.id,
+		name: category.name,
+		targetPercent,
+		target,
+		spent,
+		committed: share(totals.committed),
+		reserved: share(totals.reserved),
+		overTarget: target !== null && spent > target
+	};
+}
+
+/** The current month lists every active Category; earlier and later ones only those that had a target or Spend. */
+function shownIn(category: SpendingCategory, row: CategorySpend, isCurrentMonth: boolean): boolean {
+	if (category.builtIn || row.targetPercent !== null || row.spent > 0) return true;
+	return isCurrentMonth && !category.retired;
 }
 
 export interface JobSpend {
@@ -64,6 +119,15 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 	const owed = isCurrentMonth ? committedToday(payMe) : null;
 	const committed = owed?.committed ?? null;
 	const remaining = isCurrentMonth && appropriation !== null ? appropriation - spent : null;
+	const targets = spendingCategoryTargets(payMe, month);
+	const dollarsOf = (percent: number | null) =>
+		percent === null || appropriation === null ? null : Math.round((appropriation * percent) / wholePercent);
+	const totals = { spent, committed, reserved: isCurrentMonth ? reservedToday(payMe) : null };
+	const categories = allSpendingCategories(payMe).flatMap((category) => {
+		const row = categorySpendOf(category, targets.get(category.id) ?? null, dollarsOf, totals);
+		return shownIn(category, row, isCurrentMonth) ? [row] : [];
+	});
+	const assigned = categories.reduce((sum, row) => sum + (row.target ?? 0), 0);
 	return {
 		month,
 		appropriation,
@@ -71,9 +135,11 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 		spentByJob,
 		committed,
 		committedEstimate: owed?.estimated ?? null,
-		reserved: isCurrentMonth ? reservedToday(payMe) : null,
+		reserved: totals.reserved,
 		remaining,
-		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed
+		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed,
+		categories,
+		unassigned: { percent: wholePercent - totalTarget(targets), amount: appropriation === null ? null : appropriation - assigned }
 	};
 }
 
@@ -88,6 +154,29 @@ export function overCommittedWarning(payMe: PayMe): Effect[] {
 	const view = currentView(payMe);
 	const total = view.spent + (view.committed ?? 0) + (view.reserved ?? 0);
 	return warnIfOver(view, total, (amounts) => `${monthName(view.month)}'s Spent, Committed and Reserved now come to ${amounts}.`);
+}
+
+/** A warning when this month's Spent in the Category has gone over its target (ADR 0003). */
+export function overTargetWarning(payMe: PayMe, categoryId: number): Effect[] {
+	const view = currentView(payMe);
+	const category = view.categories.find((each) => each.id === categoryId);
+	if (!category) return [];
+	return warnIfOverTarget(view, category, category.spent, `${category.name} has spent`);
+}
+
+/** A warning when the Category's Spent, Committed and Reserved together now exceed its target this month (ADR 0003). */
+export function overCommittedTargetWarning(payMe: PayMe, categoryId: number): Effect[] {
+	const view = currentView(payMe);
+	const category = view.categories.find((each) => each.id === categoryId);
+	if (!category) return [];
+	const total = category.spent + (category.committed ?? 0) + (category.reserved ?? 0);
+	return warnIfOverTarget(view, category, total, `${category.name}'s Spent, Committed and Reserved now come to`);
+}
+
+function warnIfOverTarget(view: AppropriationView, category: CategorySpend, total: number, opening: string): Effect[] {
+	if (category.target === null || total <= category.target) return [];
+	const text = `${opening} ${formatAmount(total)} of its ${formatAmount(category.target)} target for ${monthName(view.month)}, ${formatAmount(total - category.target)} over.`;
+	return [{ type: 'private-reply', card: notice(`**Over target**: ${text}`, 'warning') }];
 }
 
 function currentView(payMe: PayMe): AppropriationView {
@@ -117,10 +206,29 @@ function appropriationCard(view: AppropriationView): Card {
 		...row('Remaining', view.remaining),
 		...row('Remaining after commitments', view.remainingAfterCommitted),
 		'',
+		'**Spending Categories**',
+		...view.categories.map(categoryLine),
+		`- Unassigned: ${targetText(view.unassigned.percent, view.unassigned.amount)}`,
+		'',
 		'**Spent by Job**',
 		...(jobs.length ? jobs : ['Nothing was paid.'])
 	].join('\n');
 	return { tone: 'info', title: `Appropriation · ${monthName(view.month)}`, description, footer: 'Months are calendar months in UTC.' };
+}
+
+function categoryLine(category: CategorySpend): string {
+	const parts = [
+		category.targetPercent === null ? 'no target' : `target ${targetText(category.targetPercent, category.target)}`,
+		`Spent ${formatAmount(category.spent)}`,
+		...(category.committed === null ? [] : [`Committed ${formatAmount(category.committed)}`]),
+		...(category.reserved ? [`Reserved ${formatAmount(category.reserved)}`] : []),
+		...(category.overTarget ? ['**over target**'] : [])
+	];
+	return `- ${category.name}: ${parts.join(' · ')}`;
+}
+
+function targetText(percent: number, amount: number | null): string {
+	return amount === null ? formatPercent(percent) : `${formatPercent(percent)} (${formatAmount(amount)})`;
 }
 
 const employeePay = 'Employee Pay';
@@ -132,7 +240,7 @@ export interface AppropriationReport {
 }
 
 /** Spend for every month from `fromText` to `toText`, as CSV for the authority that grants the Appropriation. */
-export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string, toText: string): Outcome<AppropriationReport> {
+export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string, toText: string, now = new Date()): Outcome<AppropriationReport> {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
 	const from = parseMonth(fromText);
@@ -145,8 +253,8 @@ export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string
 
 	const months = monthsBetween(from, to);
 	const summary = csv(
-		['month', 'spending_category', 'job', 'appropriation', 'spent', 'over_under'],
-		months.flatMap((month) => summaryRows(payMe, month))
+		['month', 'spending_category', 'job', 'appropriation', 'target', 'spent', 'over_under'],
+		months.flatMap((month) => summaryRows(payMe, month, now))
 	);
 	const items = csv(
 		['date_paid', 'month', 'spending_category', 'job', 'task_or_project', 'recipient', 'amount', 'paid_by', 'reference', 'payout'],
@@ -187,16 +295,18 @@ function itemRows(payMe: PayMe, payout: Payout): string[][] {
 	];
 }
 
-function summaryRows(payMe: PayMe, month: string): string[][] {
-	const appropriation = selectAppropriationFor(payMe.storage, month);
-	const byJob = spendByJob(payMe, month);
-	const total = byJob.reduce((sum, job) => sum + job.amount, 0);
-	const spent = plainAmount(total);
-	const overUnder = appropriation === null ? '' : signedAmount(total - appropriation);
+function summaryRows(payMe: PayMe, month: string, now: Date): string[][] {
+	const view = viewOf(payMe, month, now);
+	const amount = (hundredths: number | null) => (hundredths === null ? '' : plainAmount(hundredths));
+	const overUnder = (limit: number | null, spent: number) => (limit === null ? '' : signedAmount(spent - limit));
 	return [
-		[month, '', '', appropriation === null ? '' : plainAmount(appropriation), spent, overUnder],
-		[month, employeePay, '', '', spent, ''],
-		...byJob.map((job) => [month, employeePay, job.job, '', plainAmount(job.amount), ''])
+		[month, '', '', amount(view.appropriation), '', plainAmount(view.spent), overUnder(view.appropriation, view.spent)],
+		...view.categories.flatMap((category) => [
+			[month, category.name, '', '', amount(category.target), plainAmount(category.spent), overUnder(category.target, category.spent)],
+			...(category.id === employeePayId
+				? view.spentByJob.map((job) => [month, category.name, job.job, '', '', plainAmount(job.amount), ''])
+				: [])
+		])
 	];
 }
 
@@ -248,25 +358,4 @@ function spendByJob(payMe: PayMe, month: string): JobSpend[] {
 		for (const line of payout.shares) add(line.jobId, line.amount);
 	}
 	return [...byJob].map(([jobId, amount]) => ({ job: getJob(payMe, jobId)!.name, amount })).sort((a, b) => a.job.localeCompare(b.job));
-}
-
-/** A month as YYYY-MM, from 2000-01 to 2999-12, or null. */
-export function parseMonth(text: string): string | null {
-	const match = /^(2\d{3})-(0[1-9]|1[0-2])$/.exec(text.trim());
-	return match ? match[0] : null;
-}
-
-/** The UTC calendar month a time falls in, as YYYY-MM. */
-export function monthOf(time: Date | string): string {
-	return (typeof time === 'string' ? time : time.toISOString()).slice(0, 7);
-}
-
-export function monthName(month: string): string {
-	const [year, monthNumber] = month.split('-').map(Number);
-	return new Date(Date.UTC(year, monthNumber - 1)).toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-}
-
-/** Next month and the twelve before it, newest first, for picking a month. */
-export function recentMonths(now: Date): string[] {
-	return Array.from({ length: 13 }, (_, index) => monthOf(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1 - index))));
 }

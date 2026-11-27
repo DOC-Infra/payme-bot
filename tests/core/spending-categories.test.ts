@@ -6,6 +6,7 @@ import {
 	editSpendingCategory,
 	restoreSpendingCategory,
 	retireSpendingCategory,
+	setSpendingCategoryTarget,
 	retireJob,
 	spendingCategoriesView,
 	spendingCategoryView,
@@ -192,7 +193,7 @@ describe('Managing Spending Categories from the dashboard', () => {
 		});
 	});
 
-	it('offers Edit and Retire on an active Category, Restore on a Retired one, and nothing on Employee Pay', () => {
+	it('offers Edit, Target and Retire on an active Category, Restore on a Retired one, and only Target on Employee Pay', () => {
 		const payMe = createTestPayMe();
 		const category = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
 		const actions = (id: number) => {
@@ -202,10 +203,21 @@ describe('Managing Spending Categories from the dashboard', () => {
 				: null;
 		};
 
-		expect(actions(category.id)).toEqual(['edit', 'retire']);
+		expect(actions(category.id)).toEqual(['edit', 'target', 'retire']);
 		created(retireSpendingCategory(payMe, leadership(), category.id));
 		expect(actions(category.id)).toEqual(['restore']);
-		expect(actions(1)).toEqual([]);
+		expect(actions(1)).toEqual(['target']);
 		expect(spendingCategoriesView(payMe, member('user-casey'))).toEqual({ ok: false, error: { code: 'not-permitted' } });
+	});
+});
+
+describe('A Spending Category with a target', () => {
+	it('shows its target for this month', () => {
+		const payMe = createTestPayMe();
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '62.5'));
+
+		expect(spendingCategoryView(payMe, leadership(), 1)).toMatchObject({
+			effects: [{ card: { description: '**Employee Pay** (built in): every Payout and Share · target 62.5% this month' } }]
+		});
 	});
 });

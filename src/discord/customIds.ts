@@ -64,7 +64,8 @@ const manageButtons = [
 	'new-spending-category',
 	'edit-spending-category',
 	'retire-spending-category',
-	'restore-spending-category'
+	'restore-spending-category',
+	'spending-category-target'
 ] as const;
 const manageMenus = ['open-job', 'open-job-tasks', 'open-task', 'open-spending-category'] as const;
 const manageModals = [
@@ -75,7 +76,8 @@ const manageModals = [
 	'edit-task',
 	'task-jobs',
 	'new-spending-category',
-	'edit-spending-category'
+	'edit-spending-category',
+	'spending-category-target'
 ] as const;
 
 export function encodeCustomId(id: CustomId): string {

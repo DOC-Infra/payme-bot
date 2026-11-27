@@ -12,7 +12,7 @@ import {
 	updateShare
 } from '../storage/projects';
 import type { Actor } from './actor';
-import { overCommittedWarning } from './appropriation';
+import { overCommittedTargetWarning, overCommittedWarning } from './appropriation';
 import { notice, type Card, type Effect, type ProjectAction } from './effects';
 import { getEmployee } from './employees';
 import { jobsHeldBy, jobsManagedBy, managesJob } from './job-membership';
@@ -22,6 +22,7 @@ import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership, requireLeadership } from './permissions';
 import { formatAmount, parseRate } from './rates';
+import { employeePayId } from './spending-categories';
 import { maxFormOptions } from './tasks';
 
 export interface Funding {
@@ -104,7 +105,10 @@ export function createProject(payMe: PayMe, actor: Actor, input: NewProject): Ou
 		insertFunding(storage, id, budget, actor.userId);
 		const project = getProject(payMe, id)!;
 		const reply = `Created the ${project.name} Project for the ${job.name} Job with a budget of ${formatAmount(budget)}.`;
-		return succeed([{ type: 'private-reply', card: notice(reply) }, ...overCommittedWarning(payMe)], project);
+		return succeed(
+			[{ type: 'private-reply', card: notice(reply) }, ...overCommittedWarning(payMe), ...overCommittedTargetWarning(payMe, employeePayId)],
+			project
+		);
 	});
 }
 
@@ -119,7 +123,9 @@ export function fundProject(payMe: PayMe, actor: Actor, id: number, amountText: 
 		insertFunding(payMe.storage, id, amount, actor.userId);
 		return `Added ${formatAmount(amount)} to the ${project.name} Project. ${formatAmount(balanceOf(project) + amount)} is left to give.`;
 	});
-	return funded.ok ? { ...funded, effects: [...funded.effects, ...overCommittedWarning(payMe)] } : funded;
+	return funded.ok
+		? { ...funded, effects: [...funded.effects, ...overCommittedWarning(payMe), ...overCommittedTargetWarning(payMe, employeePayId)] }
+		: funded;
 }
 
 export function closeProject(payMe: PayMe, actor: Actor, id: number): Outcome<Project> {

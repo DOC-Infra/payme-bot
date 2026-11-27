@@ -32,7 +32,8 @@ export const manageFieldIds = {
 	rate: 'rate',
 	jobs: 'jobs',
 	evidence: 'evidence',
-	notes: 'notes'
+	notes: 'notes',
+	target: 'target'
 } as const;
 
 /** The active Jobs a form offers to pick from: as many as a menu can list. */
@@ -87,6 +88,7 @@ export function manageComponents(view: ManageView): { menus: Row[]; buttons: But
 
 function spendingCategoryButton(spendingCategoryId: number, action: SpendingCategoryAction): ButtonBuilder {
 	if (action === 'edit') return button('edit-spending-category', spendingCategoryId, 'Edit', ButtonStyle.Primary);
+	if (action === 'target') return button('spending-category-target', spendingCategoryId, 'Target', ButtonStyle.Secondary);
 	if (action === 'retire') return button('retire-spending-category', spendingCategoryId, 'Retire', ButtonStyle.Danger);
 	return button('restore-spending-category', spendingCategoryId, 'Restore', ButtonStyle.Success);
 }
@@ -185,6 +187,21 @@ export function buildSpendingCategoryModal(category: SpendingCategory | null, jo
 		.setCustomId(modalId(category ? 'edit-spending-category' : 'new-spending-category', category?.id ?? null))
 		.setTitle(category ? truncate(`Edit ${category.name}`, 45) : 'New Spending Category')
 		.addLabelComponents(...labels);
+}
+
+/** `percent` is the target in effect this month, in hundredths of a percent. */
+export function buildTargetModal(category: SpendingCategory, percent: number | null): ModalBuilder {
+	const input = new TextInputBuilder().setCustomId(manageFieldIds.target).setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(6);
+	if (percent !== null) input.setValue(plainAmount(percent));
+	return new ModalBuilder()
+		.setCustomId(modalId('spending-category-target', category.id))
+		.setTitle(truncate(`${category.name} target`, 45))
+		.addLabelComponents(
+			new LabelBuilder()
+				.setLabel('Share of the Appropriation (%)')
+				.setDescription('Like 25 or 12.5. Leave empty for no target. Applies from this month onward.')
+				.setTextInputComponent(input)
+		);
 }
 
 function rateLabel(input: TextInputBuilder): LabelBuilder {

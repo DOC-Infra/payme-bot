@@ -69,6 +69,8 @@ const everyKind: CustomId[] = [
 	{ kind: 'manage-menu', action: 'open-spending-category' },
 	{ kind: 'manage-modal', action: 'new-spending-category', id: null },
 	{ kind: 'manage-modal', action: 'edit-spending-category', id: 2 },
+	{ kind: 'manage-button', action: 'spending-category-target', id: 1 },
+	{ kind: 'manage-modal', action: 'spending-category-target', id: 1 },
 	{ kind: 'appropriation-report-button', month: '2026-11' },
 	{ kind: 'appropriation-report-modal' }
 ];

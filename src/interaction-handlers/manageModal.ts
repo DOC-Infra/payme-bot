@@ -13,6 +13,7 @@ import {
 	getSpendingCategory,
 	reviewChannelName,
 	setManagerRoles,
+	setSpendingCategoryTarget,
 	setTaskJobs,
 	type Actor
 } from '../core';
@@ -80,6 +81,7 @@ export class ModalHandler extends InteractionHandler {
 			const roleIds = [...(fields.getSelectedRoles(manageFieldIds.managerRoles)?.keys() ?? [])];
 			return setManagerRoles(payMe, actor, id, roleIds, await holderUserIds(interaction.guildId!, id));
 		}
+		if (action === 'spending-category-target') return setSpendingCategoryTarget(payMe, actor, id, text(manageFieldIds.target));
 		if (action === 'edit-spending-category') {
 			// Keep the Jobs the form had no room to offer, so editing never drops them unseen.
 			const offered = formJobs(payMe).map((job) => job.id);
