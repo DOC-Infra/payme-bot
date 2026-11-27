@@ -1,14 +1,15 @@
 import { ButtonBuilder, ButtonStyle, LabelBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
-import { disbursementLabel, type DisbursementAction } from '../core';
-import { encodeCustomId, type DisbursementButton } from './customIds';
+import { disbursementLabel, type DisbursementAction, type DisbursementDecision } from '../core';
+import { encodeCustomId, type DisbursementButton, type DisbursementReasonAction } from './customIds';
 
-export const declineReasonFieldId = 'reason';
+export const disbursementReasonFieldId = 'reason';
 
 const looks: Record<DisbursementButton, { label: string; style: ButtonStyle }> = {
 	withdraw: { label: 'Withdraw', style: ButtonStyle.Secondary },
 	show: { label: 'Open', style: ButtonStyle.Secondary },
 	paid: { label: 'Mark paid', style: ButtonStyle.Success },
-	decline: { label: 'Decline', style: ButtonStyle.Danger }
+	decline: { label: 'Decline', style: ButtonStyle.Danger },
+	void: { label: 'Void', style: ButtonStyle.Danger }
 };
 
 export function disbursementButton(disbursementNumber: number, action: DisbursementButton, label = looks[action].label): ButtonBuilder {
@@ -23,14 +24,25 @@ export function disbursementButtons(disbursementNumber: number, actions: readonl
 	return actions.map((action) => disbursementButton(disbursementNumber, action));
 }
 
-export function settleDisbursementButtons(disbursementNumber: number): ButtonBuilder[] {
-	return [disbursementButton(disbursementNumber, 'paid'), disbursementButton(disbursementNumber, 'decline')];
+/** Leadership's buttons on a Disbursement's private view. */
+export function decisionButtons(disbursementNumber: number, actions: readonly DisbursementDecision[]): ButtonBuilder[] {
+	return actions.map((action) => disbursementButton(disbursementNumber, action));
 }
 
-export function buildDeclineModal(disbursementNumber: number): ModalBuilder {
-	const reason = new TextInputBuilder().setCustomId(declineReasonFieldId).setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1000);
+const reasonForms: Record<DisbursementReasonAction, { title: string; description: string }> = {
+	decline: { title: 'Decline', description: 'Shown on the public card.' },
+	void: { title: 'Void', description: 'What was recorded wrongly. Shown on the public card.' }
+};
+
+export function buildDisbursementReasonModal(action: DisbursementReasonAction, disbursementNumber: number): ModalBuilder {
+	const reason = new TextInputBuilder()
+		.setCustomId(disbursementReasonFieldId)
+		.setStyle(TextInputStyle.Paragraph)
+		.setRequired(true)
+		.setMaxLength(1000);
+	const { title, description } = reasonForms[action];
 	return new ModalBuilder()
-		.setCustomId(encodeCustomId({ kind: 'disbursement-decline-modal', disbursementNumber }))
-		.setTitle(`Decline ${disbursementLabel(disbursementNumber)}`)
-		.addLabelComponents(new LabelBuilder().setLabel('Reason').setDescription('Shown on the public card.').setTextInputComponent(reason));
+		.setCustomId(encodeCustomId({ kind: 'disbursement-reason-modal', action, disbursementNumber }))
+		.setTitle(`${title} ${disbursementLabel(disbursementNumber)}`)
+		.addLabelComponents(new LabelBuilder().setLabel('Reason').setDescription(description).setTextInputComponent(reason));
 }

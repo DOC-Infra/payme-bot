@@ -32,11 +32,12 @@ export function settleDisbursement(
 	number: number,
 	to: Exclude<DisbursementState, 'requested'>,
 	actorUserId: string,
-	reason: string | null = null
+	reason: string | null = null,
+	at = new Date().toISOString()
 ): boolean {
 	const { changes } = storage.db
 		.update(disbursements)
-		.set({ state: to, settledBy: actorUserId, settledAt: new Date().toISOString(), outcomeReason: reason })
+		.set({ state: to, settledBy: actorUserId, settledAt: at, outcomeReason: reason })
 		.where(and(eq(disbursements.number, number), eq(disbursements.state, 'requested')))
 		.run();
 	return changes > 0;
@@ -60,4 +61,14 @@ export function selectDisbursementsInState(storage: Storage, state: Disbursement
 
 export function selectDisbursements(storage: Storage): Disbursement[] {
 	return storage.db.select().from(disbursements).orderBy(asc(disbursements.number)).all();
+}
+
+/** Voids a Paid Disbursement, keeping who paid it and when. False if it was not Paid. */
+export function voidPaidDisbursement(storage: Storage, number: number, actorUserId: string, reason: string): boolean {
+	const { changes } = storage.db
+		.update(disbursements)
+		.set({ state: 'voided', voidedBy: actorUserId, voidedAt: new Date().toISOString(), outcomeReason: reason })
+		.where(and(eq(disbursements.number, number), eq(disbursements.state, 'paid')))
+		.run();
+	return changes > 0;
 }

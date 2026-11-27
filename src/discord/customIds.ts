@@ -1,4 +1,4 @@
-import { parseMonth, type DisbursementAction, type EntryAction } from '../core';
+import { parseMonth, type DisbursementAction, type DisbursementDecision, type EntryAction } from '../core';
 
 export type ReviewAction = 'approve' | 'reject' | 'deny';
 export type ReasonAction = Exclude<ReviewAction, 'approve'>;
@@ -9,7 +9,8 @@ export type PayoutButton =
 	| { action: 'paid' | 'discard'; payoutNumber: number; revision: number };
 export type ProjectButton = { action: 'create' } | { action: (typeof projectButtons)[number]; projectId: number };
 /** Withdraw is on the public card; the rest are Leadership's, from /payouts. */
-export type DisbursementButton = DisbursementAction | 'show' | 'paid' | 'decline';
+export type DisbursementButton = DisbursementAction | 'show' | DisbursementDecision;
+export type DisbursementReasonAction = Exclude<DisbursementDecision, 'paid'>;
 export type DashboardButton = (typeof dashboardButtons)[number];
 export type ManageButtonAction = (typeof manageButtons)[number];
 export type ManageMenuAction = (typeof manageMenus)[number];
@@ -43,7 +44,7 @@ export type CustomId =
 	| { kind: 'manage-menu'; action: ManageMenuAction }
 	| { kind: 'manage-modal'; action: ManageModalAction; id: number | null }
 	| { kind: 'disbursement-button'; action: DisbursementButton; disbursementNumber: number }
-	| { kind: 'disbursement-decline-modal'; disbursementNumber: number }
+	| { kind: 'disbursement-reason-modal'; action: DisbursementReasonAction; disbursementNumber: number }
 	| { kind: 'appropriation-report-button'; month: string }
 	| { kind: 'appropriation-disbursements-button'; month: string }
 	| { kind: 'appropriation-report-modal' };
@@ -52,7 +53,8 @@ const entryButtons = ['amend', 'withdraw', 'confirm-withdraw'] as const;
 const reviewActions = ['approve', 'reject', 'deny'] as const;
 const reasonActions = ['reject', 'deny'] as const;
 const settleActions = ['paid', 'discard'] as const;
-const disbursementActions = ['withdraw', 'show', 'paid', 'decline'] as const satisfies readonly DisbursementButton[];
+const disbursementActions = ['withdraw', 'show', 'paid', 'decline', 'void'] as const satisfies readonly DisbursementButton[];
+const disbursementReasonActions = ['decline', 'void'] as const satisfies readonly DisbursementReasonAction[];
 const projectButtons = ['share', 'change-share', 'fund', 'close', 'confirm-close'] as const;
 const projectModals = ['share', 'fund'] as const;
 const dashboardButtons = ['payouts', 'projects', 'jobs', 'tasks', 'spending-categories', 'settings'] as const;
@@ -143,8 +145,8 @@ export function encodeCustomId(id: CustomId): string {
 			return join('manage-form', id.action, id.id);
 		case 'disbursement-button':
 			return join('disbursement', id.action, id.disbursementNumber);
-		case 'disbursement-decline-modal':
-			return join('disbursement-decline', id.disbursementNumber);
+		case 'disbursement-reason-modal':
+			return join('disbursement-reason', id.action, id.disbursementNumber);
 		case 'appropriation-report-button':
 			return join('appropriation-report', id.month);
 		case 'appropriation-disbursements-button':
@@ -208,8 +210,13 @@ const decoders = new Map<string, (parts: string[]) => CustomId | null>([
 			withAction(parts, disbursementActions, (action, disbursementNumber) => ({ kind: 'disbursement-button', action, disbursementNumber }))
 	],
 	[
-		'disbursement-decline',
-		([number, ...rest]) => (isDigits(number) && !rest.length ? { kind: 'disbursement-decline-modal', disbursementNumber: Number(number) } : null)
+		'disbursement-reason',
+		(parts) =>
+			withAction(parts, disbursementReasonActions, (action, disbursementNumber) => ({
+				kind: 'disbursement-reason-modal',
+				action,
+				disbursementNumber
+			}))
 	],
 	['appropriation-report-form', (parts) => (parts.length ? null : { kind: 'appropriation-report-modal' })]
 ]);

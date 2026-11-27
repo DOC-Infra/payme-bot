@@ -6,8 +6,8 @@ import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
 import { getEmployee } from './employees';
 import { getJob } from './jobs';
-import { disbursementLabel, payoutLabel, requestLabel, shareLabel } from './labels';
-import { paidDisbursements, requestedDisbursements, type Disbursement } from './disbursements';
+import { disbursementLabel, disbursementStateName, payoutLabel, requestLabel, shareLabel } from './labels';
+import { paidDisbursements, requestedDisbursements, voidedDisbursements, type Disbursement } from './disbursements';
 import { owedSummary, paidPayouts, type Payout } from './payouts';
 import { allProjects, balanceOf, getProject } from './projects';
 import { getTask } from './tasks';
@@ -294,7 +294,8 @@ export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string
 			'requested_by',
 			'paid_by',
 			'reference',
-			'payout'
+			'payout',
+			'state'
 		],
 		paidItems(payMe, months)
 	);
@@ -312,7 +313,9 @@ function paidItems(payMe: PayMe, months: readonly string[]): string[][] {
 		.filter((payout) => months.includes(monthOf(payout.settledAt!)))
 		.sort((a, b) => a.number - b.number)
 		.flatMap((payout) => payoutItemRows(payMe, payout));
-	const disbursements = paidDisbursementsIn(payMe, months).map((each) => disbursementItemRow(payMe, each));
+	const disbursements = [...paidDisbursements(payMe), ...voidedDisbursements(payMe)]
+		.filter((each) => months.includes(monthOf(each.settledAt!)))
+		.map((each) => disbursementItemRow(payMe, each));
 	return [...payouts, ...disbursements].sort((a, b) => a.at.localeCompare(b.at)).map((item) => item.row);
 }
 
@@ -337,7 +340,8 @@ function payoutItemRows(payMe: PayMe, payout: Payout): ItemRow[] {
 			'',
 			personName(payMe, payout.settledBy!),
 			reference,
-			payoutLabel(payout.number)
+			payoutLabel(payout.number),
+			'Paid'
 		]
 	});
 	return [
@@ -361,7 +365,8 @@ function disbursementItemRow(payMe: PayMe, disbursement: Disbursement): ItemRow 
 			personName(payMe, disbursement.requestedBy),
 			personName(payMe, disbursement.settledBy!),
 			disbursementLabel(disbursement.number),
-			''
+			'',
+			disbursementStateName(disbursement.state)
 		]
 	};
 }
