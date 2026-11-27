@@ -4,8 +4,9 @@ import { allJobs, describeJob, getJob, type Job } from './jobs';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
-import { formatAmount } from './rates';
-import { allSpendingCategories, getSpendingCategory, type SpendingCategory } from './spending-categories';
+import { formatAmount, formatPercent } from './rates';
+import { monthOf } from './appropriation';
+import { allSpendingCategories, getSpendingCategory, spendingCategoryTargets, type SpendingCategory } from './spending-categories';
 import { allTasks, getTask, maxFormOptions, rateScheduleCard, type Task } from './tasks';
 
 /** Every Job, with a menu to open one. */
@@ -108,16 +109,18 @@ export function spendingCategoryView(payMe: PayMe, actor: Actor, id: number): Ou
 		title: `${spendingCategoryLabel(category)} Spending Category`,
 		description: describeSpendingCategory(payMe, category)
 	};
-	const actions: SpendingCategoryAction[] = category.builtIn ? [] : category.retired ? ['restore'] : ['edit', 'retire'];
+	const actions: SpendingCategoryAction[] = category.builtIn ? ['target'] : category.retired ? ['restore'] : ['edit', 'target', 'retire'];
 	return succeed([{ type: 'show-manage', card, view: { kind: 'spending-category', spendingCategoryId: id, actions } }], category);
 }
 
 function describeSpendingCategory(payMe: PayMe, category: SpendingCategory): string {
 	const notes = [category.builtIn && 'built in', category.retired && 'retired'].filter(Boolean);
 	const heading = `**${category.name}**${notes.length ? ` (${notes.join(', ')})` : ''}`;
-	if (category.builtIn) return `${heading}: every Payout and Share`;
+	const percent = spendingCategoryTargets(payMe, monthOf(new Date())).get(category.id);
+	const target = percent === undefined ? '' : ` · target ${formatPercent(percent)} this month`;
+	if (category.builtIn) return `${heading}: every Payout and Share${target}`;
 	const jobs = category.jobIds.map((jobId) => getJob(payMe, jobId)!).map((job) => (job.retired ? `${job.name} (retired)` : job.name));
-	return `${heading}: ${jobs.length ? jobs.sort().join(', ') : 'only Leadership can request'}`;
+	return `${heading}: ${jobs.length ? jobs.sort().join(', ') : 'only Leadership can request'}${target}`;
 }
 
 function spendingCategoryLabel(category: SpendingCategory): string {

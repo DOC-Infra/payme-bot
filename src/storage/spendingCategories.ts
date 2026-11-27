@@ -1,6 +1,6 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, lte } from 'drizzle-orm';
 import type { SpendingCategory } from '../core/spending-categories';
-import { spendingCategories, spendingCategoryJobs } from './schema';
+import { spendingCategories, spendingCategoryJobs, spendingCategoryTargets } from './schema';
 import type { Storage } from './storage';
 
 type CategoryRow = typeof spendingCategories.$inferSelect;
@@ -56,4 +56,20 @@ function toCategory(storage: Storage, row: CategoryRow): SpendingCategory {
 		.all()
 		.map((link) => link.jobId);
 	return { ...row, jobIds };
+}
+
+export function insertSpendingCategoryTarget(storage: Storage, categoryId: number, fromMonth: string, percent: number | null, actorUserId: string) {
+	storage.db.insert(spendingCategoryTargets).values({ categoryId, fromMonth, percent, actorUserId }).run();
+}
+
+/** Each Category's target in `month`, in hundredths of a percent: the latest set at or before it. Categories with none are left out. */
+export function selectSpendingCategoryTargets(storage: Storage, month: string): Map<number, number> {
+	const rows = storage.db
+		.select({ categoryId: spendingCategoryTargets.categoryId, percent: spendingCategoryTargets.percent })
+		.from(spendingCategoryTargets)
+		.where(lte(spendingCategoryTargets.fromMonth, month))
+		.orderBy(asc(spendingCategoryTargets.fromMonth), asc(spendingCategoryTargets.id))
+		.all();
+	const latest = new Map(rows.map((row) => [row.categoryId, row.percent]));
+	return new Map([...latest].filter((entry): entry is [number, number] => entry[1] !== null));
 }

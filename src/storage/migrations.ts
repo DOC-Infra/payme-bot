@@ -228,5 +228,18 @@ export const migrations: Migration[] = [
 			);
 			INSERT INTO spending_categories (name, built_in) VALUES ('Employee Pay', 1);
 		`
+	},
+	{
+		name: '0015-spending-category-targets',
+		sql: `
+			CREATE TABLE spending_category_targets (
+				id INTEGER PRIMARY KEY,
+				category_id INTEGER NOT NULL REFERENCES spending_categories (id),
+				from_month TEXT NOT NULL,
+				percent INTEGER,
+				actor_user_id TEXT NOT NULL,
+				at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			);
+		`
 	}
 ];

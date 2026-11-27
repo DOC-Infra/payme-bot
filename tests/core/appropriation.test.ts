@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addTask,
+	addSpendingCategory,
+	setSpendingCategoryTarget,
 	fundProject,
 	getPayout,
 	monthName,
@@ -203,6 +205,10 @@ describe('What Leadership sees', () => {
 							'**Remaining**: $4,000',
 							'**Remaining after commitments**: $3,700',
 							'',
+							'**Spending Categories**',
+							'- Employee Pay: no target · Spent $1,000 · Committed $300',
+							'- Unassigned: 100% ($5,000)',
+							'',
 							'**Spent by Job**',
 							'- Courier: $1,000'
 						].join('\n')
@@ -220,7 +226,17 @@ describe('What Leadership sees', () => {
 				{
 					card: {
 						title: 'Appropriation · October 2026',
-						description: ['**Appropriation**: Not set', '**Spent**: $0', '', '**Spent by Job**', 'Nothing was paid.'].join('\n')
+						description: [
+							'**Appropriation**: Not set',
+							'**Spent**: $0',
+							'',
+							'**Spending Categories**',
+							'- Employee Pay: no target · Spent $0',
+							'- Unassigned: 100%',
+							'',
+							'**Spent by Job**',
+							'Nothing was paid.'
+						].join('\n')
 					}
 				}
 			]
@@ -259,17 +275,37 @@ describe('The report', () => {
 
 		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11')).summary).toBe(
 			[
-				'month,spending_category,job,appropriation,spent,over_under',
-				'2026-10,,,,1000,',
-				'2026-10,Employee Pay,,,1000,',
-				'2026-10,Employee Pay,Courier,,1000,',
-				'2026-11,,,5000,1550.5,-3449.5',
-				'2026-11,Employee Pay,,,1550.5,',
-				'2026-11,Employee Pay,Courier,,1000,',
-				'2026-11,Employee Pay,Logistics,,550.5,',
+				'month,spending_category,job,appropriation,target,spent,over_under',
+				'2026-10,,,,,1000,',
+				'2026-10,Employee Pay,,,,1000,',
+				'2026-10,Employee Pay,Courier,,,1000,',
+				'2026-11,,,5000,,1550.5,-3449.5',
+				'2026-11,Employee Pay,,,,1550.5,',
+				'2026-11,Employee Pay,Courier,,,1000,',
+				'2026-11,Employee Pay,Logistics,,,550.5,',
 				''
 			].join('\n')
 		);
+	});
+
+	it('reports each Spending Category against the target it had that month', () => {
+		const { payMe } = twoMonths();
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '10', november));
+		created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+
+		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11')).summary.split('\n')).toEqual([
+			'month,spending_category,job,appropriation,target,spent,over_under',
+			'2026-10,,,,,1000,',
+			'2026-10,Employee Pay,,,,1000,',
+			'2026-10,Employee Pay,Courier,,,1000,',
+			'2026-10,Grants,,,,0,',
+			'2026-11,,,5000,,1550.5,-3449.5',
+			'2026-11,Employee Pay,,,500,1550.5,1050.5',
+			'2026-11,Employee Pay,Courier,,,1000,',
+			'2026-11,Employee Pay,Logistics,,,550.5,',
+			'2026-11,Grants,,,,0,',
+			''
+		]);
 	});
 
 	it('lists every paid Payout line and Share at its frozen amount, by date paid', () => {
@@ -386,6 +422,36 @@ describe('Warnings when going over the Appropriation', () => {
 		expect(warnings(createProject(payMe, leadership(), { name: 'Depot', jobId: warehouse.jobId, budget: '1' }))).toHaveLength(1);
 	});
 
+	it('warns when marking a Payout paid takes Employee Pay over its target, alongside any Appropriation warning', () => {
+		const { payMe, parcel } = courierAndLogistics();
+		created(setAppropriation(payMe, leadership(), '1500', '2000-01'));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '50', new Date()));
+		approve(payMe, alex, parcel.id);
+		const first = created(generatePayout(payMe, leadership(), alex.userId));
+		const firstPaid = markPayoutPaid(payMe, leadership(), first.number, first.revision);
+
+		expect(warnings(firstPaid)).toEqual([
+			{
+				type: 'private-reply',
+				card: {
+					tone: 'warning',
+					description: `**Over target**: Employee Pay has spent $1,000 of its $750 target for ${thisMonth()}, $250 over.`
+				}
+			}
+		]);
+
+		approve(payMe, alex, parcel.id);
+		const second = created(generatePayout(payMe, leadership(), alex.userId));
+		expect(
+			warnings(markPayoutPaid(payMe, leadership(), second.number, second.revision)).map(
+				(each) => each.type === 'private-reply' && each.card.description
+			)
+		).toEqual([
+			`**Over the Appropriation**: ${thisMonth()} has spent $2,000 of its $1,500, $500 over.`,
+			`**Over target**: Employee Pay has spent $2,000 of its $750 target for ${thisMonth()}, $1,250 over.`
+		]);
+	});
+
 	it('never warns in a month with no Appropriation', () => {
 		const { payMe, parcel, warehouse } = courierAndLogistics();
 		approve(payMe, alex, parcel.id);
@@ -394,5 +460,84 @@ describe('Warnings when going over the Appropriation', () => {
 		expect(warnings(markPayoutPaid(payMe, leadership(), payout.number, payout.revision))).toEqual([]);
 		expect(warnings(fundProject(payMe, leadership(), warehouse.id, '1000000'))).toEqual([]);
 		expect(warnings(createProject(payMe, leadership(), { name: 'Depot', jobId: warehouse.jobId, budget: '1000000' }))).toEqual([]);
+	});
+});
+
+describe('Spending Category targets', () => {
+	const october = new Date('2026-10-10T12:00:00Z');
+	const rowsIn = (payMe: PayMe, month: string) => created(showAppropriation(payMe, leadership(), month, november)).categories;
+
+	it('applies a target from the month it is set, leaving earlier months with the target they had', () => {
+		const payMe = createTestPayMe();
+		created(setAppropriation(payMe, leadership(), '5000', '2026-09'));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '60', october));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '12.5', november));
+
+		expect(rowsIn(payMe, '2026-09')).toEqual([expect.objectContaining({ name: 'Employee Pay', targetPercent: null, target: null })]);
+		expect(rowsIn(payMe, '2026-10')).toEqual([expect.objectContaining({ targetPercent: 6000, target: 300000 })]);
+		expect(rowsIn(payMe, '2026-11')).toEqual([expect.objectContaining({ targetPercent: 1250, target: 62500 })]);
+	});
+
+	it('can be cleared, and shows no target in dollars in a month with no Appropriation', () => {
+		const payMe = createTestPayMe();
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '60', october));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '', november));
+
+		expect(rowsIn(payMe, '2026-10')).toEqual([expect.objectContaining({ targetPercent: 6000, target: null })]);
+		expect(rowsIn(payMe, '2026-11')).toEqual([expect.objectContaining({ targetPercent: null, target: null })]);
+	});
+
+	it('refuses targets that would total over 100%, a percentage it cannot read, and anyone but Leadership', () => {
+		const payMe = createTestPayMe();
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '60', november));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, '40', november));
+
+		expect(setSpendingCategoryTarget(payMe, leadership(), grants.id, '40.01', november)).toEqual({
+			ok: false,
+			error: { code: 'targets-over-100', total: 10001 }
+		});
+		for (const text of ['0', '101', '12.345', '50%', 'half'])
+			expect(setSpendingCategoryTarget(payMe, leadership(), 1, text, november)).toMatchObject({ error: { code: 'invalid-percent' } });
+		expect(setSpendingCategoryTarget(payMe, member('user-casey'), 1, '10', november)).toMatchObject({ error: { code: 'not-permitted' } });
+		expect(setSpendingCategoryTarget(payMe, leadership(), 99, '10', november)).toMatchObject({ error: { code: 'spending-category-not-found' } });
+	});
+
+	it('flags a Category whose Spent is over its target, and shows what no target covers', () => {
+		const { payMe, parcel } = courierAndLogistics();
+		created(setAppropriation(payMe, leadership(), '5000', '2026-11'));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '10', november));
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, '30', november));
+		created(addSpendingCategory(payMe, leadership(), { name: 'Events', jobIds: [] }));
+		approve(payMe, alex, parcel.id);
+		paidAt(payMe, alex, '2026-11-02T10:00:00.000Z');
+
+		const shown = showAppropriation(payMe, leadership(), null, november);
+		expect(created(shown)).toMatchObject({
+			categories: [
+				{ name: 'Employee Pay', targetPercent: 1000, target: 50000, spent: 100000, committed: 0, overTarget: true },
+				{ name: 'Events', targetPercent: null, target: null, spent: 0, committed: 0, overTarget: false },
+				{ name: 'Grants', targetPercent: 3000, target: 150000, spent: 0, committed: 0, overTarget: false }
+			],
+			unassigned: { percent: 6000, amount: 300000 }
+		});
+		expect(shown).toMatchObject({
+			effects: [
+				{
+					card: {
+						description: expect.stringContaining(
+							[
+								'**Spending Categories**',
+								'- Employee Pay: target 10% ($500) · Spent $1,000 · Committed $0 · **over target**',
+								'- Events: no target · Spent $0 · Committed $0',
+								'- Grants: target 30% ($1,500) · Spent $0 · Committed $0',
+								'- Unassigned: 60% ($3,000)'
+							].join('\n')
+						)
+					}
+				}
+			]
+		});
 	});
 });

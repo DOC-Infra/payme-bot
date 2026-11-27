@@ -10,7 +10,8 @@ import { payoutLabel, requestLabel, shareLabel } from './labels';
 import { owedSummary, paidPayouts, type Payout } from './payouts';
 import { allProjects, balanceOf, getProject } from './projects';
 import { getTask } from './tasks';
-import { formatAmount, parseRate, plainAmount } from './rates';
+import { formatAmount, formatPercent, parseRate, plainAmount } from './rates';
+import { allSpendingCategories, employeePayId, spendingCategoryTargets } from './spending-categories';
 
 export interface AppropriationView {
 	/** YYYY-MM, a calendar month in UTC. */
@@ -27,6 +28,23 @@ export interface AppropriationView {
 	reserved: number | null;
 	remaining: number | null;
 	remainingAfterCommitted: number | null;
+	/** Employee Pay first, then active Spending Categories and Retired ones that had a target in the month. */
+	categories: CategorySpend[];
+	/** The part of the Appropriation no target covers. */
+	unassigned: { percent: number; amount: number | null };
+}
+
+export interface CategorySpend {
+	id: number;
+	name: string;
+	/** Hundredths of a percent of the Appropriation. */
+	targetPercent: number | null;
+	/** The target in dollars, when the month has an Appropriation. */
+	target: number | null;
+	spent: number;
+	/** Only for the current month. */
+	committed: number | null;
+	overTarget: boolean;
 }
 
 export interface JobSpend {
@@ -64,6 +82,26 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 	const owed = isCurrentMonth ? committedToday(payMe) : null;
 	const committed = owed?.committed ?? null;
 	const remaining = isCurrentMonth && appropriation !== null ? appropriation - spent : null;
+	const targets = spendingCategoryTargets(payMe, month);
+	const targetOf = (percent: number | null) => (percent === null || appropriation === null ? null : Math.round((appropriation * percent) / 10000));
+	const categories = allSpendingCategories(payMe)
+		.filter((category) => !category.retired || targets.has(category.id))
+		.map((category): CategorySpend => {
+			const isEmployeePay = category.id === employeePayId;
+			const targetPercent = targets.get(category.id) ?? null;
+			const target = targetOf(targetPercent);
+			const categorySpent = isEmployeePay ? spent : 0;
+			return {
+				id: category.id,
+				name: category.name,
+				targetPercent,
+				target,
+				spent: categorySpent,
+				committed: committed === null ? null : isEmployeePay ? committed : 0,
+				overTarget: target !== null && categorySpent > target
+			};
+		});
+	const unassignedPercent = 10000 - [...targets.values()].reduce((sum, percent) => sum + percent, 0);
 	return {
 		month,
 		appropriation,
@@ -73,7 +111,9 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 		committedEstimate: owed?.estimated ?? null,
 		reserved: isCurrentMonth ? reservedToday(payMe) : null,
 		remaining,
-		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed
+		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed,
+		categories,
+		unassigned: { percent: unassignedPercent, amount: targetOf(unassignedPercent) }
 	};
 }
 
@@ -88,6 +128,16 @@ export function overCommittedWarning(payMe: PayMe): Effect[] {
 	const view = currentView(payMe);
 	const total = view.spent + (view.committed ?? 0) + (view.reserved ?? 0);
 	return warnIfOver(view, total, (amounts) => `${monthName(view.month)}'s Spent, Committed and Reserved now come to ${amounts}.`);
+}
+
+/** A warning when this month's Spent in the Category has gone over its target (ADR 0003). */
+export function overTargetWarning(payMe: PayMe, categoryId: number): Effect[] {
+	const view = currentView(payMe);
+	const category = view.categories.find((each) => each.id === categoryId);
+	if (!category?.overTarget) return [];
+	const over = formatAmount(category.spent - category.target!);
+	const text = `${category.name} has spent ${formatAmount(category.spent)} of its ${formatAmount(category.target!)} target for ${monthName(view.month)}, ${over} over.`;
+	return [{ type: 'private-reply', card: notice(`**Over target**: ${text}`, 'warning') }];
 }
 
 function currentView(payMe: PayMe): AppropriationView {
@@ -117,10 +167,28 @@ function appropriationCard(view: AppropriationView): Card {
 		...row('Remaining', view.remaining),
 		...row('Remaining after commitments', view.remainingAfterCommitted),
 		'',
+		'**Spending Categories**',
+		...view.categories.map(categoryLine),
+		`- Unassigned: ${targetText(view.unassigned.percent, view.unassigned.amount)}`,
+		'',
 		'**Spent by Job**',
 		...(jobs.length ? jobs : ['Nothing was paid.'])
 	].join('\n');
 	return { tone: 'info', title: `Appropriation · ${monthName(view.month)}`, description, footer: 'Months are calendar months in UTC.' };
+}
+
+function categoryLine(category: CategorySpend): string {
+	const parts = [
+		category.targetPercent === null ? 'no target' : `target ${targetText(category.targetPercent, category.target)}`,
+		`Spent ${formatAmount(category.spent)}`,
+		...(category.committed === null ? [] : [`Committed ${formatAmount(category.committed)}`]),
+		...(category.overTarget ? ['**over target**'] : [])
+	];
+	return `- ${category.name}: ${parts.join(' · ')}`;
+}
+
+function targetText(percent: number, amount: number | null): string {
+	return amount === null ? formatPercent(percent) : `${formatPercent(percent)} (${formatAmount(amount)})`;
 }
 
 const employeePay = 'Employee Pay';
@@ -145,7 +213,7 @@ export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string
 
 	const months = monthsBetween(from, to);
 	const summary = csv(
-		['month', 'spending_category', 'job', 'appropriation', 'spent', 'over_under'],
+		['month', 'spending_category', 'job', 'appropriation', 'target', 'spent', 'over_under'],
 		months.flatMap((month) => summaryRows(payMe, month))
 	);
 	const items = csv(
@@ -188,15 +256,17 @@ function itemRows(payMe: PayMe, payout: Payout): string[][] {
 }
 
 function summaryRows(payMe: PayMe, month: string): string[][] {
-	const appropriation = selectAppropriationFor(payMe.storage, month);
-	const byJob = spendByJob(payMe, month);
-	const total = byJob.reduce((sum, job) => sum + job.amount, 0);
-	const spent = plainAmount(total);
-	const overUnder = appropriation === null ? '' : signedAmount(total - appropriation);
+	const view = viewOf(payMe, month, new Date());
+	const amount = (hundredths: number | null) => (hundredths === null ? '' : plainAmount(hundredths));
+	const overUnder = (limit: number | null, spent: number) => (limit === null ? '' : signedAmount(spent - limit));
 	return [
-		[month, '', '', appropriation === null ? '' : plainAmount(appropriation), spent, overUnder],
-		[month, employeePay, '', '', spent, ''],
-		...byJob.map((job) => [month, employeePay, job.job, '', plainAmount(job.amount), ''])
+		[month, '', '', amount(view.appropriation), '', plainAmount(view.spent), overUnder(view.appropriation, view.spent)],
+		...view.categories.flatMap((category) => [
+			[month, category.name, '', '', amount(category.target), plainAmount(category.spent), overUnder(category.target, category.spent)],
+			...(category.id === employeePayId
+				? view.spentByJob.map((job) => [month, category.name, job.job, '', '', plainAmount(job.amount), ''])
+				: [])
+		])
 	];
 }
 

@@ -1,7 +1,7 @@
 import { insertPayout, replaceOpenPayout, selectOpenPayout, selectPayout, selectPayoutsInState, settlePayout } from '../storage/payouts';
 import { markSharesPaid, selectUnpaidShares } from '../storage/projects';
 import type { Actor } from './actor';
-import { overSpentWarning } from './appropriation';
+import { overSpentWarning, overTargetWarning } from './appropriation';
 import { notice, type Card, type Effect, type PayoutAction } from './effects';
 import { getEmployee } from './employees';
 import { jobsHeldBy, jobsManagedBy } from './job-membership';
@@ -14,6 +14,7 @@ import { isLeadership, requireLeadership } from './permissions';
 import { getProject, type Share } from './projects';
 import { formatAmount, plainAmount } from './rates';
 import { updateReviewCopies, type PaymentRequest } from './requests';
+import { employeePayId } from './spending-categories';
 import { getTask } from './tasks';
 
 export interface PayoutLine {
@@ -385,7 +386,8 @@ export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number, revis
 		effects.push(
 			{ type: 'post-to-requests-thread', employeeUserId: payout.employeeUserId, card: log, ping: false },
 			payoutEffect(payMe, payout),
-			...overSpentWarning(payMe)
+			...overSpentWarning(payMe),
+			...overTargetWarning(payMe, employeePayId)
 		);
 		return succeed(effects, payout);
 	});

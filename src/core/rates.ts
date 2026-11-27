@@ -20,3 +20,16 @@ export function plainAmount(hundredths: number): string {
 		.replace(/0+$/, '');
 	return cents ? `${whole}.${cents}` : String(whole);
 }
+
+/** A percentage above 0 and at most 100, with up to two decimal places, as hundredths of a percent: 12.5 is 1250. */
+export function parsePercent(text: string): number | null {
+	const match = /^(\d{1,3})(?:\.(\d{1,2}))?$/.exec(text.trim());
+	if (!match) return null;
+	const percent = Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0'));
+	return percent > 0 && percent <= 10000 ? percent : null;
+}
+
+/** Hundredths of a percent for people to read, like 12.5%. */
+export function formatPercent(hundredths: number): string {
+	return `${plainAmount(hundredths)}%`;
+}

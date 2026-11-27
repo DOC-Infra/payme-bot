@@ -5,6 +5,7 @@ import {
 	fail,
 	getJob,
 	getSpendingCategory,
+	monthOf,
 	getTask,
 	requireLeadership,
 	restoreSpendingCategory,
@@ -12,6 +13,7 @@ import {
 	retireJob,
 	retireSpendingCategory,
 	retireTask,
+	spendingCategoryTargets,
 	type Actor
 } from '../core';
 import { decodeCustomId, type ManageButtonAction } from '../discord/customIds';
@@ -21,6 +23,7 @@ import {
 	buildJobModal,
 	buildManagerRolesModal,
 	buildNewTaskModal,
+	buildTargetModal,
 	buildTaskJobsModal,
 	confirmRetireJobButton,
 	formJobs
@@ -81,6 +84,12 @@ export class ButtonHandler extends InteractionHandler {
 				return retireSpendingCategory(payMe, actor, id);
 			case 'restore-spending-category':
 				return restoreSpendingCategory(payMe, actor, id);
+			case 'spending-category-target': {
+				const category = getSpendingCategory(payMe, id);
+				if (!category) return fail({ code: 'spending-category-not-found' });
+				const percent = spendingCategoryTargets(payMe, monthOf(new Date())).get(id) ?? null;
+				return this.show(interaction, buildTargetModal(category, percent));
+			}
 			case 'edit-spending-category': {
 				const category = getSpendingCategory(payMe, id);
 				if (!category) return fail({ code: 'spending-category-not-found' });

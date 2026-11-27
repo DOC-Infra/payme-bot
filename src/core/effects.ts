@@ -249,7 +249,7 @@ export interface Choice {
 
 export type JobAction = 'edit' | 'managers' | 'retire';
 export type TaskAction = 'edit' | 'jobs' | 'retire' | 'restore';
-export type SpendingCategoryAction = 'edit' | 'retire' | 'restore';
+export type SpendingCategoryAction = 'edit' | 'target' | 'retire' | 'restore';
 
 /** What a management view offers below its card. */
 export type ManageView =

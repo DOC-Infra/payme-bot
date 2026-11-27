@@ -1,4 +1,4 @@
-import { formatAmount } from './rates';
+import { formatAmount, formatPercent } from './rates';
 import { maxFormOptions } from './tasks';
 import { payoutLabel, payoutStateName, requestLabel, shareLabel, stateName, type PayoutState, type RequestState } from './labels';
 
@@ -53,6 +53,8 @@ export type PayMeError =
 	| { code: 'invalid-amount'; amount: string }
 	| { code: 'invalid-month'; month: string }
 	| { code: 'spending-category-not-found' }
+	| { code: 'invalid-percent'; percent: string }
+	| { code: 'targets-over-100'; total: number }
 	| { code: 'spending-category-name-required' }
 	| { code: 'spending-category-name-taken'; name: string; retired: boolean }
 	| { code: 'spending-category-built-in'; name: string }
@@ -178,6 +180,10 @@ export function describeError(error: PayMeError): string {
 			return `${error.to} is before ${error.from}. Give the earlier month first.`;
 		case 'report-too-long':
 			return `That is ${error.months} months. A report can cover at most ${error.max}.`;
+		case 'invalid-percent':
+			return `${error.percent} is not a valid target. Use a percentage above 0 and at most 100, with no % sign, like 25 or 12.5.`;
+		case 'targets-over-100':
+			return `That would make the targets add up to ${formatPercent(error.total)} of the Appropriation. Lower another target first.`;
 		case 'spending-category-not-found':
 			return 'That Spending Category does not exist.';
 		case 'spending-category-name-required':
