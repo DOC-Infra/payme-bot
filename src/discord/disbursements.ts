@@ -4,18 +4,18 @@ import { encodeCustomId, type DisbursementButton } from './customIds';
 
 export const declineReasonFieldId = 'reason';
 
-const labels: Record<DisbursementButton, [string, ButtonStyle]> = {
-	withdraw: ['Withdraw', ButtonStyle.Secondary],
-	show: ['Open', ButtonStyle.Secondary],
-	paid: ['Mark paid', ButtonStyle.Success],
-	decline: ['Decline', ButtonStyle.Danger]
+const looks: Record<DisbursementButton, { label: string; style: ButtonStyle }> = {
+	withdraw: { label: 'Withdraw', style: ButtonStyle.Secondary },
+	show: { label: 'Open', style: ButtonStyle.Secondary },
+	paid: { label: 'Mark paid', style: ButtonStyle.Success },
+	decline: { label: 'Decline', style: ButtonStyle.Danger }
 };
 
-export function disbursementButton(disbursementNumber: number, action: DisbursementButton, label = labels[action][0]): ButtonBuilder {
+export function disbursementButton(disbursementNumber: number, action: DisbursementButton, label = looks[action].label): ButtonBuilder {
 	return new ButtonBuilder()
 		.setCustomId(encodeCustomId({ kind: 'disbursement-button', action, disbursementNumber }))
 		.setLabel(label)
-		.setStyle(labels[action][1]);
+		.setStyle(looks[action].style);
 }
 
 /** The buttons on a Disbursement's public card. */

@@ -130,6 +130,33 @@ export function requestedDisbursements(payMe: PayMe): Disbursement[] {
 	return selectDisbursementsInState(payMe.storage, 'requested');
 }
 
+export interface DisbursementGroup {
+	category: string;
+	items: Disbursement[];
+}
+
+/** Requested Disbursements grouped by Spending Category, Categories by name. */
+export function requestedDisbursementGroups(payMe: PayMe): DisbursementGroup[] {
+	const groups = new Map<string, Disbursement[]>();
+	for (const disbursement of requestedDisbursements(payMe)) {
+		const name = getSpendingCategory(payMe, disbursement.categoryId)!.name;
+		groups.set(name, [...(groups.get(name) ?? []), disbursement]);
+	}
+	return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([category, items]) => ({ category, items }));
+}
+
+export function disbursementGroupLines(groups: readonly DisbursementGroup[]): string[] {
+	if (groups.length === 0) return [];
+	return [
+		'',
+		'**Disbursements**',
+		...groups.flatMap(({ category, items }) => [
+			`__${category}__`,
+			...items.map((item) => `- **${disbursementLabel(item.number)}** to ${item.recipient}: ${formatAmount(item.amount)} (${item.reason})`)
+		])
+	];
+}
+
 /** The Disbursement privately for Leadership, with its Pay Command while it is Requested. */
 export function showDisbursement(payMe: PayMe, actor: Actor, number: number): Outcome<Disbursement> {
 	const refused = requireLeadership(payMe, actor);
@@ -137,6 +164,15 @@ export function showDisbursement(payMe: PayMe, actor: Actor, number: number): Ou
 	const disbursement = getDisbursement(payMe, number);
 	if (!disbursement) return fail({ code: 'disbursement-not-found' });
 	return succeed([privateEffect(payMe, disbursement)], disbursement);
+}
+
+/** Refuses before Leadership is asked for a reason, when the Disbursement can no longer be paid or declined. */
+export function checkDisbursementDecision(payMe: PayMe, actor: Actor, number: number): Failure | null {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	const disbursement = getDisbursement(payMe, number);
+	if (!disbursement) return fail({ code: 'disbursement-not-found' });
+	return disbursement.state === 'requested' ? null : fail({ code: 'disbursement-decided', number, state: disbursement.state });
 }
 
 export function markDisbursementPaid(payMe: PayMe, actor: Actor, number: number): Outcome<Disbursement> {
@@ -165,7 +201,7 @@ function decide(payMe: PayMe, actor: Actor, number: number, to: 'paid' | 'declin
 	});
 }
 
-export function disbursementPayCommand(disbursement: Disbursement, category: SpendingCategory): string {
+function disbursementPayCommand(disbursement: Disbursement, category: SpendingCategory): string {
 	return `/gov payout GovCommerce ${disbursement.recipient} ${plainAmount(disbursement.amount)} ${category.name}`;
 }
 

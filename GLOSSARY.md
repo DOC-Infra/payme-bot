@@ -116,7 +116,7 @@ A snapshot, taken when Leadership generates it, of one Employee's Approved Payme
 _Avoid_: Batch, payroll, payment run
 
 **Pay Command**:
-The in-game command, in the form `/gov payout GovCommerce <to> <amount> [reason]`, that settles one Payout.
+The in-game command, in the form `/gov payout GovCommerce <to> <amount> [reason]`, that settles one Payout or one Disbursement. A Disbursement's reason is its Spending Category's name.
 _Avoid_: Payment, transfer
 
 ## Appropriation and spending

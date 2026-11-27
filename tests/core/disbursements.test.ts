@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addSpendingCategory,
+	checkDisbursementDecision,
 	createJob,
 	declineDisbursement,
 	markDisbursementPaid,
@@ -317,6 +318,7 @@ describe('Paying and declining from /payouts', () => {
 		const { payMe, category } = grantsOffice();
 		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
 
+		expect(checkDisbursementDecision(payMe, leadership(), 1)).toBeNull();
 		expect(declineDisbursement(payMe, leadership(), 1, '  ')).toEqual({ ok: false, error: { code: 'reason-required' } });
 		expect(declineDisbursement(payMe, leadership(), 1, ' Already funded ')).toMatchObject({
 			value: { state: 'declined', settledBy: 'user-leadership', outcomeReason: 'Already funded' },
@@ -343,6 +345,11 @@ describe('Paying and declining from /payouts', () => {
 			error: { code: 'disbursement-decided', number: 1, state: 'withdrawn' }
 		});
 		expect(declineDisbursement(payMe, leadership(), 1, 'No')).toMatchObject({ error: { code: 'disbursement-decided' } });
+		expect(checkDisbursementDecision(payMe, leadership(), 1)).toEqual({
+			ok: false,
+			error: { code: 'disbursement-decided', number: 1, state: 'withdrawn' }
+		});
+		expect(checkDisbursementDecision(payMe, grantsOfficer, 1)).toEqual({ ok: false, error: { code: 'not-permitted' } });
 		expect(markDisbursementPaid(payMe, member('user-di', 'role-grants-manager'), 1)).toEqual({ ok: false, error: { code: 'not-permitted' } });
 		expect(declineDisbursement(payMe, grantsOfficer, 1, 'No')).toEqual({ ok: false, error: { code: 'not-permitted' } });
 	});
