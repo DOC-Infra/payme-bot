@@ -204,6 +204,15 @@ export function requestedDisbursementGroups(payMe: PayMe): DisbursementGroup[] {
 	return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([category, items]) => ({ category, items }));
 }
 
+/** The Requested Disbursements privately for Leadership, with a button to open each and its Pay Command. None makes no effect. */
+export function requestedDisbursementsEffect(payMe: PayMe): Effect[] {
+	const groups = requestedDisbursementGroups(payMe);
+	const numbers = groups.flatMap(({ items }) => items.map((item) => item.number));
+	if (numbers.length === 0) return [];
+	const card: Card = { tone: 'info', title: 'Requested Disbursements', description: disbursementGroupLines(groups).slice(2).join('\n') };
+	return [{ type: 'show-disbursements', card, disbursementNumbers: numbers }];
+}
+
 export function disbursementGroupLines(groups: readonly DisbursementGroup[]): string[] {
 	if (groups.length === 0) return [];
 	return [
