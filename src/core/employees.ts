@@ -136,6 +136,6 @@ function logEntry(employeeUserId: string, text: string): Effect {
 	return { type: 'post-to-requests-thread', employeeUserId, card: notice(text, 'neutral'), ping: false };
 }
 
-function isValidMinecraftName(name: string): boolean {
+export function isValidMinecraftName(name: string): boolean {
 	return /^\w{3,16}$/.test(name);
 }

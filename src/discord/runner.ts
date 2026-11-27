@@ -31,6 +31,9 @@ import {
 	getEmployee,
 	recordRequestsThread,
 	carryOutRound,
+	disbursementLabel,
+	getDisbursement,
+	recordDisbursementCard,
 	employeeCategoryId,
 	requestEntry,
 	type Actor,
@@ -46,6 +49,7 @@ import {
 } from '../core';
 import { fetchActorIn, toActor } from './actor';
 import { reportButton } from './appropriation';
+import { disbursementButtons } from './disbursements';
 import { scheduleDashboardRefresh } from './dashboard';
 import { scheduleRatesRefresh } from './ratesChannel';
 import { toEmbeds } from './embeds';
@@ -107,6 +111,29 @@ const handlers: Handlers = {
 			components: [],
 			files: effect.files.map((file) => ({ attachment: Buffer.from(file.content), name: file.name }))
 		}),
+	'post-disbursement': async (effect, { payMe, interaction }) => {
+		const channel = interaction?.channel;
+		if (!channel?.isSendable()) throw new Error(`PayMe can't post ${disbursementLabel(effect.disbursementNumber)} in this channel`);
+		const message = await channel.send({
+			embeds: toEmbeds(effect.card),
+			components: reviewRow(disbursementButtons(effect.disbursementNumber, effect.actions)),
+			allowedMentions: { parse: [] }
+		});
+		recordDisbursementCard(payMe, effect.disbursementNumber, { channelId: channel.id, messageId: message.id });
+		await replyPrivately(interaction!, notice(`Posted ${disbursementLabel(effect.disbursementNumber)} here for discussion.`));
+	},
+	'update-disbursement': async (effect, { payMe }) => {
+		const card = getDisbursement(payMe, effect.disbursementNumber);
+		if (!card?.channelId || !card.messageId) return;
+		const channel = await container.client.channels.fetch(card.channelId);
+		if (!channel?.isTextBased()) throw new Error(`The card for ${disbursementLabel(effect.disbursementNumber)} is not in a text channel`);
+		if (channel.isThread() && channel.archived) await channel.setArchived(false);
+		await channel.messages.edit(card.messageId, {
+			embeds: toEmbeds(effect.card),
+			components: reviewRow(disbursementButtons(effect.disbursementNumber, effect.actions)),
+			allowedMentions: { parse: [] }
+		});
+	},
 	'show-appropriation': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card, [reportButton(effect.month)]),
 	'create-employee-channel': async (effect, { guildId, payMe }) => {
 		const guild = await container.client.guilds.fetch(guildId);

@@ -1,10 +1,11 @@
 import { sql } from 'drizzle-orm';
 import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-import type { PayoutState, ProjectState, RequestState } from '../core/labels';
+import type { DisbursementState, PayoutState, ProjectState, RequestState } from '../core/labels';
 
 const requestStates = ['pending', 'approved', 'rejected', 'denied', 'withdrawn', 'paid'] as const satisfies readonly RequestState[];
 const payoutStates = ['open', 'paid', 'discarded'] as const satisfies readonly PayoutState[];
 const projectStates = ['open', 'closed'] as const satisfies readonly ProjectState[];
+const disbursementStates = ['requested', 'paid', 'declined', 'withdrawn', 'voided'] as const satisfies readonly DisbursementState[];
 
 const now = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -249,6 +250,27 @@ export const spendingCategoryTargets = sqliteTable('spending_category_targets', 
 	percent: integer('percent'),
 	actorUserId: text('actor_user_id').notNull(),
 	at: text('at').notNull().default(now)
+});
+
+/** `jobId` is null when Leadership requested it without holding one of the Category's Jobs. */
+export const disbursements = sqliteTable('disbursements', {
+	number: integer('number').primaryKey(),
+	categoryId: integer('category_id')
+		.notNull()
+		.references(() => spendingCategories.id),
+	jobId: integer('job_id').references(() => jobs.id),
+	recipient: text('recipient').notNull(),
+	amount: integer('amount').notNull(),
+	reason: text('reason').notNull(),
+	link: text('link'),
+	state: text('state', { enum: disbursementStates }).notNull(),
+	requestedBy: text('requested_by').notNull(),
+	requestedAt: text('requested_at').notNull().default(now),
+	settledBy: text('settled_by'),
+	settledAt: text('settled_at'),
+	/** The public card, once posted. */
+	channelId: text('channel_id'),
+	messageId: text('message_id')
 });
 
 /** One value per key, for things Leadership sets from Discord, like the Rates Channel. */

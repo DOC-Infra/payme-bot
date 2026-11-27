@@ -1,6 +1,17 @@
 import { formatAmount, formatPercent } from './rates';
 import { maxFormOptions } from './tasks';
-import { payoutLabel, payoutStateName, requestLabel, shareLabel, stateName, type PayoutState, type RequestState } from './labels';
+import {
+	disbursementLabel,
+	disbursementStateName,
+	payoutLabel,
+	payoutStateName,
+	requestLabel,
+	shareLabel,
+	stateName,
+	type DisbursementState,
+	type PayoutState,
+	type RequestState
+} from './labels';
 
 export type PayMeError =
 	| { code: 'not-permitted' }
@@ -53,6 +64,13 @@ export type PayMeError =
 	| { code: 'invalid-amount'; amount: string }
 	| { code: 'invalid-month'; month: string }
 	| { code: 'spending-category-not-found' }
+	| { code: 'spending-category-unavailable'; name: string }
+	| { code: 'disbursement-not-allowed'; category: string }
+	| { code: 'disbursement-job-required'; category: string }
+	| { code: 'own-disbursement' }
+	| { code: 'disbursement-not-found' }
+	| { code: 'not-your-disbursement' }
+	| { code: 'cannot-withdraw-disbursement'; number: number; state: DisbursementState }
 	| { code: 'invalid-percent'; percent: string }
 	| { code: 'targets-over-100'; total: number }
 	| { code: 'spending-category-name-required' }
@@ -184,6 +202,20 @@ export function describeError(error: PayMeError): string {
 			return `${error.percent} is not a valid target. Use a percentage above 0 and at most 100, with no % sign, like 25 or 12.5.`;
 		case 'targets-over-100':
 			return `That would make the targets add up to ${formatPercent(error.total)} of the Appropriation. Lower another target first.`;
+		case 'spending-category-unavailable':
+			return `Disbursements can't be requested from ${error.name}.`;
+		case 'disbursement-not-allowed':
+			return `Only Employees and Managers of the Jobs that draw on ${error.category}, or Leadership, can request from it.`;
+		case 'disbursement-job-required':
+			return `More than one of your Jobs draws on ${error.category}. Pick the Job this is for.`;
+		case 'own-disbursement':
+			return "You can't request a Disbursement to yourself. Ask Leadership.";
+		case 'disbursement-not-found':
+			return 'That Disbursement does not exist.';
+		case 'not-your-disbursement':
+			return 'Only whoever requested it, or Leadership, can withdraw it.';
+		case 'cannot-withdraw-disbursement':
+			return `${disbursementLabel(error.number)} is ${disbursementStateName(error.state)}. Only Requested Disbursements can be withdrawn.`;
 		case 'spending-category-not-found':
 			return 'That Spending Category does not exist.';
 		case 'spending-category-name-required':

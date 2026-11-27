@@ -2,6 +2,8 @@ export type Effect =
 	| PrivateReply
 	| PrivateFiles
 	| ShowAppropriation
+	| PostDisbursement
+	| UpdateDisbursement
 	| CreateEmployeeChannel
 	| StartRequestsThread
 	| GrantChannelAccess
@@ -70,6 +72,25 @@ export interface PrivateFiles {
 export interface TextFile {
 	name: string;
 	content: string;
+}
+
+/** A button on a Disbursement's public card. */
+export type DisbursementAction = 'withdraw';
+
+/** Post the Disbursement's card publicly where it was requested, then record it with `recordDisbursementCard`. */
+export interface PostDisbursement {
+	type: 'post-disbursement';
+	disbursementNumber: number;
+	card: Card;
+	actions: DisbursementAction[];
+}
+
+/** Rewrite the Disbursement's public card to show its latest state, with the buttons that state allows. */
+export interface UpdateDisbursement {
+	type: 'update-disbursement';
+	disbursementNumber: number;
+	card: Card;
+	actions: DisbursementAction[];
 }
 
 /** The private `/appropriation` reply for `month`, with a button to make a report. */

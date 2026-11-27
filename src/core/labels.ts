@@ -6,8 +6,30 @@ export type PayoutState = 'open' | 'paid' | 'discarded';
 
 export type ProjectState = 'open' | 'closed';
 
+export type DisbursementState = 'requested' | 'paid' | 'declined' | 'withdrawn' | 'voided';
+
 export function requestLabel(number: number): string {
 	return `R-${number}`;
+}
+
+export function disbursementLabel(number: number): string {
+	return `D-${number}`;
+}
+
+export function disbursementStateName(state: DisbursementState): string {
+	return capitalise(state);
+}
+
+const disbursementTones: Record<DisbursementState, Tone> = {
+	requested: 'info',
+	paid: 'success',
+	declined: 'danger',
+	withdrawn: 'neutral',
+	voided: 'neutral'
+};
+
+export function disbursementTone(state: DisbursementState): Tone {
+	return disbursementTones[state];
 }
 
 export function shareLabel(id: number): string {
