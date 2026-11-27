@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
 	addSpendingCategory,
 	createJob,
+	declineDisbursement,
+	markDisbursementPaid,
+	showDisbursement,
+	showPayouts,
 	discardUnpostedDisbursement,
 	getDisbursement,
 	recordDisbursementCard,
@@ -225,5 +229,121 @@ describe('A card that could not be posted', () => {
 
 		expect(getDisbursement(payMe, unposted.number)).toBeNull();
 		expect(getDisbursement(payMe, posted.number)).toMatchObject({ state: 'requested' });
+	});
+});
+
+describe('Paying and declining from /payouts', () => {
+	it('lists Requested Disbursements by Spending Category for Leadership, with a button to open each', () => {
+		const { payMe, category } = grantsOffice();
+		const events = created(addSpendingCategory(payMe, leadership(), { name: 'Events', jobIds: [] }));
+		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+		created(requestDisbursement(payMe, leadership(), grant(events.id, { recipient: 'Stage_Co', amount: '300', reason: 'Stage hire' })));
+		const withdrawn = created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+		created(withdrawDisbursement(payMe, grantsOfficer, withdrawn.number));
+
+		expect(showPayouts(payMe, leadership(), [])).toMatchObject({
+			effects: [
+				{
+					card: {
+						description: expect.stringContaining(
+							[
+								'**Disbursements**',
+								'__Events__',
+								'- **D-2** to Stage_Co: $300 (Stage hire)',
+								'__Small Business Grants__',
+								'- **D-1** to Bakery_Bob: $2,500 (Opening a bakery)'
+							].join('\n')
+						)
+					},
+					actions: [
+						{ kind: 'disbursement', disbursementNumber: 2, label: 'D-2 to Stage_Co' },
+						{ kind: 'disbursement', disbursementNumber: 1, label: 'D-1 to Bakery_Bob' }
+					]
+				}
+			]
+		});
+	});
+
+	it('shows no Disbursements to a Manager looking at /payouts', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+
+		const outcome = showPayouts(payMe, member('user-di', 'role-grants-manager'), []);
+		expect(outcome.ok && outcome.effects[0].type === 'show-payouts' && outcome.effects[0].card.description).not.toContain('D-1');
+	});
+
+	it('opens a Disbursement privately with its Pay Command and buttons to mark it paid or decline it', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, grantsOfficer, grant(category.id, { amount: '2500.5' })));
+
+		expect(showDisbursement(payMe, leadership(), 1)).toMatchObject({
+			effects: [
+				{
+					type: 'show-disbursement',
+					disbursementNumber: 1,
+					settleButtons: true,
+					card: {
+						fields: expect.arrayContaining([
+							{ name: 'Pay Command', value: '```\n/gov payout GovCommerce Bakery_Bob 2500.5 Small Business Grants\n```' }
+						])
+					}
+				}
+			]
+		});
+		expect(showDisbursement(payMe, grantsOfficer, 1)).toEqual({ ok: false, error: { code: 'not-permitted' } });
+	});
+
+	it('marks it paid, recording who and when, and edits the public card in place', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+
+		const paid = markDisbursementPaid(payMe, leadership(), 1);
+
+		expect(paid).toMatchObject({
+			ok: true,
+			value: { state: 'paid', settledBy: 'user-leadership', settledAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) },
+			effects: [
+				{
+					type: 'update-disbursement',
+					actions: [],
+					card: { tone: 'success', fields: expect.arrayContaining([{ name: 'State', value: '**Paid** by <@user-leadership>' }]) }
+				},
+				{ type: 'show-disbursement', settleButtons: false }
+			]
+		});
+	});
+
+	it('declines it with a required reason shown on the card', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+
+		expect(declineDisbursement(payMe, leadership(), 1, '  ')).toEqual({ ok: false, error: { code: 'reason-required' } });
+		expect(declineDisbursement(payMe, leadership(), 1, ' Already funded ')).toMatchObject({
+			value: { state: 'declined', settledBy: 'user-leadership', outcomeReason: 'Already funded' },
+			effects: [
+				{
+					type: 'update-disbursement',
+					card: {
+						tone: 'danger',
+						fields: expect.arrayContaining([{ name: 'State', value: '**Declined** by <@user-leadership>: Already funded' }])
+					}
+				},
+				{ type: 'show-disbursement', settleButtons: false }
+			]
+		});
+	});
+
+	it('refuses to pay or decline one no longer Requested, and anyone but Leadership', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+		created(withdrawDisbursement(payMe, grantsOfficer, 1));
+
+		expect(markDisbursementPaid(payMe, leadership(), 1)).toEqual({
+			ok: false,
+			error: { code: 'disbursement-decided', number: 1, state: 'withdrawn' }
+		});
+		expect(declineDisbursement(payMe, leadership(), 1, 'No')).toMatchObject({ error: { code: 'disbursement-decided' } });
+		expect(markDisbursementPaid(payMe, member('user-di', 'role-grants-manager'), 1)).toEqual({ ok: false, error: { code: 'not-permitted' } });
+		expect(declineDisbursement(payMe, grantsOfficer, 1, 'No')).toEqual({ ok: false, error: { code: 'not-permitted' } });
 	});
 });

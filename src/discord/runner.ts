@@ -51,7 +51,7 @@ import {
 } from '../core';
 import { fetchActorIn, toActor } from './actor';
 import { reportButton } from './appropriation';
-import { disbursementButtons } from './disbursements';
+import { disbursementButtons, settleDisbursementButtons } from './disbursements';
 import { scheduleDashboardRefresh } from './dashboard';
 import { scheduleRatesRefresh } from './ratesChannel';
 import { toEmbeds } from './embeds';
@@ -127,6 +127,11 @@ const handlers: Handlers = {
 		}
 		recordDisbursementCard(payMe, effect.disbursementNumber, { channelId: message.channelId, messageId: message.id });
 		await replyPrivately(interaction, notice(`Posted ${label} here for discussion.`));
+	},
+	'show-disbursement': async (effect, { interaction }) => {
+		if (!interaction) return;
+		const buttons = effect.settleButtons ? settleDisbursementButtons(effect.disbursementNumber) : [];
+		return replyPrivately(interaction, effect.card, buttons, acknowledged.has(interaction));
 	},
 	'update-disbursement': async (effect, { payMe }) => {
 		const card = getDisbursement(payMe, effect.disbursementNumber);

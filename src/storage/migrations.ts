@@ -263,5 +263,9 @@ export const migrations: Migration[] = [
 			);
 			CREATE INDEX disbursements_by_state ON disbursements (state);
 		`
+	},
+	{
+		name: '0017-disbursement-outcome-reason',
+		sql: `ALTER TABLE disbursements ADD COLUMN outcome_reason TEXT;`
 	}
 ];

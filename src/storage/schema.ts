@@ -268,6 +268,8 @@ export const disbursements = sqliteTable('disbursements', {
 	requestedAt: text('requested_at').notNull().default(now),
 	settledBy: text('settled_by'),
 	settledAt: text('settled_at'),
+	/** Why it was Declined or Voided. */
+	outcomeReason: text('outcome_reason'),
 	/** The public card, once posted. */
 	channelId: text('channel_id'),
 	messageId: text('message_id')

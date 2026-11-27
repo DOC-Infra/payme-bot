@@ -4,6 +4,7 @@ export type Effect =
 	| ShowAppropriation
 	| PostDisbursement
 	| UpdateDisbursement
+	| ShowDisbursement
 	| CreateEmployeeChannel
 	| StartRequestsThread
 	| GrantChannelAccess
@@ -91,6 +92,14 @@ export interface UpdateDisbursement {
 	disbursementNumber: number;
 	card: Card;
 	actions: DisbursementAction[];
+}
+
+/** Show a Disbursement privately to Leadership, with Mark paid and Decline buttons while `settleButtons` is set. */
+export interface ShowDisbursement {
+	type: 'show-disbursement';
+	disbursementNumber: number;
+	card: Card;
+	settleButtons: boolean;
 }
 
 /** The private `/appropriation` reply for `month`, with a button to make a report. */
@@ -228,7 +237,10 @@ export interface ShowPayout {
 	settleButtons: boolean;
 }
 
-export type PayoutAction = { kind: 'generate'; employeeUserId: string; label: string } | { kind: 'show'; payoutNumber: number; label: string };
+export type PayoutAction =
+	| { kind: 'generate'; employeeUserId: string; label: string }
+	| { kind: 'show'; payoutNumber: number; label: string }
+	| { kind: 'disbursement'; disbursementNumber: number; label: string };
 
 /** Show the payouts view privately to the actor, with one button per action. */
 export interface ShowPayouts {
