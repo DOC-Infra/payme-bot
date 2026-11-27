@@ -270,7 +270,6 @@ export const disbursements = sqliteTable('disbursements', {
 	settledAt: text('settled_at'),
 	/** Why it was Declined or Voided. */
 	outcomeReason: text('outcome_reason'),
-	/** Voiding keeps who paid it and when in `settledBy` and `settledAt`. */
 	voidedBy: text('voided_by'),
 	voidedAt: text('voided_at'),
 	/** The public card, once posted. */

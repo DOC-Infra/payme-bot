@@ -6,16 +6,13 @@ import { decodeCustomId, type DisbursementButton } from '../discord/customIds';
 import { buildDisbursementReasonModal } from '../discord/disbursements';
 import { acknowledge, runAsActor } from '../discord/runner';
 
-/** Buttons that open a form asking for a reason, rather than acting at once. */
-const asksForReason: readonly DisbursementButton[] = ['decline', 'void'];
-
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
 })
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction, pressed: InteractionHandler.ParseResult<this>) {
 		if (pressed.action === 'show') await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-		else if (!asksForReason.includes(pressed.action)) await acknowledge(interaction);
+		else if (pressed.action !== 'decline' && pressed.action !== 'void') await acknowledge(interaction);
 		await runAsActor(interaction, { code: 'not-permitted' }, (actor, payMe) => this.press(interaction, payMe, actor, pressed));
 	}
 

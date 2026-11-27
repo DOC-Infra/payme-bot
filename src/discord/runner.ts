@@ -51,7 +51,7 @@ import {
 } from '../core';
 import { fetchActorIn, toActor } from './actor';
 import { disbursementsButton, reportButton } from './appropriation';
-import { decisionButtons, disbursementButton, disbursementButtons } from './disbursements';
+import { disbursementButton, disbursementButtons } from './disbursements';
 import { scheduleDashboardRefresh } from './dashboard';
 import { scheduleRatesRefresh } from './ratesChannel';
 import { toEmbeds } from './embeds';
@@ -122,7 +122,7 @@ const handlers: Handlers = {
 			discardUnpostedDisbursement(payMe, effect.disbursementNumber);
 			return replyPrivately(
 				interaction,
-				notice(`PayMe can't post here, so ${label} was not requested. Try a channel PayMe can send messages in.`, 'danger')
+				notice(`PayMe can't post here, so ${label} was not saved. Try a channel PayMe can send messages in.`, 'danger')
 			);
 		}
 		recordDisbursementCard(payMe, effect.disbursementNumber, { channelId: message.channelId, messageId: message.id });
@@ -130,7 +130,12 @@ const handlers: Handlers = {
 	},
 	'show-disbursement': async (effect, { interaction }) => {
 		if (!interaction) return;
-		return replyPrivately(interaction, effect.card, decisionButtons(effect.disbursementNumber, effect.actions), acknowledged.has(interaction));
+		return replyPrivately(
+			interaction,
+			effect.card,
+			disbursementButtons(effect.disbursementNumber, effect.actions),
+			acknowledged.has(interaction)
+		);
 	},
 	'show-disbursements': async (effect, { interaction }) => {
 		if (!interaction) return;

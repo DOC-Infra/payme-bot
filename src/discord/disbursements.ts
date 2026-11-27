@@ -1,6 +1,6 @@
 import { ButtonBuilder, ButtonStyle, LabelBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
-import { disbursementLabel, type DisbursementAction, type DisbursementDecision } from '../core';
-import { encodeCustomId, type DisbursementButton, type DisbursementReasonAction } from './customIds';
+import { disbursementLabel, type DisbursementAction, type DisbursementDecision, type DisbursementReasonAction } from '../core';
+import { encodeCustomId, type DisbursementButton } from './customIds';
 
 export const disbursementReasonFieldId = 'reason';
 
@@ -19,13 +19,8 @@ export function disbursementButton(disbursementNumber: number, action: Disbursem
 		.setStyle(looks[action].style);
 }
 
-/** The buttons on a Disbursement's public card. */
-export function disbursementButtons(disbursementNumber: number, actions: readonly DisbursementAction[]): ButtonBuilder[] {
-	return actions.map((action) => disbursementButton(disbursementNumber, action));
-}
-
-/** Leadership's buttons on a Disbursement's private view. */
-export function decisionButtons(disbursementNumber: number, actions: readonly DisbursementDecision[]): ButtonBuilder[] {
+/** The buttons on a Disbursement's public card, or on Leadership's private view of it. */
+export function disbursementButtons(disbursementNumber: number, actions: readonly (DisbursementAction | DisbursementDecision)[]): ButtonBuilder[] {
 	return actions.map((action) => disbursementButton(disbursementNumber, action));
 }
 

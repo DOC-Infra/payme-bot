@@ -1,4 +1,4 @@
-import { parseMonth, type DisbursementAction, type DisbursementDecision, type EntryAction } from '../core';
+import { parseMonth, type DisbursementAction, type DisbursementDecision, type DisbursementReasonAction, type EntryAction } from '../core';
 
 export type ReviewAction = 'approve' | 'reject' | 'deny';
 export type ReasonAction = Exclude<ReviewAction, 'approve'>;
@@ -10,7 +10,6 @@ export type PayoutButton =
 export type ProjectButton = { action: 'create' } | { action: (typeof projectButtons)[number]; projectId: number };
 /** Withdraw is on the public card; the rest are Leadership's, from /payouts. */
 export type DisbursementButton = DisbursementAction | 'show' | DisbursementDecision;
-export type DisbursementReasonAction = Exclude<DisbursementDecision, 'paid'>;
 export type DashboardButton = (typeof dashboardButtons)[number];
 export type ManageButtonAction = (typeof manageButtons)[number];
 export type ManageMenuAction = (typeof manageMenus)[number];

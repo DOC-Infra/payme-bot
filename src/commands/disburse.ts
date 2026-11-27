@@ -28,7 +28,7 @@ export class UserCommand extends Command {
 				.addStringOption((option) =>
 					option
 						.setName('paid-on')
-						.setDescription('Leadership only: record one already paid outside PayMe on this day, like 2026-11-05')
+						.setDescription('Leadership only: record one already paid outside PayMe on this UTC day, like 2026-11-05')
 						.setMinLength(10)
 						.setMaxLength(10)
 				)

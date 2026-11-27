@@ -47,11 +47,11 @@ export function updateDisbursementCard(storage: Storage, number: number, channel
 	storage.db.update(disbursements).set({ channelId, messageId }).where(eq(disbursements.number, number)).run();
 }
 
-/** Deletes the Disbursement if it is still Requested and its card was never recorded. */
+/** Deletes the Disbursement if its card was never recorded. */
 export function deleteUnpostedDisbursement(storage: Storage, number: number) {
 	storage.db
 		.delete(disbursements)
-		.where(and(eq(disbursements.number, number), eq(disbursements.state, 'requested'), isNull(disbursements.messageId)))
+		.where(and(eq(disbursements.number, number), isNull(disbursements.messageId)))
 		.run();
 }
 

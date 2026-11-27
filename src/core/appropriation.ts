@@ -166,7 +166,12 @@ function sumOf(totals: ReadonlyMap<number, number>): number {
 }
 
 function paidDisbursementsIn(payMe: PayMe, months: readonly string[]): Disbursement[] {
-	return paidDisbursements(payMe).filter((each) => months.includes(monthOf(each.settledAt!)));
+	return settledIn(paidDisbursements(payMe), months);
+}
+
+/** Those paid (and, if since Voided, paid first) in any of `months`. */
+function settledIn(disbursements: readonly Disbursement[], months: readonly string[]): Disbursement[] {
+	return disbursements.filter((each) => months.includes(monthOf(each.settledAt!)));
 }
 
 /** A warning when marking a Payout paid has taken this month's Spent over its Appropriation (ADR 0003). */
@@ -313,9 +318,9 @@ function paidItems(payMe: PayMe, months: readonly string[]): string[][] {
 		.filter((payout) => months.includes(monthOf(payout.settledAt!)))
 		.sort((a, b) => a.number - b.number)
 		.flatMap((payout) => payoutItemRows(payMe, payout));
-	const disbursements = [...paidDisbursements(payMe), ...voidedDisbursements(payMe)]
-		.filter((each) => months.includes(monthOf(each.settledAt!)))
-		.map((each) => disbursementItemRow(payMe, each));
+	const disbursements = settledIn([...paidDisbursements(payMe), ...voidedDisbursements(payMe)], months).map((each) =>
+		disbursementItemRow(payMe, each)
+	);
 	return [...payouts, ...disbursements].sort((a, b) => a.at.localeCompare(b.at)).map((item) => item.row);
 }
 

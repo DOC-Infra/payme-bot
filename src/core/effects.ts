@@ -97,6 +97,8 @@ export interface UpdateDisbursement {
 
 /** What Leadership can do to a Disbursement from its private view. */
 export type DisbursementDecision = 'paid' | 'decline' | 'void';
+/** The decisions that need a reason. */
+export type DisbursementReasonAction = Exclude<DisbursementDecision, 'paid'>;
 
 /** Show a Disbursement privately to Leadership, with a button for each decision it still allows. */
 export interface ShowDisbursement {

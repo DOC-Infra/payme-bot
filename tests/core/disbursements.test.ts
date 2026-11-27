@@ -389,6 +389,40 @@ describe('Recording a Disbursement already paid', () => {
 		expect(created(showAppropriation(payMe, leadership(), '2026-11', november)).spent).toBe(0);
 	});
 
+	it('is discarded too when its card cannot be posted, so it never counts as Spend unseen', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2026-10-15' }), november));
+
+		discardUnpostedDisbursement(payMe, 1);
+
+		expect(getDisbursement(payMe, 1)).toBeNull();
+	});
+
+	it('can be recorded from a Category Retired since, but never from Employee Pay', () => {
+		const { payMe, category } = grantsOffice();
+		created(retireSpendingCategory(payMe, leadership(), category.id));
+
+		expect(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2026-10-15' }), november)).toMatchObject({ ok: true });
+		expect(requestDisbursement(payMe, leadership(), grant(category.id), november)).toMatchObject({
+			error: { code: 'spending-category-unavailable' }
+		});
+		expect(requestDisbursement(payMe, leadership(), grant(1, { paidOn: '2026-10-15' }), november)).toMatchObject({
+			error: { code: 'spending-category-unavailable' }
+		});
+	});
+
+	it('warns when a payment recorded for this month takes it over, but not for an earlier month', () => {
+		const { payMe, category } = grantsOffice();
+		created(setAppropriation(payMe, leadership(), '1000', '2000-01'));
+		const today = new Date();
+		const todayText = today.toISOString().slice(0, 10);
+		const warned = (outcome: Outcome<unknown>) =>
+			outcome.ok && outcome.effects.some((effect) => effect.type === 'private-reply' && effect.card.tone === 'warning');
+
+		expect(warned(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2020-01-15' }), today))).toBe(false);
+		expect(warned(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: todayText }), today))).toBe(true);
+	});
+
 	it('refuses a paid date from anyone but Leadership, or one in the future or that is not a real date', () => {
 		const { payMe, category } = grantsOffice();
 
