@@ -3,6 +3,7 @@ import {
 	addTask,
 	appropriationDisbursements,
 	declineDisbursement,
+	voidDisbursement,
 	markDisbursementPaid,
 	requestDisbursement,
 	addSpendingCategory,
@@ -317,11 +318,11 @@ describe('The report', () => {
 
 		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11')).items).toBe(
 			[
-				'date_paid,month,spending_category,job,task_or_project,recipient,amount,requested_by,paid_by,reference,payout',
-				'2026-10-15,2026-10,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,,user-leadership,R-1,P-1',
-				'2026-11-02,2026-11,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,,user-leadership,R-2,P-2',
-				'2026-11-20,2026-11,Employee Pay,Logistics,Load Crate,Bo_7,300,,user-leadership,R-3,P-3',
-				'2026-11-20,2026-11,Employee Pay,Logistics,Warehouse,Bo_7,250.5,,user-leadership,S-1,P-3',
+				'date_paid,month,spending_category,job,task_or_project,recipient,amount,requested_by,paid_by,reference,payout,state',
+				'2026-10-15,2026-10,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,,user-leadership,R-1,P-1,Paid',
+				'2026-11-02,2026-11,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,,user-leadership,R-2,P-2,Paid',
+				'2026-11-20,2026-11,Employee Pay,Logistics,Load Crate,Bo_7,300,,user-leadership,R-3,P-3,Paid',
+				'2026-11-20,2026-11,Employee Pay,Logistics,Warehouse,Bo_7,250.5,,user-leadership,S-1,P-3,Paid',
 				''
 			].join('\n')
 		);
@@ -633,8 +634,8 @@ describe('Disbursements in the Appropriation', () => {
 		const report = created(appropriationReport(payMe, leadership(), '2026-11', '2026-11', november));
 
 		expect(report.items.split('\n')).toEqual([
-			'date_paid,month,spending_category,job,task_or_project,recipient,amount,requested_by,paid_by,reference,payout',
-			'2026-11-01,2026-11,Grants,,,Bakery_Bob,500,user-leadership,user-leadership,D-1,',
+			'date_paid,month,spending_category,job,task_or_project,recipient,amount,requested_by,paid_by,reference,payout,state',
+			'2026-11-01,2026-11,Grants,,,Bakery_Bob,500,user-leadership,user-leadership,D-1,,Paid',
 			''
 		]);
 		expect(report.summary.split('\n')).toEqual([
@@ -644,6 +645,23 @@ describe('Disbursements in the Appropriation', () => {
 			'2026-11,Grants,,,,500,',
 			''
 		]);
+	});
+
+	it('keeps a Voided Disbursement in items.csv, marked Voided, and out of summary.csv totals', () => {
+		const { payMe } = grantsMonths();
+		created(voidDisbursement(payMe, leadership(), 1, 'Wrong recipient'));
+		const report = created(appropriationReport(payMe, leadership(), '2026-11', '2026-11', november));
+
+		expect(report.items.split('\n')[1]).toBe('2026-11-01,2026-11,Grants,,,Bakery_Bob,500,user-leadership,user-leadership,D-1,,Voided');
+		expect(report.summary.split('\n')[1]).toBe('2026-11,,,5000,,0,-5000');
+	});
+
+	it('offers a button to open each Disbursement in the list', () => {
+		const { payMe } = grantsMonths();
+
+		expect(appropriationDisbursements(payMe, leadership(), '2026-11', november)).toMatchObject({
+			effects: [{ type: 'show-disbursements', disbursementNumbers: [1, 2] }]
+		});
 	});
 
 	it("lists the month's Disbursements by date: those paid or decided in it, and those still Requested in the current month", () => {
@@ -660,7 +678,7 @@ describe('Disbursements in the Appropriation', () => {
 		expect(appropriationDisbursements(payMe, leadership(), '2026-11', november)).toMatchObject({
 			effects: [
 				{
-					type: 'private-reply',
+					type: 'show-disbursements',
 					card: {
 						title: 'Disbursements · November 2026',
 						description: [

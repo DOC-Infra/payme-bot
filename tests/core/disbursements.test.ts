@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addSpendingCategory,
-	checkDisbursementDecision,
+	setAppropriation,
 	createJob,
+	showAppropriation,
+	voidDisbursement,
+	checkDisbursementChange,
 	declineDisbursement,
 	markDisbursementPaid,
 	showDisbursement,
@@ -282,7 +285,7 @@ describe('Paying and declining from /payouts', () => {
 				{
 					type: 'show-disbursement',
 					disbursementNumber: 1,
-					settleButtons: true,
+					actions: ['paid', 'decline'],
 					card: {
 						fields: expect.arrayContaining([
 							{ name: 'Pay Command', value: '```\n/gov payout GovCommerce Bakery_Bob 2500.5 Small Business Grants\n```' }
@@ -294,7 +297,7 @@ describe('Paying and declining from /payouts', () => {
 		expect(showDisbursement(payMe, grantsOfficer, 1)).toEqual({ ok: false, error: { code: 'not-permitted' } });
 	});
 
-	it('marks it paid, recording who and when, and edits the public card in place', () => {
+	it('marks it paid, recording who and when, edits the public card in place, and then offers Void', () => {
 		const { payMe, category } = grantsOffice();
 		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
 
@@ -307,9 +310,14 @@ describe('Paying and declining from /payouts', () => {
 				{
 					type: 'update-disbursement',
 					actions: [],
-					card: { tone: 'success', fields: expect.arrayContaining([{ name: 'State', value: '**Paid** by <@user-leadership>' }]) }
+					card: {
+						tone: 'success',
+						fields: expect.arrayContaining([
+							{ name: 'State', value: expect.stringMatching(/^\*\*Paid\*\* by <@user-leadership> on \d{4}-\d{2}-\d{2}$/) }
+						])
+					}
 				},
-				{ type: 'show-disbursement', settleButtons: false }
+				{ type: 'show-disbursement', actions: ['void'] }
 			]
 		});
 	});
@@ -318,7 +326,7 @@ describe('Paying and declining from /payouts', () => {
 		const { payMe, category } = grantsOffice();
 		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
 
-		expect(checkDisbursementDecision(payMe, leadership(), 1)).toBeNull();
+		expect(checkDisbursementChange(payMe, leadership(), 1, 'decline')).toBeNull();
 		expect(declineDisbursement(payMe, leadership(), 1, '  ')).toEqual({ ok: false, error: { code: 'reason-required' } });
 		expect(declineDisbursement(payMe, leadership(), 1, ' Already funded ')).toMatchObject({
 			value: { state: 'declined', settledBy: 'user-leadership', outcomeReason: 'Already funded' },
@@ -330,7 +338,7 @@ describe('Paying and declining from /payouts', () => {
 						fields: expect.arrayContaining([{ name: 'State', value: '**Declined** by <@user-leadership>: Already funded' }])
 					}
 				},
-				{ type: 'show-disbursement', settleButtons: false }
+				{ type: 'show-disbursement', actions: [] }
 			]
 		});
 	});
@@ -345,12 +353,127 @@ describe('Paying and declining from /payouts', () => {
 			error: { code: 'disbursement-decided', number: 1, state: 'withdrawn' }
 		});
 		expect(declineDisbursement(payMe, leadership(), 1, 'No')).toMatchObject({ error: { code: 'disbursement-decided' } });
-		expect(checkDisbursementDecision(payMe, leadership(), 1)).toEqual({
+		expect(checkDisbursementChange(payMe, leadership(), 1, 'decline')).toEqual({
 			ok: false,
 			error: { code: 'disbursement-decided', number: 1, state: 'withdrawn' }
 		});
-		expect(checkDisbursementDecision(payMe, grantsOfficer, 1)).toEqual({ ok: false, error: { code: 'not-permitted' } });
+		expect(checkDisbursementChange(payMe, grantsOfficer, 1, 'decline')).toEqual({ ok: false, error: { code: 'not-permitted' } });
 		expect(markDisbursementPaid(payMe, member('user-di', 'role-grants-manager'), 1)).toEqual({ ok: false, error: { code: 'not-permitted' } });
 		expect(declineDisbursement(payMe, grantsOfficer, 1, 'No')).toEqual({ ok: false, error: { code: 'not-permitted' } });
+	});
+});
+
+describe('Recording a Disbursement already paid', () => {
+	const november = new Date('2026-11-15T12:00:00Z');
+
+	it('lets Leadership post its card already Paid on a past date, counting as Spend in that month', () => {
+		const { payMe, category } = grantsOffice();
+		created(setAppropriation(payMe, leadership(), '5000', '2026-09'));
+
+		const recorded = requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2026-10-15' }), november);
+
+		expect(recorded).toMatchObject({
+			value: { state: 'paid', settledBy: 'user-leadership', settledAt: '2026-10-15T00:00:00.000Z' },
+			effects: [
+				{
+					type: 'post-disbursement',
+					actions: [],
+					card: {
+						tone: 'success',
+						fields: expect.arrayContaining([{ name: 'State', value: '**Paid** by <@user-leadership> on 2026-10-15' }])
+					}
+				}
+			]
+		});
+		expect(created(showAppropriation(payMe, leadership(), '2026-10', november)).spent).toBe(250000);
+		expect(created(showAppropriation(payMe, leadership(), '2026-11', november)).spent).toBe(0);
+	});
+
+	it('is discarded too when its card cannot be posted, so it never counts as Spend unseen', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2026-10-15' }), november));
+
+		discardUnpostedDisbursement(payMe, 1);
+
+		expect(getDisbursement(payMe, 1)).toBeNull();
+	});
+
+	it('can be recorded from a Category Retired since, but never from Employee Pay', () => {
+		const { payMe, category } = grantsOffice();
+		created(retireSpendingCategory(payMe, leadership(), category.id));
+
+		expect(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2026-10-15' }), november)).toMatchObject({ ok: true });
+		expect(requestDisbursement(payMe, leadership(), grant(category.id), november)).toMatchObject({
+			error: { code: 'spending-category-unavailable' }
+		});
+		expect(requestDisbursement(payMe, leadership(), grant(1, { paidOn: '2026-10-15' }), november)).toMatchObject({
+			error: { code: 'spending-category-unavailable' }
+		});
+	});
+
+	it('warns when a payment recorded for this month takes it over, but not for an earlier month', () => {
+		const { payMe, category } = grantsOffice();
+		created(setAppropriation(payMe, leadership(), '1000', '2000-01'));
+		const today = new Date();
+		const todayText = today.toISOString().slice(0, 10);
+		const warned = (outcome: Outcome<unknown>) =>
+			outcome.ok && outcome.effects.some((effect) => effect.type === 'private-reply' && effect.card.tone === 'warning');
+
+		expect(warned(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2020-01-15' }), today))).toBe(false);
+		expect(warned(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: todayText }), today))).toBe(true);
+	});
+
+	it('refuses a paid date from anyone but Leadership, or one in the future or that is not a real date', () => {
+		const { payMe, category } = grantsOffice();
+
+		expect(requestDisbursement(payMe, grantsOfficer, grant(category.id, { paidOn: '2026-10-15' }), november)).toEqual({
+			ok: false,
+			error: { code: 'not-permitted' }
+		});
+		for (const paidOn of ['2026-11-16', '2026-02-30', '1999-12-31', '15/10/2026'])
+			expect(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn }), november)).toEqual({
+				ok: false,
+				error: { code: 'invalid-paid-date', date: paidOn }
+			});
+		expect(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2026-11-15' }), november)).toMatchObject({ ok: true });
+	});
+});
+
+describe('Voiding a Disbursement', () => {
+	const november = new Date('2026-11-15T12:00:00Z');
+
+	it('removes a Paid one from Spend in its month, even an earlier month, and shows who voided it and why', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2026-10-15' }), november));
+
+		expect(checkDisbursementChange(payMe, leadership(), 1, 'void')).toBeNull();
+		const voided = voidDisbursement(payMe, leadership(), 1, ' Paid the wrong person ');
+
+		expect(voided).toMatchObject({
+			value: { state: 'voided', voidedBy: 'user-leadership', outcomeReason: 'Paid the wrong person', settledAt: '2026-10-15T00:00:00.000Z' },
+			effects: [
+				{
+					type: 'update-disbursement',
+					card: {
+						tone: 'neutral',
+						fields: expect.arrayContaining([{ name: 'State', value: '**Voided** by <@user-leadership>: Paid the wrong person' }])
+					}
+				},
+				{ type: 'show-disbursement', actions: [] }
+			]
+		});
+		expect(created(showAppropriation(payMe, leadership(), '2026-10', november)).spent).toBe(0);
+	});
+
+	it('voids only Paid Disbursements, only for Leadership, and only with a reason', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+		created(requestDisbursement(payMe, leadership(), grant(category.id, { paidOn: '2026-10-15' }), november));
+
+		expect(voidDisbursement(payMe, leadership(), 1, 'No')).toEqual({ ok: false, error: { code: 'cannot-void', number: 1, state: 'requested' } });
+		expect(checkDisbursementChange(payMe, leadership(), 1, 'void')).toMatchObject({ error: { code: 'cannot-void' } });
+		expect(voidDisbursement(payMe, grantsOfficer, 2, 'No')).toEqual({ ok: false, error: { code: 'not-permitted' } });
+		expect(voidDisbursement(payMe, leadership(), 2, ' ')).toEqual({ ok: false, error: { code: 'reason-required' } });
+		expect(showDisbursement(payMe, leadership(), 2)).toMatchObject({ effects: [{ actions: ['void'] }] });
 	});
 });

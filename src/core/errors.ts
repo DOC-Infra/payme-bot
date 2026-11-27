@@ -71,6 +71,8 @@ export type PayMeError =
 	| { code: 'disbursement-not-found' }
 	| { code: 'not-your-disbursement' }
 	| { code: 'disbursement-decided'; number: number; state: DisbursementState }
+	| { code: 'cannot-void'; number: number; state: DisbursementState }
+	| { code: 'invalid-paid-date'; date: string }
 	| { code: 'cannot-withdraw-disbursement'; number: number; state: DisbursementState }
 	| { code: 'invalid-percent'; percent: string }
 	| { code: 'targets-over-100'; total: number }
@@ -215,6 +217,10 @@ export function describeError(error: PayMeError): string {
 			return 'That Disbursement does not exist.';
 		case 'disbursement-decided':
 			return `${disbursementLabel(error.number)} is ${disbursementStateName(error.state)}, so it can't be paid or declined.`;
+		case 'cannot-void':
+			return `${disbursementLabel(error.number)} is ${disbursementStateName(error.state)}. Only Paid Disbursements can be voided.`;
+		case 'invalid-paid-date':
+			return `${error.date} is not a date PayMe can record. Use the year, month and day it was paid, like 2026-11-05, no later than today.`;
 		case 'not-your-disbursement':
 			return 'Only whoever requested it, or Leadership, can withdraw it.';
 		case 'cannot-withdraw-disbursement':

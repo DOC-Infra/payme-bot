@@ -267,5 +267,12 @@ export const migrations: Migration[] = [
 	{
 		name: '0017-disbursement-outcome-reason',
 		sql: `ALTER TABLE disbursements ADD COLUMN outcome_reason TEXT;`
+	},
+	{
+		name: '0018-disbursement-voiding',
+		sql: `
+			ALTER TABLE disbursements ADD COLUMN voided_by TEXT;
+			ALTER TABLE disbursements ADD COLUMN voided_at TEXT;
+		`
 	}
 ];

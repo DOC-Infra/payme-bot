@@ -6,8 +6,8 @@ import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
 import { getEmployee } from './employees';
 import { getJob } from './jobs';
-import { disbursementLabel, payoutLabel, requestLabel, shareLabel } from './labels';
-import { paidDisbursements, requestedDisbursements, type Disbursement } from './disbursements';
+import { disbursementLabel, disbursementStateName, payoutLabel, requestLabel, shareLabel } from './labels';
+import { paidDisbursements, requestedDisbursements, voidedDisbursements, type Disbursement } from './disbursements';
 import { owedSummary, paidPayouts, type Payout } from './payouts';
 import { allProjects, balanceOf, getProject } from './projects';
 import { getTask } from './tasks';
@@ -166,7 +166,12 @@ function sumOf(totals: ReadonlyMap<number, number>): number {
 }
 
 function paidDisbursementsIn(payMe: PayMe, months: readonly string[]): Disbursement[] {
-	return paidDisbursements(payMe).filter((each) => months.includes(monthOf(each.settledAt!)));
+	return settledIn(paidDisbursements(payMe), months);
+}
+
+/** Those paid (and, if since Voided, paid first) in any of `months`. */
+function settledIn(disbursements: readonly Disbursement[], months: readonly string[]): Disbursement[] {
+	return disbursements.filter((each) => months.includes(monthOf(each.settledAt!)));
 }
 
 /** A warning when marking a Payout paid has taken this month's Spent over its Appropriation (ADR 0003). */
@@ -294,7 +299,8 @@ export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string
 			'requested_by',
 			'paid_by',
 			'reference',
-			'payout'
+			'payout',
+			'state'
 		],
 		paidItems(payMe, months)
 	);
@@ -312,7 +318,9 @@ function paidItems(payMe: PayMe, months: readonly string[]): string[][] {
 		.filter((payout) => months.includes(monthOf(payout.settledAt!)))
 		.sort((a, b) => a.number - b.number)
 		.flatMap((payout) => payoutItemRows(payMe, payout));
-	const disbursements = paidDisbursementsIn(payMe, months).map((each) => disbursementItemRow(payMe, each));
+	const disbursements = settledIn([...paidDisbursements(payMe), ...voidedDisbursements(payMe)], months).map((each) =>
+		disbursementItemRow(payMe, each)
+	);
 	return [...payouts, ...disbursements].sort((a, b) => a.at.localeCompare(b.at)).map((item) => item.row);
 }
 
@@ -337,7 +345,8 @@ function payoutItemRows(payMe: PayMe, payout: Payout): ItemRow[] {
 			'',
 			personName(payMe, payout.settledBy!),
 			reference,
-			payoutLabel(payout.number)
+			payoutLabel(payout.number),
+			'Paid'
 		]
 	});
 	return [
@@ -361,7 +370,8 @@ function disbursementItemRow(payMe: PayMe, disbursement: Disbursement): ItemRow 
 			personName(payMe, disbursement.requestedBy),
 			personName(payMe, disbursement.settledBy!),
 			disbursementLabel(disbursement.number),
-			''
+			'',
+			disbursementStateName(disbursement.state)
 		]
 	};
 }

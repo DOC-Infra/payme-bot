@@ -5,6 +5,7 @@ export type Effect =
 	| PostDisbursement
 	| UpdateDisbursement
 	| ShowDisbursement
+	| ShowDisbursements
 	| CreateEmployeeChannel
 	| StartRequestsThread
 	| GrantChannelAccess
@@ -94,12 +95,24 @@ export interface UpdateDisbursement {
 	actions: DisbursementAction[];
 }
 
-/** Show a Disbursement privately to Leadership, with Mark paid and Decline buttons while `settleButtons` is set. */
+/** What Leadership can do to a Disbursement from its private view. */
+export type DisbursementDecision = 'paid' | 'decline' | 'void';
+/** The decisions that need a reason. */
+export type DisbursementReasonAction = Exclude<DisbursementDecision, 'paid'>;
+
+/** Show a Disbursement privately to Leadership, with a button for each decision it still allows. */
 export interface ShowDisbursement {
 	type: 'show-disbursement';
 	disbursementNumber: number;
 	card: Card;
-	settleButtons: boolean;
+	actions: DisbursementDecision[];
+}
+
+/** Show a list of Disbursements privately to Leadership, with a button to open each. */
+export interface ShowDisbursements {
+	type: 'show-disbursements';
+	card: Card;
+	disbursementNumbers: number[];
 }
 
 /** The private `/appropriation` reply for `month`, with a button to make a report. */

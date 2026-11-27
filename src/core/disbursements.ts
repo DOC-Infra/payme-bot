@@ -5,12 +5,13 @@ import {
 	selectDisbursements,
 	selectDisbursementsInState,
 	settleDisbursement,
-	updateDisbursementCard
+	updateDisbursementCard,
+	voidPaidDisbursement
 } from '../storage/disbursements';
 import type { Actor } from './actor';
 import { overSpentWarning, overTargetWarning } from './appropriation';
 import { monthName, monthOf, parseMonth } from './months';
-import type { Card, CardField, DisbursementAction, Effect, MessageRef } from './effects';
+import type { Card, CardField, DisbursementAction, DisbursementDecision, DisbursementReasonAction, Effect, MessageRef } from './effects';
 import { getEmployee, isValidMinecraftName } from './employees';
 import { worksIn } from './job-membership';
 import { getJob, type Job } from './jobs';
@@ -38,6 +39,9 @@ export interface Disbursement {
 	settledAt: string | null;
 	/** Why it was Declined or Voided. */
 	outcomeReason: string | null;
+	/** Voiding keeps who paid it and when in `settledBy` and `settledAt`. */
+	voidedBy: string | null;
+	voidedAt: string | null;
 	channelId: string | null;
 	messageId: string | null;
 }
@@ -50,13 +54,21 @@ export interface NewDisbursement {
 	amount: string;
 	reason: string;
 	link: string | null;
+	/** Leadership only: records one already paid outside PayMe on this day (YYYY-MM-DD), posting its card Paid. */
+	paidOn?: string | null;
 }
 
 export function getDisbursement(payMe: PayMe, number: number): Disbursement | null {
 	return selectDisbursement(payMe.storage, number);
 }
 
-export function requestDisbursement(payMe: PayMe, actor: Actor, input: NewDisbursement): Outcome<Disbursement> {
+export function requestDisbursement(payMe: PayMe, actor: Actor, input: NewDisbursement, now = new Date()): Outcome<Disbursement> {
+	let paidAt: string | null = null;
+	if (input.paidOn) {
+		if (!isLeadership(payMe, actor)) return fail({ code: 'not-permitted' });
+		paidAt = paidDate(input.paidOn, now);
+		if (paidAt === null) return fail({ code: 'invalid-paid-date', date: input.paidOn });
+	}
 	const amount = parseRate(input.amount);
 	if (amount === null) return fail({ code: 'invalid-amount', amount: input.amount });
 	const recipient = input.recipient.trim();
@@ -70,7 +82,8 @@ export function requestDisbursement(payMe: PayMe, actor: Actor, input: NewDisbur
 	return storage.transaction(() => {
 		const category = getSpendingCategory(payMe, input.categoryId);
 		if (!category) return fail({ code: 'spending-category-not-found' });
-		if (category.builtIn || category.retired) return fail({ code: 'spending-category-unavailable', name: category.name });
+		// A payment already made may be recorded from a Category Retired since.
+		if (category.builtIn || (category.retired && !paidAt)) return fail({ code: 'spending-category-unavailable', name: category.name });
 		const job = pickJob(payMe, actor, category, input.jobId);
 		if (job !== null && 'ok' in job) return job;
 		if (!isLeadership(payMe, actor) && getEmployee(payMe, actor.userId)?.minecraftName.toLowerCase() === recipient.toLowerCase()) {
@@ -86,9 +99,19 @@ export function requestDisbursement(payMe: PayMe, actor: Actor, input: NewDisbur
 			link,
 			requestedBy: actor.userId
 		});
+		if (paidAt) settleDisbursement(storage, number, 'paid', actor.userId, null, paidAt);
 		const disbursement = getDisbursement(payMe, number)!;
-		return succeed([cardEffect(payMe, disbursement, 'post-disbursement')], disbursement);
+		const warnings = paidAt && monthOf(paidAt) === monthOf(now) ? paidWarnings(payMe, disbursement) : [];
+		return succeed([cardEffect(payMe, disbursement, 'post-disbursement'), ...warnings], disbursement);
 	});
+}
+
+/** The start of the day in UTC, when it is a real day from 2000 to today. */
+function paidDate(text: string, now: Date): string | null {
+	if (!/^2\d{3}-\d{2}-\d{2}$/.test(text)) return null;
+	const day = new Date(`${text}T00:00:00.000Z`);
+	if (Number.isNaN(day.getTime()) || day.toISOString().slice(0, 10) !== text) return null;
+	return text <= now.toISOString().slice(0, 10) ? day.toISOString() : null;
 }
 
 /** The Categories the actor can request a Disbursement from. */
@@ -132,6 +155,10 @@ export function paidDisbursements(payMe: PayMe): Disbursement[] {
 	return selectDisbursementsInState(payMe.storage, 'paid');
 }
 
+export function voidedDisbursements(payMe: PayMe): Disbursement[] {
+	return selectDisbursementsInState(payMe.storage, 'voided');
+}
+
 /**
  * The month's Disbursements for Leadership, by date: those paid, declined, withdrawn or voided in it, and, for the current month,
  * those still Requested.
@@ -154,7 +181,7 @@ export function appropriationDisbursements(payMe: PayMe, actor: Actor, monthText
 		title: `Disbursements · ${monthName(month)}`,
 		description: lines.length ? lines.join('\n') : 'No Disbursements.'
 	};
-	return succeed([{ type: 'private-reply', card }], inMonth);
+	return succeed([{ type: 'show-disbursements', card, disbursementNumbers: inMonth.map((each) => each.number) }], inMonth);
 }
 
 /** Disbursements waiting for Leadership to pay or decline them, oldest first. */
@@ -198,13 +225,33 @@ export function showDisbursement(payMe: PayMe, actor: Actor, number: number): Ou
 	return succeed([privateEffect(payMe, disbursement)], disbursement);
 }
 
-/** Refuses before Leadership is asked for a reason, when the Disbursement can no longer be paid or declined. */
-export function checkDisbursementDecision(payMe: PayMe, actor: Actor, number: number): Failure | null {
+/** Refuses before Leadership is asked for a reason, when the Disbursement can no longer be declined or voided. */
+export function checkDisbursementChange(payMe: PayMe, actor: Actor, number: number, action: DisbursementReasonAction): Failure | null {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
 	const disbursement = getDisbursement(payMe, number);
 	if (!disbursement) return fail({ code: 'disbursement-not-found' });
-	return disbursement.state === 'requested' ? null : fail({ code: 'disbursement-decided', number, state: disbursement.state });
+	if (decisionsFor(disbursement).includes(action)) return null;
+	const { state } = disbursement;
+	return fail(action === 'void' ? { code: 'cannot-void', number, state } : { code: 'disbursement-decided', number, state });
+}
+
+/** Leadership voids a Paid Disbursement recorded wrongly: it stays visible but is no longer Spend, even in an earlier month. */
+export function voidDisbursement(payMe: PayMe, actor: Actor, number: number, reasonText: string): Outcome<Disbursement> {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	const reason = reasonText.trim();
+	if (!reason) return fail({ code: 'reason-required' });
+
+	const { storage } = payMe;
+	return storage.transaction(() => {
+		const disbursement = getDisbursement(payMe, number);
+		if (!disbursement) return fail({ code: 'disbursement-not-found' });
+		if (!voidPaidDisbursement(storage, number, actor.userId, reason)) return fail({ code: 'cannot-void', number, state: disbursement.state });
+
+		const voided = getDisbursement(payMe, number)!;
+		return succeed([cardEffect(payMe, voided, 'update-disbursement'), privateEffect(payMe, voided)], voided);
+	});
 }
 
 export function markDisbursementPaid(payMe: PayMe, actor: Actor, number: number): Outcome<Disbursement> {
@@ -229,9 +276,14 @@ function decide(payMe: PayMe, actor: Actor, number: number, to: 'paid' | 'declin
 			return fail({ code: 'disbursement-decided', number, state: disbursement.state });
 
 		const decided = getDisbursement(payMe, number)!;
-		const warnings = to === 'paid' ? [...overSpentWarning(payMe), ...overTargetWarning(payMe, decided.categoryId)] : [];
+		const warnings = to === 'paid' ? paidWarnings(payMe, decided) : [];
 		return succeed([cardEffect(payMe, decided, 'update-disbursement'), privateEffect(payMe, decided), ...warnings], decided);
 	});
+}
+
+/** The month's over-Appropriation and over-target warnings once it is paid (ADR 0003). */
+function paidWarnings(payMe: PayMe, disbursement: Disbursement): Effect[] {
+	return [...overSpentWarning(payMe), ...overTargetWarning(payMe, disbursement.categoryId)];
 }
 
 function disbursementPayCommand(disbursement: Disbursement, category: SpendingCategory): string {
@@ -247,7 +299,12 @@ function privateEffect(payMe: PayMe, disbursement: Disbursement): Effect {
 			...(card.fields ?? []),
 			{ name: 'Pay Command', value: ['```', disbursementPayCommand(disbursement, category), '```'].join('\n') }
 		];
-	return { type: 'show-disbursement', disbursementNumber: disbursement.number, card, settleButtons: requested };
+	return { type: 'show-disbursement', disbursementNumber: disbursement.number, card, actions: decisionsFor(disbursement) };
+}
+
+function decisionsFor(disbursement: Disbursement): DisbursementDecision[] {
+	if (disbursement.state === 'requested') return ['paid', 'decline'];
+	return disbursement.state === 'paid' ? ['void'] : [];
 }
 
 export function recordDisbursementCard(payMe: PayMe, number: number, card: MessageRef): void {
@@ -299,6 +356,8 @@ function disbursementCard(payMe: PayMe, disbursement: Disbursement, category: Sp
 
 function stateText(disbursement: Disbursement): string {
 	const state = `**${disbursementStateName(disbursement.state)}**`;
-	const by = disbursement.settledBy ? `${state} by <@${disbursement.settledBy}>` : state;
-	return disbursement.outcomeReason ? `${by}: ${disbursement.outcomeReason}` : by;
+	const actor = disbursement.voidedBy ?? disbursement.settledBy;
+	const by = actor ? `${state} by <@${actor}>` : state;
+	if (disbursement.outcomeReason) return `${by}: ${disbursement.outcomeReason}`;
+	return disbursement.state === 'paid' ? `${by} on ${disbursement.settledAt!.slice(0, 10)}` : by;
 }

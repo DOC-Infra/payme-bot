@@ -25,6 +25,13 @@ export class UserCommand extends Command {
 				.addStringOption((option) => option.setName('amount').setDescription('The amount, like 1500 or 12.5').setRequired(true))
 				.addStringOption((option) => option.setName('reason').setDescription('What it is for').setRequired(true).setMaxLength(1000))
 				.addStringOption((option) => option.setName('link').setDescription('A link with more detail').setMaxLength(500))
+				.addStringOption((option) =>
+					option
+						.setName('paid-on')
+						.setDescription('Leadership only: record one already paid outside PayMe on this UTC day, like 2026-11-05')
+						.setMinLength(10)
+						.setMaxLength(10)
+				)
 				.addIntegerOption((option) =>
 					option.setName('job').setDescription('The Job it is for, if more than one of yours draws on the Category').setAutocomplete(true)
 				)
@@ -41,7 +48,8 @@ export class UserCommand extends Command {
 				recipient: options.getString('recipient', true),
 				amount: options.getString('amount', true),
 				reason: options.getString('reason', true),
-				link: options.getString('link')
+				link: options.getString('link'),
+				paidOn: options.getString('paid-on')
 			})
 		);
 	}

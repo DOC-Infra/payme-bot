@@ -51,7 +51,7 @@ import {
 } from '../core';
 import { fetchActorIn, toActor } from './actor';
 import { disbursementsButton, reportButton } from './appropriation';
-import { disbursementButtons, settleDisbursementButtons } from './disbursements';
+import { disbursementButton, disbursementButtons } from './disbursements';
 import { scheduleDashboardRefresh } from './dashboard';
 import { scheduleRatesRefresh } from './ratesChannel';
 import { toEmbeds } from './embeds';
@@ -122,7 +122,7 @@ const handlers: Handlers = {
 			discardUnpostedDisbursement(payMe, effect.disbursementNumber);
 			return replyPrivately(
 				interaction,
-				notice(`PayMe can't post here, so ${label} was not requested. Try a channel PayMe can send messages in.`, 'danger')
+				notice(`PayMe can't post here, so ${label} was not saved. Try a channel PayMe can send messages in.`, 'danger')
 			);
 		}
 		recordDisbursementCard(payMe, effect.disbursementNumber, { channelId: message.channelId, messageId: message.id });
@@ -130,8 +130,17 @@ const handlers: Handlers = {
 	},
 	'show-disbursement': async (effect, { interaction }) => {
 		if (!interaction) return;
-		const buttons = effect.settleButtons ? settleDisbursementButtons(effect.disbursementNumber) : [];
-		return replyPrivately(interaction, effect.card, buttons, acknowledged.has(interaction));
+		return replyPrivately(
+			interaction,
+			effect.card,
+			disbursementButtons(effect.disbursementNumber, effect.actions),
+			acknowledged.has(interaction)
+		);
+	},
+	'show-disbursements': async (effect, { interaction }) => {
+		if (!interaction) return;
+		const buttons = effect.disbursementNumbers.map((number) => disbursementButton(number, 'show', disbursementLabel(number)));
+		return replyPrivately(interaction, effect.card, buttons);
 	},
 	'update-disbursement': async (effect, { payMe }) => {
 		const card = getDisbursement(payMe, effect.disbursementNumber);
