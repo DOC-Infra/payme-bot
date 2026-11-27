@@ -18,8 +18,10 @@ import {
 	employeePayId,
 	getSpendingCategory,
 	spendingCategoryTargets,
-	totalTarget,
-	type SpendingCategory
+	targetDollars,
+	totalTargets,
+	type SpendingCategory,
+	type Target
 } from './spending-categories';
 
 export interface AppropriationView {
@@ -39,16 +41,16 @@ export interface AppropriationView {
 	remainingAfterCommitted: number | null;
 	/** Employee Pay first, then active Spending Categories and Retired ones that had a target in the month. */
 	categories: CategorySpend[];
-	/** The part of the Appropriation no target covers. */
-	unassigned: { percent: number; amount: number | null };
+	/** The part of the Appropriation no target covers. `percent` is null when amount targets leave it unknown without an Appropriation. */
+	unassigned: { percent: number | null; amount: number | null };
 }
 
 export interface CategorySpend {
 	id: number;
 	name: string;
-	/** Hundredths of a percent of the Appropriation. */
+	/** Hundredths of a percent of the Appropriation, when the target is a percentage. */
 	targetPercent: number | null;
-	/** The target in dollars, when the month has an Appropriation. */
+	/** The target in dollars: an amount target, or a percentage of the month's Appropriation when it has one. */
 	target: number | null;
 	spent: number;
 	/** Only for the current month. */
@@ -64,17 +66,12 @@ interface CategoryFigures {
 	reserved: number | null;
 }
 
-function categorySpendOf(
-	category: SpendingCategory,
-	targetPercent: number | null,
-	dollarsOf: (percent: number | null) => number | null,
-	figures: CategoryFigures
-): CategorySpend {
-	const target = dollarsOf(targetPercent);
+function categorySpendOf(category: SpendingCategory, set: Target | null, appropriation: number | null, figures: CategoryFigures): CategorySpend {
+	const target = targetDollars(set, appropriation);
 	return {
 		id: category.id,
 		name: category.name,
-		targetPercent,
+		targetPercent: set?.kind === 'percent' ? set.value : null,
 		target,
 		...figures,
 		overTarget: target !== null && figures.spent > target
@@ -83,7 +80,7 @@ function categorySpendOf(
 
 /** The current month lists every active Category; earlier and later ones only those that had a target or Spend. */
 function shownIn(category: SpendingCategory, row: CategorySpend, isCurrentMonth: boolean): boolean {
-	if (category.builtIn || row.targetPercent !== null || row.spent > 0 || (row.committed ?? 0) > 0) return true;
+	if (category.builtIn || row.targetPercent !== null || row.target !== null || row.spent > 0 || (row.committed ?? 0) > 0) return true;
 	return isCurrentMonth && !category.retired;
 }
 
@@ -130,10 +127,8 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 	};
 
 	const targets = spendingCategoryTargets(payMe, month);
-	const dollarsOf = (percent: number | null) =>
-		percent === null || appropriation === null ? null : Math.round((appropriation * percent) / wholePercent);
 	const categories = allSpendingCategories(payMe).flatMap((category) => {
-		const row = categorySpendOf(category, targets.get(category.id) ?? null, dollarsOf, figuresFor(category));
+		const row = categorySpendOf(category, targets.get(category.id) ?? null, appropriation, figuresFor(category));
 		return shownIn(category, row, isCurrentMonth) ? [row] : [];
 	});
 	const spent = payoutsSpent + sumOf(disbursed);
@@ -151,8 +146,16 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 		remaining,
 		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed,
 		categories,
-		unassigned: { percent: wholePercent - totalTarget(targets), amount: appropriation === null ? null : appropriation - assigned }
+		unassigned: unassignedOf(targets, appropriation, assigned)
 	};
+}
+
+function unassignedOf(targets: ReadonlyMap<number, Target>, appropriation: number | null, assigned: number): AppropriationView['unassigned'] {
+	const total = totalTargets(targets.values());
+	if (appropriation === null) return { percent: total.amount === 0 ? wholePercent - total.percent : null, amount: null };
+	const amount = appropriation - assigned;
+	if (total.amount === 0) return { percent: wholePercent - total.percent, amount };
+	return { percent: appropriation === 0 ? null : Math.round((amount * wholePercent) / appropriation), amount };
 }
 
 function totalsByCategory(disbursements: readonly Disbursement[]): Map<number, number> {
@@ -239,7 +242,7 @@ function appropriationCard(view: AppropriationView): Card {
 		'',
 		'**Spending Categories**',
 		...view.categories.map(categoryLine),
-		`- Unassigned: ${targetText(view.unassigned.percent, view.unassigned.amount)}`,
+		`- Unassigned: ${unassignedText(view.unassigned)}`,
 		'',
 		'**Spent by Job**',
 		...(jobs.length ? jobs : ['Nothing was paid.'])
@@ -249,7 +252,7 @@ function appropriationCard(view: AppropriationView): Card {
 
 function categoryLine(category: CategorySpend): string {
 	const parts = [
-		category.targetPercent === null ? 'no target' : `target ${targetText(category.targetPercent, category.target)}`,
+		category.targetPercent === null && category.target === null ? 'no target' : `target ${targetText(category.targetPercent, category.target)}`,
 		`Spent ${formatAmount(category.spent)}`,
 		...(category.committed === null ? [] : [`Committed ${formatAmount(category.committed)}`]),
 		...(category.reserved ? [`Reserved ${formatAmount(category.reserved)}`] : []),
@@ -258,8 +261,14 @@ function categoryLine(category: CategorySpend): string {
 	return `- ${category.name}: ${parts.join(' · ')}`;
 }
 
-function targetText(percent: number, amount: number | null): string {
+function targetText(percent: number | null, amount: number | null): string {
+	if (percent === null) return amount === null ? 'unknown until the Appropriation is set' : formatAmount(amount);
 	return amount === null ? formatPercent(percent) : `${formatPercent(percent)} (${formatAmount(amount)})`;
+}
+
+function unassignedText({ percent, amount }: AppropriationView['unassigned']): string {
+	if (amount !== null && amount < 0) return `none, the targets are ${formatAmount(-amount)} over the Appropriation`;
+	return targetText(percent, amount);
 }
 
 const employeePay = 'Employee Pay';

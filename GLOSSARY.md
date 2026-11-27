@@ -138,7 +138,7 @@ Money funded into a Project's Budget that has not been given as Shares yet. Nobo
 _Avoid_: Earmarked, held
 
 **Spending Category**:
-What money was spent on, used to compare Spend against the Appropriation. Each one may have a target share of the Appropriation, as a percentage, and lists the Jobs whose Employees and Managers may request Disbursements from it. **Employee Pay** is built in and holds every Payout and Share. A Retired Spending Category takes no new Disbursements but stays in history, and Leadership can restore it.
+What money was spent on, used to compare Spend against the Appropriation. Each one may have a target share of the Appropriation, as a percentage or as a fixed amount a month, and lists the Jobs whose Employees and Managers may request Disbursements from it. **Employee Pay** is built in and holds every Payout and Share. A Retired Spending Category takes no new Disbursements but stays in history, and Leadership can restore it.
 _Avoid_: Pool, fund, line item
 
 **Unassigned**:

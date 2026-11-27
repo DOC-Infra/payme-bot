@@ -1,5 +1,5 @@
 import { asc, eq, lte } from 'drizzle-orm';
-import type { SpendingCategory } from '../core/spending-categories';
+import type { SpendingCategory, Target } from '../core/spending-categories';
 import { spendingCategories, spendingCategoryJobs, spendingCategoryTargets } from './schema';
 import type { Storage } from './storage';
 
@@ -58,18 +58,26 @@ function toCategory(storage: Storage, row: CategoryRow): SpendingCategory {
 	return { ...row, jobIds };
 }
 
-export function insertSpendingCategoryTarget(storage: Storage, categoryId: number, fromMonth: string, percent: number | null, actorUserId: string) {
-	storage.db.insert(spendingCategoryTargets).values({ categoryId, fromMonth, percent, actorUserId }).run();
+export function insertSpendingCategoryTarget(storage: Storage, categoryId: number, fromMonth: string, target: Target | null, actorUserId: string) {
+	const percent = target?.kind === 'percent' ? target.value : null;
+	const amount = target?.kind === 'amount' ? target.value : null;
+	storage.db.insert(spendingCategoryTargets).values({ categoryId, fromMonth, percent, amount, actorUserId }).run();
 }
 
-/** Each Category's target in `month`, in hundredths of a percent: the latest set at or before it. Categories with none are left out. */
-export function selectSpendingCategoryTargets(storage: Storage, month: string): Map<number, number> {
+/** Each Category's target in `month`: the latest set at or before it. Categories with none are left out. */
+export function selectSpendingCategoryTargets(storage: Storage, month: string): Map<number, Target> {
 	const rows = storage.db
-		.select({ categoryId: spendingCategoryTargets.categoryId, percent: spendingCategoryTargets.percent })
+		.select({ categoryId: spendingCategoryTargets.categoryId, percent: spendingCategoryTargets.percent, amount: spendingCategoryTargets.amount })
 		.from(spendingCategoryTargets)
 		.where(lte(spendingCategoryTargets.fromMonth, month))
 		.orderBy(asc(spendingCategoryTargets.fromMonth), asc(spendingCategoryTargets.id))
 		.all();
-	const latest = new Map(rows.map((row) => [row.categoryId, row.percent]));
-	return new Map([...latest].filter((entry): entry is [number, number] => entry[1] !== null));
+	const latest = new Map(rows.map((row) => [row.categoryId, toTarget(row.percent, row.amount)]));
+	return new Map([...latest].filter((entry): entry is [number, Target] => entry[1] !== null));
+}
+
+function toTarget(percent: number | null, amount: number | null): Target | null {
+	if (percent !== null) return { kind: 'percent', value: percent };
+	if (amount !== null) return { kind: 'amount', value: amount };
+	return null;
 }

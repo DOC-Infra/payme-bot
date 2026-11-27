@@ -274,5 +274,9 @@ export const migrations: Migration[] = [
 			ALTER TABLE disbursements ADD COLUMN voided_by TEXT;
 			ALTER TABLE disbursements ADD COLUMN voided_at TEXT;
 		`
+	},
+	{
+		name: '0019-spending-category-target-amounts',
+		sql: `ALTER TABLE spending_category_targets ADD COLUMN amount INTEGER;`
 	}
 ];

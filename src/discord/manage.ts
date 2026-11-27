@@ -21,6 +21,7 @@ import {
 	type Job,
 	type ManageView,
 	type SpendingCategory,
+	type Target,
 	type Task
 } from '../core';
 import { encodeCustomId, type ManageButtonAction, type ManageMenuAction, type ManageModalAction } from './customIds';
@@ -33,7 +34,8 @@ export const manageFieldIds = {
 	jobs: 'jobs',
 	evidence: 'evidence',
 	notes: 'notes',
-	target: 'target'
+	target: 'target',
+	targetAmount: 'target-amount'
 } as const;
 
 /** The active Jobs a form offers to pick from: as many as a menu can list. */
@@ -189,18 +191,23 @@ export function buildSpendingCategoryModal(category: SpendingCategory | null, jo
 		.addLabelComponents(...labels);
 }
 
-/** `percent` is the target in effect this month, in hundredths of a percent. */
-export function buildTargetModal(category: SpendingCategory, percent: number | null): ModalBuilder {
-	const input = new TextInputBuilder().setCustomId(manageFieldIds.target).setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(6);
-	if (percent !== null) input.setValue(plainAmount(percent));
+/** `target` is the one in effect this month. */
+export function buildTargetModal(category: SpendingCategory, target: Target | null): ModalBuilder {
+	const percent = new TextInputBuilder().setCustomId(manageFieldIds.target).setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(6);
+	const amount = new TextInputBuilder().setCustomId(manageFieldIds.targetAmount).setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(15);
+	if (target) (target.kind === 'percent' ? percent : amount).setValue(plainAmount(target.value));
 	return new ModalBuilder()
 		.setCustomId(modalId('spending-category-target', category.id))
 		.setTitle(truncate(`${category.name} target`, 45))
 		.addLabelComponents(
 			new LabelBuilder()
 				.setLabel('Share of the Appropriation (%)')
-				.setDescription('Like 25 or 12.5. Leave empty for no target. Applies from this month onward.')
-				.setTextInputComponent(input)
+				.setDescription('Like 25 or 12.5. Fill this or the amount. Leave both empty for no target.')
+				.setTextInputComponent(percent),
+			new LabelBuilder()
+				.setLabel('Or a fixed amount a month ($)')
+				.setDescription('Like 1500 or 12.5. Applies from this month onward.')
+				.setTextInputComponent(amount)
 		);
 }
 
