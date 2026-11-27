@@ -1,6 +1,6 @@
 import { insertAppropriation, selectAppropriationFor } from '../storage/appropriations';
 import type { Actor } from './actor';
-import { notice, type Card } from './effects';
+import { notice, type Card, type Effect } from './effects';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
@@ -52,6 +52,11 @@ export function showAppropriation(payMe: PayMe, actor: Actor, monthText: string 
 	const month = monthText === null ? monthOf(now) : parseMonth(monthText);
 	if (!month) return fail({ code: 'invalid-month', month: monthText! });
 
+	const view = viewOf(payMe, month, now);
+	return succeed([{ type: 'show-appropriation', card: appropriationCard(view), month }], view);
+}
+
+function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 	const appropriation = selectAppropriationFor(payMe.storage, month);
 	const spentByJob = spendByJob(payMe, month);
 	const spent = spentByJob.reduce((sum, job) => sum + job.amount, 0);
@@ -59,7 +64,7 @@ export function showAppropriation(payMe: PayMe, actor: Actor, monthText: string 
 	const owed = isCurrentMonth ? committedToday(payMe) : null;
 	const committed = owed?.committed ?? null;
 	const remaining = isCurrentMonth && appropriation !== null ? appropriation - spent : null;
-	const view: AppropriationView = {
+	return {
 		month,
 		appropriation,
 		spent,
@@ -70,7 +75,27 @@ export function showAppropriation(payMe: PayMe, actor: Actor, monthText: string 
 		remaining,
 		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed
 	};
-	return succeed([{ type: 'show-appropriation', card: appropriationCard(view), month }], view);
+}
+
+/** A warning when marking a Payout paid has taken this month's Spent over its Appropriation (ADR 0003). */
+export function overSpentWarning(payMe: PayMe, now = new Date()): Effect[] {
+	const view = viewOf(payMe, monthOf(now), now);
+	if (view.appropriation === null || view.spent <= view.appropriation) return [];
+	const over = `${formatAmount(view.spent)} of its ${formatAmount(view.appropriation)}, ${formatAmount(view.spent - view.appropriation)} over`;
+	return [warning(`${monthName(view.month)} has spent ${over}.`)];
+}
+
+/** A warning when Spent, Committed and Reserved together now exceed this month's Appropriation (ADR 0003). */
+export function overCommittedWarning(payMe: PayMe, now = new Date()): Effect[] {
+	const view = viewOf(payMe, monthOf(now), now);
+	const total = view.spent + (view.committed ?? 0) + (view.reserved ?? 0);
+	if (view.appropriation === null || total <= view.appropriation) return [];
+	const over = `${formatAmount(total)} of its ${formatAmount(view.appropriation)}, ${formatAmount(total - view.appropriation)} over`;
+	return [warning(`${monthName(view.month)}'s Spent, Committed and Reserved now come to ${over}.`)];
+}
+
+function warning(text: string): Effect {
+	return { type: 'private-reply', card: notice(`**Over the Appropriation**: ${text}`, 'warning') };
 }
 
 function appropriationCard(view: AppropriationView): Card {

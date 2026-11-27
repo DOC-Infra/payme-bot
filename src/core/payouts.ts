@@ -1,6 +1,7 @@
 import { insertPayout, replaceOpenPayout, selectOpenPayout, selectPayout, selectPayoutsInState, settlePayout } from '../storage/payouts';
 import { markSharesPaid, selectUnpaidShares } from '../storage/projects';
 import type { Actor } from './actor';
+import { overSpentWarning } from './appropriation';
 import { notice, type Card, type Effect, type PayoutAction } from './effects';
 import { getEmployee } from './employees';
 import { jobsHeldBy, jobsManagedBy } from './job-membership';
@@ -381,7 +382,11 @@ export function markPayoutPaid(payMe: PayMe, actor: Actor, number: number, revis
 				...payout.shares.map((line) => `- ${shareLineText(payMe, line)}`)
 			].join('\n')
 		};
-		effects.push({ type: 'post-to-requests-thread', employeeUserId: payout.employeeUserId, card: log, ping: false }, payoutEffect(payMe, payout));
+		effects.push(
+			{ type: 'post-to-requests-thread', employeeUserId: payout.employeeUserId, card: log, ping: false },
+			payoutEffect(payMe, payout),
+			...overSpentWarning(payMe)
+		);
 		return succeed(effects, payout);
 	});
 }
