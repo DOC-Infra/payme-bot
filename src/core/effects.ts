@@ -249,6 +249,7 @@ export interface Choice {
 
 export type JobAction = 'edit' | 'managers' | 'retire';
 export type TaskAction = 'edit' | 'jobs' | 'retire' | 'restore';
+export type CategoryAction = 'edit' | 'retire' | 'restore';
 
 /** What a management view offers below its card. */
 export type ManageView =
@@ -256,7 +257,9 @@ export type ManageView =
 	| { kind: 'job'; jobId: number; actions: JobAction[] }
 	| { kind: 'tasks'; jobs: Choice[] }
 	| { kind: 'job-tasks'; jobId: number; tasks: Choice[]; canAdd: boolean }
-	| { kind: 'task'; taskId: number; actions: TaskAction[] };
+	| { kind: 'task'; taskId: number; actions: TaskAction[] }
+	| { kind: 'categories'; categories: Choice[] }
+	| { kind: 'category'; categoryId: number; actions: CategoryAction[] };
 
 /** Show a Job or Task management view privately to the actor, with the menus and buttons the view offers. */
 export interface ShowManage {

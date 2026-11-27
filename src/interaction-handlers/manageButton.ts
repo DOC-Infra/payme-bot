@@ -5,17 +5,21 @@ import {
 	allJobs,
 	fail,
 	getJob,
+	getSpendingCategory,
 	getTask,
 	maxFormOptions,
 	requireLeadership,
+	restoreSpendingCategory,
 	restoreTask,
 	retireJob,
+	retireSpendingCategory,
 	retireTask,
 	type Actor,
 	type PayMe
 } from '../core';
 import { decodeCustomId, type ManageButtonAction } from '../discord/customIds';
 import {
+	buildCategoryModal,
 	buildEditTaskModal,
 	buildJobModal,
 	buildManagerRolesModal,
@@ -32,7 +36,7 @@ interface Pressed {
 }
 
 /** Buttons whose result is a reply rather than a form. */
-const replying: readonly ManageButtonAction[] = ['confirm-retire-job', 'retire-task', 'restore-task'];
+const replying: readonly ManageButtonAction[] = ['confirm-retire-job', 'retire-task', 'restore-task', 'retire-category', 'restore-category'];
 
 @ApplyOptions<InteractionHandler.Options>({
 	interactionHandlerType: InteractionHandlerTypes.Button
@@ -54,6 +58,7 @@ export class ButtonHandler extends InteractionHandler {
 		if (refused) return refused;
 
 		if (action === 'new-job') return this.show(interaction, buildJobModal(null));
+		if (action === 'new-category') return this.show(interaction, buildCategoryModal(null, activeJobs(payMe)));
 		if (action === 'new-task') {
 			const jobs = activeJobs(payMe);
 			if (jobs.length === 0) return fail({ code: 'job-not-found' });
@@ -68,6 +73,15 @@ export class ButtonHandler extends InteractionHandler {
 				return retireTask(payMe, actor, id);
 			case 'restore-task':
 				return restoreTask(payMe, actor, id);
+			case 'retire-category':
+				return retireSpendingCategory(payMe, actor, id);
+			case 'restore-category':
+				return restoreSpendingCategory(payMe, actor, id);
+			case 'edit-category': {
+				const category = getSpendingCategory(payMe, id);
+				if (!category) return fail({ code: 'spending-category-not-found' });
+				return this.show(interaction, buildCategoryModal(category, activeJobs(payMe)));
+			}
 			case 'edit-task':
 			case 'task-jobs': {
 				const task = getTask(payMe, id);

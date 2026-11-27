@@ -52,6 +52,10 @@ export type PayMeError =
 	| { code: 'cannot-pay'; number: number; state: RequestState }
 	| { code: 'invalid-amount'; amount: string }
 	| { code: 'invalid-month'; month: string }
+	| { code: 'spending-category-not-found' }
+	| { code: 'spending-category-name-taken'; name: string; retired: boolean }
+	| { code: 'spending-category-built-in'; name: string }
+	| { code: 'spending-category-not-retired'; name: string }
 	| { code: 'invalid-month-range'; from: string; to: string }
 	| { code: 'report-too-long'; months: number; max: number }
 	| { code: 'project-not-found' }
@@ -173,6 +177,16 @@ export function describeError(error: PayMeError): string {
 			return `${error.to} is before ${error.from}. Give the earlier month first.`;
 		case 'report-too-long':
 			return `That is ${error.months} months. A report can cover at most ${error.max}.`;
+		case 'spending-category-not-found':
+			return 'That Spending Category does not exist.';
+		case 'spending-category-name-taken':
+			return error.retired
+				? `A Retired Spending Category named ${error.name} already exists. Restore it from Spending Categories on the Leadership dashboard.`
+				: `A Spending Category named ${error.name} already exists.`;
+		case 'spending-category-built-in':
+			return `${error.name} is built in: every Payout and Share counts toward it, so it can't be renamed, given Jobs or Retired.`;
+		case 'spending-category-not-retired':
+			return `The ${error.name} Spending Category is not retired.`;
 		case 'project-not-found':
 			return 'That Project does not exist.';
 		case 'project-name-taken':

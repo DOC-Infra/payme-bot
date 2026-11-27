@@ -11,7 +11,7 @@ import {
 	TextInputStyle,
 	type MessageActionRowComponentBuilder
 } from 'discord.js';
-import { plainAmount, type Choice, type Job, type ManageView, type Task } from '../core';
+import { plainAmount, type CategoryAction, type Choice, type Job, type ManageView, type SpendingCategory, type Task } from '../core';
 import { encodeCustomId, type ManageButtonAction, type ManageMenuAction, type ManageModalAction } from './customIds';
 
 export const manageFieldIds = {
@@ -57,7 +57,20 @@ export function manageComponents(view: ManageView): { menus: Row[]; buttons: But
 			};
 		case 'task':
 			return { menus: [], buttons: view.actions.map((action) => taskButton(view.taskId, action)) };
+		case 'categories':
+			return {
+				menus: menuRow('open-category', 'Open a Spending Category', view.categories),
+				buttons: [button('new-category', null, 'New Spending Category', ButtonStyle.Primary)]
+			};
+		case 'category':
+			return { menus: [], buttons: view.actions.map((action) => categoryButton(view.categoryId, action)) };
 	}
+}
+
+function categoryButton(categoryId: number, action: CategoryAction): ButtonBuilder {
+	if (action === 'edit') return button('edit-category', categoryId, 'Edit', ButtonStyle.Primary);
+	if (action === 'retire') return button('retire-category', categoryId, 'Retire', ButtonStyle.Danger);
+	return button('restore-category', categoryId, 'Restore', ButtonStyle.Success);
 }
 
 function taskButton(taskId: number, action: 'edit' | 'jobs' | 'retire' | 'restore'): ButtonBuilder {
@@ -134,18 +147,42 @@ export function buildTaskJobsModal(task: Task, jobs: readonly Job[]): ModalBuild
 		.addLabelComponents(jobsLabel(jobs, task.jobIds));
 }
 
+/** `jobs` are the active Jobs to choose from; with none, the form only asks for a name. */
+export function buildCategoryModal(category: SpendingCategory | null, jobs: readonly Job[]): ModalBuilder {
+	const name = textInput(manageFieldIds.name, 100);
+	if (category) name.setValue(category.name);
+	const labels = [new LabelBuilder().setLabel('Name').setTextInputComponent(name)];
+	if (jobs.length) {
+		const select = jobsSelect(jobs, category?.jobIds ?? [])
+			.setRequired(false)
+			.setMinValues(0);
+		labels.push(
+			new LabelBuilder()
+				.setLabel('Jobs')
+				.setDescription('Whose Employees and Managers may request Disbursements from it. Leadership always can.')
+				.setStringSelectMenuComponent(select)
+		);
+	}
+	return new ModalBuilder()
+		.setCustomId(modalId(category ? 'edit-category' : 'new-category', category?.id ?? null))
+		.setTitle(category ? truncate(`Edit ${category.name}`, 45) : 'New Spending Category')
+		.addLabelComponents(...labels);
+}
+
 function rateLabel(input: TextInputBuilder): LabelBuilder {
 	return new LabelBuilder().setLabel('Rate').setDescription('Like 1500 or 12.5.').setTextInputComponent(input);
 }
 
 function jobsLabel(jobs: readonly Job[], picked: readonly number[]): LabelBuilder {
-	const select = new StringSelectMenuBuilder()
+	const select = jobsSelect(jobs, picked).setRequired(true).setMinValues(1);
+	return new LabelBuilder().setLabel('Jobs').setDescription('The Jobs whose Employees can request this Task.').setStringSelectMenuComponent(select);
+}
+
+function jobsSelect(jobs: readonly Job[], picked: readonly number[]): StringSelectMenuBuilder {
+	return new StringSelectMenuBuilder()
 		.setCustomId(manageFieldIds.jobs)
-		.setRequired(true)
-		.setMinValues(1)
 		.setMaxValues(jobs.length)
 		.addOptions(jobs.map((job) => ({ label: truncate(job.name, 100), value: String(job.id), default: picked.includes(job.id) })));
-	return new LabelBuilder().setLabel('Jobs').setDescription('The Jobs whose Employees can request this Task.').setStringSelectMenuComponent(select);
 }
 
 function checkboxLabel(customId: string, label: string, checked: boolean): LabelBuilder {

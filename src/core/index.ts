@@ -23,3 +23,4 @@ export * from './rates-channel';
 export * from './manage';
 export * from './server-settings';
 export * from './appropriation';
+export * from './spending-categories';

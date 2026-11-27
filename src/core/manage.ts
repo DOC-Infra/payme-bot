@@ -1,10 +1,11 @@
 import type { Actor } from './actor';
-import { notice, type Card, type Choice, type JobAction, type TaskAction } from './effects';
+import { notice, type Card, type CategoryAction, type Choice, type JobAction, type TaskAction } from './effects';
 import { allJobs, describeJob, getJob, type Job } from './jobs';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
 import { formatAmount } from './rates';
+import { allSpendingCategories, getSpendingCategory, type SpendingCategory } from './spending-categories';
 import { allTasks, getTask, maxFormOptions, rateScheduleCard, type Task } from './tasks';
 
 /** Every Job, with a menu to open one. */
@@ -77,6 +78,47 @@ export function taskView(payMe: PayMe, actor: Actor, id: number): Outcome<Task> 
 	};
 	const actions: TaskAction[] = task.retired ? ['jobs', 'restore'] : ['edit', 'jobs', 'retire'];
 	return succeed([{ type: 'show-manage', card, view: { kind: 'task', taskId: id, actions } }], task);
+}
+
+/** Every Spending Category with the Jobs that may draw on it, with a menu to open one and a button to add one. */
+export function spendingCategoriesView(payMe: PayMe, actor: Actor): Outcome<SpendingCategory[]> {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+
+	const categories = allSpendingCategories(payMe);
+	const card: Card = {
+		tone: 'info',
+		title: 'Spending Categories',
+		description: categories.map((each) => describeCategory(payMe, each)).join('\n')
+	};
+	return succeed([{ type: 'show-manage', card, view: { kind: 'categories', categories: choices(categories, categoryLabel) } }], categories);
+}
+
+export function spendingCategoryView(payMe: PayMe, actor: Actor, id: number): Outcome<SpendingCategory> {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	const category = getSpendingCategory(payMe, id);
+	if (!category) return fail({ code: 'spending-category-not-found' });
+
+	const card: Card = {
+		tone: category.retired ? 'neutral' : 'info',
+		title: `${categoryLabel(category)} Spending Category`,
+		description: describeCategory(payMe, category)
+	};
+	const actions: CategoryAction[] = category.builtIn ? [] : category.retired ? ['restore'] : ['edit', 'retire'];
+	return succeed([{ type: 'show-manage', card, view: { kind: 'category', categoryId: id, actions } }], category);
+}
+
+function describeCategory(payMe: PayMe, category: SpendingCategory): string {
+	const notes = [category.builtIn && 'built in', category.retired && 'retired'].filter(Boolean);
+	const heading = `**${category.name}**${notes.length ? ` (${notes.join(', ')})` : ''}`;
+	if (category.builtIn) return `${heading}: every Payout and Share`;
+	const jobs = category.jobIds.map((jobId) => getJob(payMe, jobId)!).map((job) => (job.retired ? `${job.name} (retired)` : job.name));
+	return `${heading}: ${jobs.length ? jobs.sort().join(', ') : 'only Leadership can request'}`;
+}
+
+function categoryLabel(category: SpendingCategory): string {
+	return category.retired ? `${category.name} (retired)` : category.name;
 }
 
 function taskLabel(task: Task): string {

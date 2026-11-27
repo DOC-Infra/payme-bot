@@ -1,7 +1,20 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ModalSubmitInteraction } from 'discord.js';
-import { addTask, checkNewJob, createJob, fail, editJob, editTask, reviewChannelName, setManagerRoles, setTaskJobs, type Actor } from '../core';
+import {
+	addSpendingCategory,
+	addTask,
+	checkNewJob,
+	createJob,
+	editJob,
+	editSpendingCategory,
+	editTask,
+	fail,
+	reviewChannelName,
+	setManagerRoles,
+	setTaskJobs,
+	type Actor
+} from '../core';
 import { decodeCustomId, type ManageModalAction } from '../discord/customIds';
 import { holderUserIds } from '../discord/jobs';
 import { manageFieldIds } from '../discord/manage';
@@ -48,6 +61,14 @@ export class ModalHandler extends InteractionHandler {
 			});
 			if (!review) return fail({ code: 'review-channel-unavailable', name: channelName });
 			return createJob(payMe, actor, { name, employeeRoleId, reviewChannelId: review.id });
+		}
+		if (action === 'new-category' || action === 'edit-category') {
+			const category = {
+				name: text(manageFieldIds.name),
+				jobIds: fields.fields.has(manageFieldIds.jobs) ? jobIds() : []
+			};
+			if (action === 'new-category') return addSpendingCategory(payMe, actor, category);
+			return id === null ? null : editSpendingCategory(payMe, actor, id, category);
 		}
 		if (action === 'new-task') {
 			return addTask(payMe, actor, {
