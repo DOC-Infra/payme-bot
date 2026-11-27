@@ -1,4 +1,4 @@
-import { parseMonth, type EntryAction } from '../core';
+import { parseMonth, type DisbursementAction, type EntryAction } from '../core';
 
 export type ReviewAction = 'approve' | 'reject' | 'deny';
 export type ReasonAction = Exclude<ReviewAction, 'approve'>;
@@ -40,6 +40,7 @@ export type CustomId =
 	| { kind: 'manage-button'; action: ManageButtonAction; id: number | null }
 	| { kind: 'manage-menu'; action: ManageMenuAction }
 	| { kind: 'manage-modal'; action: ManageModalAction; id: number | null }
+	| { kind: 'disbursement-button'; action: DisbursementAction; disbursementNumber: number }
 	| { kind: 'appropriation-report-button'; month: string }
 	| { kind: 'appropriation-report-modal' };
 
@@ -47,6 +48,7 @@ const entryButtons = ['amend', 'withdraw', 'confirm-withdraw'] as const;
 const reviewActions = ['approve', 'reject', 'deny'] as const;
 const reasonActions = ['reject', 'deny'] as const;
 const settleActions = ['paid', 'discard'] as const;
+const disbursementActions = ['withdraw'] as const satisfies readonly DisbursementAction[];
 const projectButtons = ['share', 'change-share', 'fund', 'close', 'confirm-close'] as const;
 const projectModals = ['share', 'fund'] as const;
 const dashboardButtons = ['payouts', 'projects', 'jobs', 'tasks', 'spending-categories', 'settings'] as const;
@@ -135,6 +137,8 @@ export function encodeCustomId(id: CustomId): string {
 			return join('manage-pick', id.action);
 		case 'manage-modal':
 			return join('manage-form', id.action, id.id);
+		case 'disbursement-button':
+			return join('disbursement', id.action, id.disbursementNumber);
 		case 'appropriation-report-button':
 			return join('appropriation-report', id.month);
 		case 'appropriation-report-modal':
@@ -191,6 +195,11 @@ const decoders = new Map<string, (parts: string[]) => CustomId | null>([
 	[
 		'appropriation-report',
 		([month = '', ...rest]) => (parseMonth(month) === month && !rest.length ? { kind: 'appropriation-report-button', month } : null)
+	],
+	[
+		'disbursement',
+		(parts) =>
+			withAction(parts, disbursementActions, (action, disbursementNumber) => ({ kind: 'disbursement-button', action, disbursementNumber }))
 	],
 	['appropriation-report-form', (parts) => (parts.length ? null : { kind: 'appropriation-report-modal' })]
 ]);

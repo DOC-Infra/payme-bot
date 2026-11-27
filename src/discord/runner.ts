@@ -31,10 +31,15 @@ import {
 	getEmployee,
 	recordRequestsThread,
 	carryOutRound,
+	disbursementLabel,
+	discardUnpostedDisbursement,
+	getDisbursement,
+	recordDisbursementCard,
 	employeeCategoryId,
 	requestEntry,
 	type Actor,
 	type Card,
+	type DisbursementAction,
 	type Effect,
 	type EvidenceFile,
 	type MessageRef,
@@ -46,6 +51,7 @@ import {
 } from '../core';
 import { fetchActorIn, toActor } from './actor';
 import { reportButton } from './appropriation';
+import { disbursementButtons } from './disbursements';
 import { scheduleDashboardRefresh } from './dashboard';
 import { scheduleRatesRefresh } from './ratesChannel';
 import { toEmbeds } from './embeds';
@@ -107,6 +113,29 @@ const handlers: Handlers = {
 			components: [],
 			files: effect.files.map((file) => ({ attachment: Buffer.from(file.content), name: file.name }))
 		}),
+	'post-disbursement': async (effect, { payMe, interaction }) => {
+		if (!interaction) return;
+		const label = disbursementLabel(effect.disbursementNumber);
+		const { channel } = interaction;
+		const message = channel?.isSendable() ? await channel.send(disbursementMessage(effect)).catch(() => null) : null;
+		if (!message) {
+			discardUnpostedDisbursement(payMe, effect.disbursementNumber);
+			return replyPrivately(
+				interaction,
+				notice(`PayMe can't post here, so ${label} was not requested. Try a channel PayMe can send messages in.`, 'danger')
+			);
+		}
+		recordDisbursementCard(payMe, effect.disbursementNumber, { channelId: message.channelId, messageId: message.id });
+		await replyPrivately(interaction, notice(`Posted ${label} here for discussion.`));
+	},
+	'update-disbursement': async (effect, { payMe }) => {
+		const card = getDisbursement(payMe, effect.disbursementNumber);
+		if (!card?.channelId || !card.messageId) return;
+		const channel = await container.client.channels.fetch(card.channelId);
+		if (!channel?.isTextBased()) throw new Error(`The card for ${disbursementLabel(effect.disbursementNumber)} is not in a text channel`);
+		if (channel.isThread() && channel.archived) await channel.setArchived(false);
+		await channel.messages.edit(card.messageId, disbursementMessage(effect));
+	},
 	'show-appropriation': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card, [reportButton(effect.month)]),
 	'create-employee-channel': async (effect, { guildId, payMe }) => {
 		const guild = await container.client.guilds.fetch(guildId);
@@ -237,6 +266,14 @@ function roundPoster({ guildId, payMe }: EffectContext): RoundPoster {
 	return {
 		postEntry: (round) => postRequestEntry(payMe, round),
 		postReviewCopy: (round, channelId, entry) => postReviewCopy(round, channelId, entryLinkButton(guildId, entry))
+	};
+}
+
+function disbursementMessage(effect: { disbursementNumber: number; card: Card; actions: readonly DisbursementAction[] }) {
+	return {
+		embeds: toEmbeds(effect.card),
+		components: reviewRow(disbursementButtons(effect.disbursementNumber, effect.actions)),
+		allowedMentions: { parse: [] }
 	};
 }
 

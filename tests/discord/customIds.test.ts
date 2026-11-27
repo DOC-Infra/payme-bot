@@ -71,6 +71,7 @@ const everyKind: CustomId[] = [
 	{ kind: 'manage-modal', action: 'edit-spending-category', id: 2 },
 	{ kind: 'manage-button', action: 'spending-category-target', id: 1 },
 	{ kind: 'manage-modal', action: 'spending-category-target', id: 1 },
+	{ kind: 'disbursement-button', action: 'withdraw', disbursementNumber: 4 },
 	{ kind: 'appropriation-report-button', month: '2026-11' },
 	{ kind: 'appropriation-report-modal' }
 ];
@@ -136,6 +137,8 @@ describe('custom IDs', () => {
 		'manage-pick:open-job:3',
 		'manage-form:retire-job:3',
 		'appropriation-report',
+		'disbursement:withdraw',
+		'disbursement:pay:4',
 		'appropriation-report:2026-13',
 		'appropriation-report:2026-11:1',
 		'appropriation-report-form:1',

@@ -241,5 +241,27 @@ export const migrations: Migration[] = [
 				at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 			);
 		`
+	},
+	{
+		name: '0016-disbursements',
+		sql: `
+			CREATE TABLE disbursements (
+				number INTEGER PRIMARY KEY,
+				category_id INTEGER NOT NULL REFERENCES spending_categories (id),
+				job_id INTEGER REFERENCES jobs (id),
+				recipient TEXT NOT NULL,
+				amount INTEGER NOT NULL,
+				reason TEXT NOT NULL,
+				link TEXT,
+				state TEXT NOT NULL CHECK (state IN ('requested', 'paid', 'declined', 'withdrawn', 'voided')),
+				requested_by TEXT NOT NULL,
+				requested_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+				settled_by TEXT,
+				settled_at TEXT,
+				channel_id TEXT,
+				message_id TEXT
+			);
+			CREATE INDEX disbursements_by_state ON disbursements (state);
+		`
 	}
 ];

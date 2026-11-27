@@ -397,8 +397,12 @@ function reviewCard(request: PaymentRequest, task: Task, employee: Employee, evi
 }
 
 export function checkLink(input: NewEvidence): Failure | null {
-	if (input.link !== null && !/^https?:\/\/\S+$/.test(input.link)) return fail({ code: 'invalid-link', link: input.link });
+	if (input.link !== null && !isValidLink(input.link)) return fail({ code: 'invalid-link', link: input.link });
 	return null;
+}
+
+export function isValidLink(link: string): boolean {
+	return /^https?:\/\/\S+$/.test(link);
 }
 
 export function evidenceItems(input: NewEvidence): EvidenceItem[] {
