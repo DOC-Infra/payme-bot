@@ -2,11 +2,13 @@ import {
 	deleteUnpostedDisbursement,
 	insertDisbursement,
 	selectDisbursement,
+	selectDisbursements,
 	selectDisbursementsInState,
 	settleDisbursement,
 	updateDisbursementCard
 } from '../storage/disbursements';
 import type { Actor } from './actor';
+import { overSpentWarning, overTargetWarning } from './appropriation';
 import type { Card, CardField, DisbursementAction, Effect, MessageRef } from './effects';
 import { getEmployee, isValidMinecraftName } from './employees';
 import { worksIn } from './job-membership';
@@ -125,6 +127,10 @@ export function withdrawDisbursement(payMe: PayMe, actor: Actor, number: number)
 	});
 }
 
+export function allDisbursements(payMe: PayMe): Disbursement[] {
+	return selectDisbursements(payMe.storage);
+}
+
 /** Disbursements waiting for Leadership to pay or decline them, oldest first. */
 export function requestedDisbursements(payMe: PayMe): Disbursement[] {
 	return selectDisbursementsInState(payMe.storage, 'requested');
@@ -197,7 +203,8 @@ function decide(payMe: PayMe, actor: Actor, number: number, to: 'paid' | 'declin
 			return fail({ code: 'disbursement-decided', number, state: disbursement.state });
 
 		const decided = getDisbursement(payMe, number)!;
-		return succeed([cardEffect(payMe, decided, 'update-disbursement'), privateEffect(payMe, decided)], decided);
+		const warnings = to === 'paid' ? [...overSpentWarning(payMe), ...overTargetWarning(payMe, decided.categoryId)] : [];
+		return succeed([cardEffect(payMe, decided, 'update-disbursement'), privateEffect(payMe, decided), ...warnings], decided);
 	});
 }
 

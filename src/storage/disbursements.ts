@@ -57,3 +57,7 @@ export function deleteUnpostedDisbursement(storage: Storage, number: number) {
 export function selectDisbursementsInState(storage: Storage, state: DisbursementState): Disbursement[] {
 	return storage.db.select().from(disbursements).where(eq(disbursements.state, state)).orderBy(asc(disbursements.number)).all();
 }
+
+export function selectDisbursements(storage: Storage): Disbursement[] {
+	return storage.db.select().from(disbursements).orderBy(asc(disbursements.number)).all();
+}

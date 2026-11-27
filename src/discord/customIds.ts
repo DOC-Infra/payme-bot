@@ -45,6 +45,7 @@ export type CustomId =
 	| { kind: 'disbursement-button'; action: DisbursementButton; disbursementNumber: number }
 	| { kind: 'disbursement-decline-modal'; disbursementNumber: number }
 	| { kind: 'appropriation-report-button'; month: string }
+	| { kind: 'appropriation-disbursements-button'; month: string }
 	| { kind: 'appropriation-report-modal' };
 
 const entryButtons = ['amend', 'withdraw', 'confirm-withdraw'] as const;
@@ -146,6 +147,8 @@ export function encodeCustomId(id: CustomId): string {
 			return join('disbursement-decline', id.disbursementNumber);
 		case 'appropriation-report-button':
 			return join('appropriation-report', id.month);
+		case 'appropriation-disbursements-button':
+			return join('appropriation-disbursements', id.month);
 		case 'appropriation-report-modal':
 			return 'appropriation-report-form';
 	}
@@ -200,6 +203,10 @@ const decoders = new Map<string, (parts: string[]) => CustomId | null>([
 	[
 		'appropriation-report',
 		([month = '', ...rest]) => (parseMonth(month) === month && !rest.length ? { kind: 'appropriation-report-button', month } : null)
+	],
+	[
+		'appropriation-disbursements',
+		([month = '', ...rest]) => (parseMonth(month) === month && !rest.length ? { kind: 'appropriation-disbursements-button', month } : null)
 	],
 	[
 		'disbursement',
