@@ -646,31 +646,66 @@ describe('Disbursements in the Appropriation', () => {
 		]);
 	});
 
-	it("lists the month's Disbursements with their Category, recipient, amount and state", () => {
-		const { payMe } = grantsMonths();
+	it("lists the month's Disbursements by date: those paid or decided in it, and those still Requested in the current month", () => {
+		const { payMe, grants } = grantsMonths();
 		created(declineDisbursement(payMe, leadership(), 2, 'Not this month'));
-		payMe.storage.db.$client
-			.prepare('UPDATE disbursements SET requested_at = ?, settled_at = ? WHERE number = 2')
-			.run('2026-11-05T10:00:00.000Z', '2026-11-06T10:00:00.000Z');
+		const sql = payMe.storage.db.$client;
+		sql.prepare('UPDATE disbursements SET requested_at = ?, settled_at = ? WHERE number = 2').run(
+			'2026-11-05T10:00:00.000Z',
+			'2026-11-06T10:00:00.000Z'
+		);
+		created(requestDisbursement(payMe, leadership(), { categoryId: grants.id, recipient: 'Old_Ask', amount: '50', reason: 'Grant', link: null }));
+		sql.prepare('UPDATE disbursements SET requested_at = ? WHERE number = 3').run('2026-10-02T10:00:00.000Z');
 
-		expect(appropriationDisbursements(payMe, leadership(), '2026-11')).toMatchObject({
+		expect(appropriationDisbursements(payMe, leadership(), '2026-11', november)).toMatchObject({
 			effects: [
 				{
 					type: 'private-reply',
 					card: {
 						title: 'Disbursements · November 2026',
-						description: ['- **D-1** Grants · Bakery_Bob · $500 · Paid', '- **D-2** Grants · Stage_Co · $200 · Declined'].join('\n')
+						description: [
+							'- **D-3** Grants · Old_Ask · $50 · Requested',
+							'- **D-1** Grants · Bakery_Bob · $500 · Paid',
+							'- **D-2** Grants · Stage_Co · $200 · Declined'
+						].join('\n')
 					}
 				}
 			]
 		});
-		expect(appropriationDisbursements(payMe, leadership(), '2026-10')).toMatchObject({
-			effects: [{ card: { description: '- **D-1** Grants · Bakery_Bob · $500 · Paid' } }]
-		});
-		expect(appropriationDisbursements(payMe, leadership(), '2026-09')).toMatchObject({
+		expect(appropriationDisbursements(payMe, leadership(), '2026-10', november)).toMatchObject({
 			effects: [{ card: { description: 'No Disbursements.' } }]
 		});
-		expect(appropriationDisbursements(payMe, member('user-casey'), '2026-11')).toEqual({ ok: false, error: { code: 'not-permitted' } });
+		expect(appropriationDisbursements(payMe, member('user-casey'), '2026-11', november)).toEqual({ ok: false, error: { code: 'not-permitted' } });
+	});
+
+	it('keeps a Retired Category with Requested Disbursements in the current month, so its rows add up to Committed', () => {
+		const { payMe } = grantsMonths();
+		const events = created(addSpendingCategory(payMe, leadership(), { name: 'Events', jobIds: [] }));
+		created(
+			requestDisbursement(payMe, leadership(), { categoryId: events.id, recipient: 'Stage_Co', amount: '75', reason: 'Stage', link: null })
+		);
+		created(retireSpendingCategory(payMe, leadership(), events.id));
+
+		const view = created(showAppropriation(payMe, leadership(), '2026-11', november));
+		expect(view.categories.map((row) => [row.name, row.committed])).toEqual([
+			['Employee Pay', 0],
+			['Events', 7500],
+			['Grants', 20000]
+		]);
+	});
+
+	it('counts Requested Disbursements when warning that funding a Project goes over', () => {
+		const { payMe, warehouse } = courierAndLogistics();
+		created(setAppropriation(payMe, leadership(), '1500', '2000-01'));
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		created(
+			requestDisbursement(payMe, leadership(), { categoryId: grants.id, recipient: 'Bakery_Bob', amount: '400', reason: 'Grant', link: null })
+		);
+
+		const funded = fundProject(payMe, leadership(), warehouse.id, '200');
+		expect(
+			funded.ok && funded.effects.some((effect) => effect.type === 'private-reply' && effect.card.description?.includes('$1,600 of its $1,500'))
+		).toBe(true);
 	});
 
 	it('warns when marking a Disbursement paid takes its Category over its target or the month over its Appropriation, and still pays it', () => {

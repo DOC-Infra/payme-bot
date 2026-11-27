@@ -200,14 +200,8 @@ const decoders = new Map<string, (parts: string[]) => CustomId | null>([
 	['settings', (parts) => (parts.length ? null : { kind: 'settings-modal' })],
 	['dashboard-request-for', (parts) => (parts.length ? null : { kind: 'dashboard-request-for' })],
 	['share-pick', ([id, ...rest]) => (isDigits(id) && !rest.length ? { kind: 'share-select', projectId: Number(id) } : null)],
-	[
-		'appropriation-report',
-		([month = '', ...rest]) => (parseMonth(month) === month && !rest.length ? { kind: 'appropriation-report-button', month } : null)
-	],
-	[
-		'appropriation-disbursements',
-		([month = '', ...rest]) => (parseMonth(month) === month && !rest.length ? { kind: 'appropriation-disbursements-button', month } : null)
-	],
+	['appropriation-report', (parts) => withMonth(parts, (month) => ({ kind: 'appropriation-report-button', month }))],
+	['appropriation-disbursements', (parts) => withMonth(parts, (month) => ({ kind: 'appropriation-disbursements-button', month }))],
 	[
 		'disbursement',
 		(parts) =>
@@ -246,6 +240,10 @@ function decodeSettle(parts: string[]): CustomId | null {
 	const known = settleActions.find((candidate) => candidate === action);
 	if (!known || !isDigits(number) || !isDigits(revision) || rest.length) return null;
 	return { kind: 'payout-button', action: known, payoutNumber: Number(number), revision: Number(revision) };
+}
+
+function withMonth([month = '', ...rest]: string[], build: (month: string) => CustomId): CustomId | null {
+	return parseMonth(month) === month && !rest.length ? build(month) : null;
 }
 
 function inHome(home: string | undefined, rest: string[], build: (userId: string | null) => CustomId): CustomId | null {

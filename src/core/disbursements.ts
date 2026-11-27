@@ -9,6 +9,7 @@ import {
 } from '../storage/disbursements';
 import type { Actor } from './actor';
 import { overSpentWarning, overTargetWarning } from './appropriation';
+import { monthName, monthOf, parseMonth } from './months';
 import type { Card, CardField, DisbursementAction, Effect, MessageRef } from './effects';
 import { getEmployee, isValidMinecraftName } from './employees';
 import { worksIn } from './job-membership';
@@ -127,8 +128,33 @@ export function withdrawDisbursement(payMe: PayMe, actor: Actor, number: number)
 	});
 }
 
-export function allDisbursements(payMe: PayMe): Disbursement[] {
-	return selectDisbursements(payMe.storage);
+export function paidDisbursements(payMe: PayMe): Disbursement[] {
+	return selectDisbursementsInState(payMe.storage, 'paid');
+}
+
+/**
+ * The month's Disbursements for Leadership, by date: those paid, declined, withdrawn or voided in it, and, for the current month,
+ * those still Requested.
+ */
+export function appropriationDisbursements(payMe: PayMe, actor: Actor, monthText: string, now = new Date()): Outcome<Disbursement[]> {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	const month = parseMonth(monthText);
+	if (!month) return fail({ code: 'invalid-month', month: monthText });
+
+	const inMonth = selectDisbursements(payMe.storage)
+		.filter((each) => (each.settledAt === null ? month === monthOf(now) : monthOf(each.settledAt) === month))
+		.sort((a, b) => (a.settledAt ?? a.requestedAt).localeCompare(b.settledAt ?? b.requestedAt) || a.number - b.number);
+	const lines = inMonth.map((each) => {
+		const category = getSpendingCategory(payMe, each.categoryId)!.name;
+		return `- **${disbursementLabel(each.number)}** ${category} · ${each.recipient} · ${formatAmount(each.amount)} · ${disbursementStateName(each.state)}`;
+	});
+	const card: Card = {
+		tone: 'info',
+		title: `Disbursements · ${monthName(month)}`,
+		description: lines.length ? lines.join('\n') : 'No Disbursements.'
+	};
+	return succeed([{ type: 'private-reply', card }], inMonth);
 }
 
 /** Disbursements waiting for Leadership to pay or decline them, oldest first. */

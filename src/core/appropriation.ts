@@ -6,8 +6,8 @@ import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
 import { getEmployee } from './employees';
 import { getJob } from './jobs';
-import { disbursementLabel, disbursementStateName, payoutLabel, requestLabel, shareLabel } from './labels';
-import { allDisbursements, requestedDisbursements, type Disbursement } from './disbursements';
+import { disbursementLabel, payoutLabel, requestLabel, shareLabel } from './labels';
+import { paidDisbursements, requestedDisbursements, type Disbursement } from './disbursements';
 import { owedSummary, paidPayouts, type Payout } from './payouts';
 import { allProjects, balanceOf, getProject } from './projects';
 import { getTask } from './tasks';
@@ -83,7 +83,7 @@ function categorySpendOf(
 
 /** The current month lists every active Category; earlier and later ones only those that had a target or Spend. */
 function shownIn(category: SpendingCategory, row: CategorySpend, isCurrentMonth: boolean): boolean {
-	if (category.builtIn || row.targetPercent !== null || row.spent > 0) return true;
+	if (category.builtIn || row.targetPercent !== null || row.spent > 0 || (row.committed ?? 0) > 0) return true;
 	return isCurrentMonth && !category.retired;
 }
 
@@ -121,12 +121,13 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 	const isCurrentMonth = month === monthOf(now);
 	const owed = isCurrentMonth ? committedToday(payMe) : null;
 	const reserved = isCurrentMonth ? reservedToday(payMe) : null;
-	const disbursed = byCategory(paidDisbursementsIn(payMe, [month]));
-	const requested = byCategory(isCurrentMonth ? requestedDisbursements(payMe) : []);
-	const figuresFor = (category: SpendingCategory): CategoryFigures =>
-		category.builtIn
-			? { spent: payoutsSpent, committed: owed?.committed ?? null, reserved }
-			: { spent: disbursed.get(category.id) ?? 0, committed: isCurrentMonth ? (requested.get(category.id) ?? 0) : null, reserved: null };
+	const disbursed = totalsByCategory(paidDisbursementsIn(payMe, [month]));
+	const requested = totalsByCategory(isCurrentMonth ? requestedDisbursements(payMe) : []);
+	const figuresFor = (category: SpendingCategory): CategoryFigures => {
+		if (category.builtIn) return { spent: payoutsSpent, committed: owed?.committed ?? null, reserved };
+		const committed = isCurrentMonth ? (requested.get(category.id) ?? 0) : null;
+		return { spent: disbursed.get(category.id) ?? 0, committed, reserved: null };
+	};
 
 	const targets = spendingCategoryTargets(payMe, month);
 	const dollarsOf = (percent: number | null) =>
@@ -154,8 +155,7 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 	};
 }
 
-/** Each Category's total amount. */
-function byCategory(disbursements: readonly Disbursement[]): Map<number, number> {
+function totalsByCategory(disbursements: readonly Disbursement[]): Map<number, number> {
 	const totals = new Map<number, number>();
 	for (const each of disbursements) totals.set(each.categoryId, (totals.get(each.categoryId) ?? 0) + each.amount);
 	return totals;
@@ -165,33 +165,8 @@ function sumOf(totals: ReadonlyMap<number, number>): number {
 	return [...totals.values()].reduce((sum, amount) => sum + amount, 0);
 }
 
-/** Disbursements paid in any of `months`, in the order they were paid. */
 function paidDisbursementsIn(payMe: PayMe, months: readonly string[]): Disbursement[] {
-	return allDisbursements(payMe)
-		.filter((each) => each.state === 'paid' && months.includes(monthOf(each.settledAt!)))
-		.sort((a, b) => a.settledAt!.localeCompare(b.settledAt!) || a.number - b.number);
-}
-
-/** Every Disbursement requested or decided in the month, for Leadership. */
-export function appropriationDisbursements(payMe: PayMe, actor: Actor, monthText: string): Outcome<Disbursement[]> {
-	const refused = requireLeadership(payMe, actor);
-	if (refused) return refused;
-	const month = parseMonth(monthText);
-	if (!month) return fail({ code: 'invalid-month', month: monthText });
-
-	const inMonth = allDisbursements(payMe).filter(
-		(each) => monthOf(each.requestedAt) === month || (each.settledAt !== null && monthOf(each.settledAt) === month)
-	);
-	const lines = inMonth.map((each) => {
-		const category = getSpendingCategory(payMe, each.categoryId)!.name;
-		return `- **${disbursementLabel(each.number)}** ${category} · ${each.recipient} · ${formatAmount(each.amount)} · ${disbursementStateName(each.state)}`;
-	});
-	const card: Card = {
-		tone: 'info',
-		title: `Disbursements · ${monthName(month)}`,
-		description: lines.length ? lines.join('\n') : 'No Disbursements.'
-	};
-	return succeed([{ type: 'private-reply', card }], inMonth);
+	return paidDisbursements(payMe).filter((each) => months.includes(monthOf(each.settledAt!)));
 }
 
 /** A warning when marking a Payout paid has taken this month's Spent over its Appropriation (ADR 0003). */
