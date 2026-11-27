@@ -17,7 +17,7 @@ export class MenuHandler extends InteractionHandler {
 		await runAsActor(interaction, { code: 'not-permitted' }, (actor) => {
 			if (action === 'open-job') return jobView(payMe, actor, id);
 			if (action === 'open-job-tasks') return jobTasksView(payMe, actor, id);
-			if (action === 'open-category') return spendingCategoryView(payMe, actor, id);
+			if (action === 'open-spending-category') return spendingCategoryView(payMe, actor, id);
 			return taskView(payMe, actor, id);
 		});
 	}

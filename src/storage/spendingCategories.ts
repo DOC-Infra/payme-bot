@@ -21,7 +21,6 @@ export function selectSpendingCategories(storage: Storage): SpendingCategory[] {
 	return storage.db
 		.select()
 		.from(spendingCategories)
-		.orderBy(asc(spendingCategories.id))
 		.all()
 		.map((row) => toCategory(storage, row))
 		.sort((a, b) => Number(b.builtIn) - Number(a.builtIn) || a.name.localeCompare(b.name));
@@ -56,5 +55,5 @@ function toCategory(storage: Storage, row: CategoryRow): SpendingCategory {
 		.orderBy(asc(spendingCategoryJobs.jobId))
 		.all()
 		.map((link) => link.jobId);
-	return { id: row.id, name: row.name, builtIn: row.builtIn, retired: row.retired, jobIds };
+	return { ...row, jobIds };
 }

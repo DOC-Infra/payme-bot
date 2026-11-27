@@ -49,7 +49,7 @@ const reasonActions = ['reject', 'deny'] as const;
 const settleActions = ['paid', 'discard'] as const;
 const projectButtons = ['share', 'change-share', 'fund', 'close', 'confirm-close'] as const;
 const projectModals = ['share', 'fund'] as const;
-const dashboardButtons = ['payouts', 'projects', 'jobs', 'tasks', 'categories', 'settings'] as const;
+const dashboardButtons = ['payouts', 'projects', 'jobs', 'tasks', 'spending-categories', 'settings'] as const;
 const manageButtons = [
 	'new-job',
 	'edit-job',
@@ -61,13 +61,22 @@ const manageButtons = [
 	'task-jobs',
 	'retire-task',
 	'restore-task',
-	'new-category',
-	'edit-category',
-	'retire-category',
-	'restore-category'
+	'new-spending-category',
+	'edit-spending-category',
+	'retire-spending-category',
+	'restore-spending-category'
 ] as const;
-const manageMenus = ['open-job', 'open-job-tasks', 'open-task', 'open-category'] as const;
-const manageModals = ['new-job', 'edit-job', 'job-managers', 'new-task', 'edit-task', 'task-jobs', 'new-category', 'edit-category'] as const;
+const manageMenus = ['open-job', 'open-job-tasks', 'open-task', 'open-spending-category'] as const;
+const manageModals = [
+	'new-job',
+	'edit-job',
+	'job-managers',
+	'new-task',
+	'edit-task',
+	'task-jobs',
+	'new-spending-category',
+	'edit-spending-category'
+] as const;
 
 export function encodeCustomId(id: CustomId): string {
 	switch (id.kind) {

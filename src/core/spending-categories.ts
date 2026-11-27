@@ -55,7 +55,7 @@ export function addSpendingCategory(payMe: PayMe, actor: Actor, input: NewSpendi
 /** Renames the Category and makes these the active Jobs that may draw on it, keeping any Retired Jobs it already lists. */
 export function editSpendingCategory(payMe: PayMe, actor: Actor, id: number, changes: NewSpendingCategory): Outcome<SpendingCategory> {
 	const name = changes.name.trim();
-	return changeCategory(payMe, actor, id, (category) => {
+	return changeSpendingCategory(payMe, actor, id, (category) => {
 		const unusable = checkName(payMe, name, id) ?? checkJobs(payMe, changes.jobIds);
 		if (unusable) return unusable;
 
@@ -67,7 +67,7 @@ export function editSpendingCategory(payMe: PayMe, actor: Actor, id: number, cha
 }
 
 export function retireSpendingCategory(payMe: PayMe, actor: Actor, id: number): Outcome<SpendingCategory> {
-	return changeCategory(payMe, actor, id, (category) => {
+	return changeSpendingCategory(payMe, actor, id, (category) => {
 		setSpendingCategoryRetired(payMe.storage, id, true);
 		return `Retired the ${category.name} Spending Category.`;
 	});
@@ -75,14 +75,19 @@ export function retireSpendingCategory(payMe: PayMe, actor: Actor, id: number): 
 
 /** Makes a Retired Category usable again, with the name and Jobs it had. */
 export function restoreSpendingCategory(payMe: PayMe, actor: Actor, id: number): Outcome<SpendingCategory> {
-	return changeCategory(payMe, actor, id, (category) => {
+	return changeSpendingCategory(payMe, actor, id, (category) => {
 		if (!category.retired) return fail({ code: 'spending-category-not-retired', name: category.name });
 		setSpendingCategoryRetired(payMe.storage, id, false);
 		return `Restored the ${category.name} Spending Category.`;
 	});
 }
 
-function changeCategory(payMe: PayMe, actor: Actor, id: number, change: (category: SpendingCategory) => Failure | string): Outcome<SpendingCategory> {
+function changeSpendingCategory(
+	payMe: PayMe,
+	actor: Actor,
+	id: number,
+	change: (category: SpendingCategory) => Failure | string
+): Outcome<SpendingCategory> {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
 
@@ -99,6 +104,7 @@ function changeCategory(payMe: PayMe, actor: Actor, id: number, change: (categor
 }
 
 function checkName(payMe: PayMe, name: string, exceptId?: number): Failure | null {
+	if (!name) return fail({ code: 'spending-category-name-required' });
 	const takenBy = selectSpendingCategoryIdByName(payMe.storage, name);
 	if (takenBy === null || takenBy === exceptId) return null;
 	return fail({ code: 'spending-category-name-taken', name, retired: getSpendingCategory(payMe, takenBy)!.retired });

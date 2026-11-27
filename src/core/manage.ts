@@ -1,5 +1,5 @@
 import type { Actor } from './actor';
-import { notice, type Card, type CategoryAction, type Choice, type JobAction, type TaskAction } from './effects';
+import { notice, type Card, type SpendingCategoryAction, type Choice, type JobAction, type TaskAction } from './effects';
 import { allJobs, describeJob, getJob, type Job } from './jobs';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
@@ -89,9 +89,12 @@ export function spendingCategoriesView(payMe: PayMe, actor: Actor): Outcome<Spen
 	const card: Card = {
 		tone: 'info',
 		title: 'Spending Categories',
-		description: categories.map((each) => describeCategory(payMe, each)).join('\n')
+		description: categories.map((each) => describeSpendingCategory(payMe, each)).join('\n')
 	};
-	return succeed([{ type: 'show-manage', card, view: { kind: 'categories', categories: choices(categories, categoryLabel) } }], categories);
+	return succeed(
+		[{ type: 'show-manage', card, view: { kind: 'spending-categories', categories: choices(categories, spendingCategoryLabel) } }],
+		categories
+	);
 }
 
 export function spendingCategoryView(payMe: PayMe, actor: Actor, id: number): Outcome<SpendingCategory> {
@@ -102,14 +105,14 @@ export function spendingCategoryView(payMe: PayMe, actor: Actor, id: number): Ou
 
 	const card: Card = {
 		tone: category.retired ? 'neutral' : 'info',
-		title: `${categoryLabel(category)} Spending Category`,
-		description: describeCategory(payMe, category)
+		title: `${spendingCategoryLabel(category)} Spending Category`,
+		description: describeSpendingCategory(payMe, category)
 	};
-	const actions: CategoryAction[] = category.builtIn ? [] : category.retired ? ['restore'] : ['edit', 'retire'];
-	return succeed([{ type: 'show-manage', card, view: { kind: 'category', categoryId: id, actions } }], category);
+	const actions: SpendingCategoryAction[] = category.builtIn ? [] : category.retired ? ['restore'] : ['edit', 'retire'];
+	return succeed([{ type: 'show-manage', card, view: { kind: 'spending-category', spendingCategoryId: id, actions } }], category);
 }
 
-function describeCategory(payMe: PayMe, category: SpendingCategory): string {
+function describeSpendingCategory(payMe: PayMe, category: SpendingCategory): string {
 	const notes = [category.builtIn && 'built in', category.retired && 'retired'].filter(Boolean);
 	const heading = `**${category.name}**${notes.length ? ` (${notes.join(', ')})` : ''}`;
 	if (category.builtIn) return `${heading}: every Payout and Share`;
@@ -117,7 +120,7 @@ function describeCategory(payMe: PayMe, category: SpendingCategory): string {
 	return `${heading}: ${jobs.length ? jobs.sort().join(', ') : 'only Leadership can request'}`;
 }
 
-function categoryLabel(category: SpendingCategory): string {
+function spendingCategoryLabel(category: SpendingCategory): string {
 	return category.retired ? `${category.name} (retired)` : category.name;
 }
 

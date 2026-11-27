@@ -11,7 +11,18 @@ import {
 	TextInputStyle,
 	type MessageActionRowComponentBuilder
 } from 'discord.js';
-import { plainAmount, type CategoryAction, type Choice, type Job, type ManageView, type SpendingCategory, type Task } from '../core';
+import {
+	allJobs,
+	maxFormOptions,
+	plainAmount,
+	type PayMe,
+	type SpendingCategoryAction,
+	type Choice,
+	type Job,
+	type ManageView,
+	type SpendingCategory,
+	type Task
+} from '../core';
 import { encodeCustomId, type ManageButtonAction, type ManageMenuAction, type ManageModalAction } from './customIds';
 
 export const manageFieldIds = {
@@ -23,6 +34,13 @@ export const manageFieldIds = {
 	evidence: 'evidence',
 	notes: 'notes'
 } as const;
+
+/** The active Jobs a form offers to pick from: as many as a menu can list. */
+export function formJobs(payMe: PayMe): Job[] {
+	return allJobs(payMe)
+		.filter((job) => !job.retired)
+		.slice(0, maxFormOptions);
+}
 
 /** Discord lets a role menu pick at most this many roles. */
 const maxRoles = 25;
@@ -57,20 +75,20 @@ export function manageComponents(view: ManageView): { menus: Row[]; buttons: But
 			};
 		case 'task':
 			return { menus: [], buttons: view.actions.map((action) => taskButton(view.taskId, action)) };
-		case 'categories':
+		case 'spending-categories':
 			return {
-				menus: menuRow('open-category', 'Open a Spending Category', view.categories),
-				buttons: [button('new-category', null, 'New Spending Category', ButtonStyle.Primary)]
+				menus: menuRow('open-spending-category', 'Open a Spending Category', view.categories),
+				buttons: [button('new-spending-category', null, 'New Spending Category', ButtonStyle.Primary)]
 			};
-		case 'category':
-			return { menus: [], buttons: view.actions.map((action) => categoryButton(view.categoryId, action)) };
+		case 'spending-category':
+			return { menus: [], buttons: view.actions.map((action) => spendingCategoryButton(view.spendingCategoryId, action)) };
 	}
 }
 
-function categoryButton(categoryId: number, action: CategoryAction): ButtonBuilder {
-	if (action === 'edit') return button('edit-category', categoryId, 'Edit', ButtonStyle.Primary);
-	if (action === 'retire') return button('retire-category', categoryId, 'Retire', ButtonStyle.Danger);
-	return button('restore-category', categoryId, 'Restore', ButtonStyle.Success);
+function spendingCategoryButton(spendingCategoryId: number, action: SpendingCategoryAction): ButtonBuilder {
+	if (action === 'edit') return button('edit-spending-category', spendingCategoryId, 'Edit', ButtonStyle.Primary);
+	if (action === 'retire') return button('retire-spending-category', spendingCategoryId, 'Retire', ButtonStyle.Danger);
+	return button('restore-spending-category', spendingCategoryId, 'Restore', ButtonStyle.Success);
 }
 
 function taskButton(taskId: number, action: 'edit' | 'jobs' | 'retire' | 'restore'): ButtonBuilder {
@@ -148,7 +166,7 @@ export function buildTaskJobsModal(task: Task, jobs: readonly Job[]): ModalBuild
 }
 
 /** `jobs` are the active Jobs to choose from; with none, the form only asks for a name. */
-export function buildCategoryModal(category: SpendingCategory | null, jobs: readonly Job[]): ModalBuilder {
+export function buildSpendingCategoryModal(category: SpendingCategory | null, jobs: readonly Job[]): ModalBuilder {
 	const name = textInput(manageFieldIds.name, 100);
 	if (category) name.setValue(category.name);
 	const labels = [new LabelBuilder().setLabel('Name').setTextInputComponent(name)];
@@ -164,7 +182,7 @@ export function buildCategoryModal(category: SpendingCategory | null, jobs: read
 		);
 	}
 	return new ModalBuilder()
-		.setCustomId(modalId(category ? 'edit-category' : 'new-category', category?.id ?? null))
+		.setCustomId(modalId(category ? 'edit-spending-category' : 'new-spending-category', category?.id ?? null))
 		.setTitle(category ? truncate(`Edit ${category.name}`, 45) : 'New Spending Category')
 		.addLabelComponents(...labels);
 }

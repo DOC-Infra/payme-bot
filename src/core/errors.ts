@@ -53,6 +53,7 @@ export type PayMeError =
 	| { code: 'invalid-amount'; amount: string }
 	| { code: 'invalid-month'; month: string }
 	| { code: 'spending-category-not-found' }
+	| { code: 'spending-category-name-required' }
 	| { code: 'spending-category-name-taken'; name: string; retired: boolean }
 	| { code: 'spending-category-built-in'; name: string }
 	| { code: 'spending-category-not-retired'; name: string }
@@ -179,6 +180,8 @@ export function describeError(error: PayMeError): string {
 			return `That is ${error.months} months. A report can cover at most ${error.max}.`;
 		case 'spending-category-not-found':
 			return 'That Spending Category does not exist.';
+		case 'spending-category-name-required':
+			return 'Give the Spending Category a name.';
 		case 'spending-category-name-taken':
 			return error.retired
 				? `A Retired Spending Category named ${error.name} already exists. Restore it from Spending Categories on the Leadership dashboard.`

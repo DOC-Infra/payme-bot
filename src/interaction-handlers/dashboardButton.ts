@@ -44,7 +44,7 @@ export class ButtonHandler extends InteractionHandler {
 		if (action === 'payouts') return generateAllPayouts(payMe, actor);
 		if (action === 'projects') return listProjects(payMe, actor);
 		if (action === 'jobs') return jobsView(payMe, actor);
-		if (action === 'categories') return spendingCategoriesView(payMe, actor);
+		if (action === 'spending-categories') return spendingCategoriesView(payMe, actor);
 		return tasksView(payMe, actor);
 	}
 }

@@ -102,7 +102,7 @@ const buttons: [DashboardButton, string][] = [
 	['projects', 'Projects'],
 	['jobs', 'Jobs'],
 	['tasks', 'Tasks'],
-	['categories', 'Spending Categories'],
+	['spending-categories', 'Spending Categories'],
 	['settings', 'Settings']
 ];
 
@@ -114,7 +114,9 @@ function dashboardButtons(): ActionRowBuilder<ButtonBuilder>[] {
 			.setLabel(label)
 			.setStyle(action === 'payouts' ? ButtonStyle.Primary : ButtonStyle.Secondary)
 	);
-	return [all.slice(0, 5), all.slice(5)].filter((row) => row.length).map((row) => new ActionRowBuilder<ButtonBuilder>().addComponents(row));
+	const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+	for (let start = 0; start < all.length; start += 5) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(all.slice(start, start + 5)));
+	return rows;
 }
 
 function requestForRow(): ActionRowBuilder<UserSelectMenuBuilder> {

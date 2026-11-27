@@ -57,6 +57,19 @@ describe('Creating a Spending Category', () => {
 		});
 	});
 
+	it('refuses a blank name', () => {
+		const payMe = createTestPayMe();
+		const category = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+
+		expect(addSpendingCategory(payMe, leadership(), { name: '   ', jobIds: [] })).toEqual({
+			ok: false,
+			error: { code: 'spending-category-name-required' }
+		});
+		expect(editSpendingCategory(payMe, leadership(), category.id, { name: ' ', jobIds: [] })).toMatchObject({
+			error: { code: 'spending-category-name-required' }
+		});
+	});
+
 	it('refuses a Retired Job, and anyone but Leadership', () => {
 		const payMe = createTestPayMe();
 		const old = job(payMe, 'Old Office');
@@ -138,7 +151,11 @@ describe('Retiring and restoring a Spending Category', () => {
 			error: { code: 'spending-category-not-retired', name: 'Grants' }
 		});
 		expect(retireSpendingCategory(payMe, leadership(), 1)).toMatchObject({ error: { code: 'spending-category-built-in' } });
-		expect(retireSpendingCategory(payMe, member('user-casey'), category.id)).toMatchObject({ error: { code: 'not-permitted' } });
+		const casey = member('user-casey');
+		expect(retireSpendingCategory(payMe, casey, category.id)).toMatchObject({ error: { code: 'not-permitted' } });
+		expect(restoreSpendingCategory(payMe, casey, category.id)).toMatchObject({ error: { code: 'not-permitted' } });
+		expect(editSpendingCategory(payMe, casey, category.id, { name: 'Mine', jobIds: [] })).toMatchObject({ error: { code: 'not-permitted' } });
+		expect(spendingCategoryView(payMe, casey, category.id)).toMatchObject({ error: { code: 'not-permitted' } });
 	});
 });
 
@@ -163,7 +180,7 @@ describe('Managing Spending Categories from the dashboard', () => {
 						].join('\n')
 					},
 					view: {
-						kind: 'categories',
+						kind: 'spending-categories',
 						categories: [
 							{ id: 1, label: 'Employee Pay' },
 							{ id: 3, label: 'Grants' },
@@ -180,7 +197,7 @@ describe('Managing Spending Categories from the dashboard', () => {
 		const category = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
 		const actions = (id: number) => {
 			const outcome = spendingCategoryView(payMe, leadership(), id);
-			return outcome.ok && outcome.effects[0].type === 'show-manage' && outcome.effects[0].view.kind === 'category'
+			return outcome.ok && outcome.effects[0].type === 'show-manage' && outcome.effects[0].view.kind === 'spending-category'
 				? outcome.effects[0].view.actions
 				: null;
 		};
