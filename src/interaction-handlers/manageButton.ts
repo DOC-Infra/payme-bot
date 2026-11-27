@@ -5,7 +5,6 @@ import {
 	fail,
 	getJob,
 	getSpendingCategory,
-	monthOf,
 	getTask,
 	requireLeadership,
 	restoreSpendingCategory,
@@ -13,7 +12,7 @@ import {
 	retireJob,
 	retireSpendingCategory,
 	retireTask,
-	spendingCategoryTargets,
+	targetThisMonth,
 	type Actor
 } from '../core';
 import { decodeCustomId, type ManageButtonAction } from '../discord/customIds';
@@ -87,8 +86,7 @@ export class ButtonHandler extends InteractionHandler {
 			case 'spending-category-target': {
 				const category = getSpendingCategory(payMe, id);
 				if (!category) return fail({ code: 'spending-category-not-found' });
-				const percent = spendingCategoryTargets(payMe, monthOf(new Date())).get(id) ?? null;
-				return this.show(interaction, buildTargetModal(category, percent));
+				return this.show(interaction, buildTargetModal(category, targetThisMonth(payMe, id)));
 			}
 			case 'edit-spending-category': {
 				const category = getSpendingCategory(payMe, id);

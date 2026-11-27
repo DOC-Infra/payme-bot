@@ -141,6 +141,10 @@ _Avoid_: Earmarked, held
 What money was spent on, used to compare Spend against the Appropriation. Each one may have a target share of the Appropriation, as a percentage, and lists the Jobs whose Employees and Managers may request Disbursements from it. **Employee Pay** is built in and holds every Payout and Share. A Retired Spending Category takes no new Disbursements but stays in history, and Leadership can restore it.
 _Avoid_: Pool, fund, line item
 
+**Unassigned**:
+The part of a month's Appropriation that no Spending Category's target covers. Retiring a Spending Category clears its target from that month onward, so its share becomes Unassigned.
+_Avoid_: Unallocated, remainder
+
 **Disbursement**:
 A one-off payment from a Spending Category to a recipient's Minecraft Name, labelled like D-12. Employees and Managers of the Category's Jobs, or Leadership, request it with a public card wherever the discussion about it happens. Leadership pays it with a Pay Command. Its amount is fixed when requested; to change it, the request is withdrawn and made again. Leadership can also record one already paid outside PayMe.
 _Avoid_: Expenditure, grant (a grant is one kind of Disbursement), payout

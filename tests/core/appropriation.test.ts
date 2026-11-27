@@ -3,6 +3,7 @@ import {
 	addTask,
 	addSpendingCategory,
 	setSpendingCategoryTarget,
+	retireSpendingCategory,
 	fundProject,
 	getPayout,
 	monthName,
@@ -206,7 +207,7 @@ describe('What Leadership sees', () => {
 							'**Remaining after commitments**: $3,700',
 							'',
 							'**Spending Categories**',
-							'- Employee Pay: no target · Spent $1,000 · Committed $300',
+							'- Employee Pay: no target · Spent $1,000 · Committed $300 · Reserved $1,000',
 							'- Unassigned: 100% ($5,000)',
 							'',
 							'**Spent by Job**',
@@ -288,17 +289,16 @@ describe('The report', () => {
 		);
 	});
 
-	it('reports each Spending Category against the target it had that month', () => {
+	it('reports each Spending Category against the target it had that month, listing only those it had then', () => {
 		const { payMe } = twoMonths();
 		created(setSpendingCategoryTarget(payMe, leadership(), 1, '10', november));
 		created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
 
-		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11')).summary.split('\n')).toEqual([
+		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11', november)).summary.split('\n')).toEqual([
 			'month,spending_category,job,appropriation,target,spent,over_under',
 			'2026-10,,,,,1000,',
 			'2026-10,Employee Pay,,,,1000,',
 			'2026-10,Employee Pay,Courier,,,1000,',
-			'2026-10,Grants,,,,0,',
 			'2026-11,,,5000,,1550.5,-3449.5',
 			'2026-11,Employee Pay,,,500,1550.5,1050.5',
 			'2026-11,Employee Pay,Courier,,,1000,',
@@ -452,6 +452,19 @@ describe('Warnings when going over the Appropriation', () => {
 		]);
 	});
 
+	it('warns when funding a Project takes Employee Pay with its commitments over its target', () => {
+		const { payMe, warehouse } = courierAndLogistics();
+		created(setAppropriation(payMe, leadership(), '10000', '2000-01'));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '15', new Date()));
+
+		expect(warnings(fundProject(payMe, leadership(), warehouse.id, '400'))).toEqual([]);
+		expect(
+			warnings(fundProject(payMe, leadership(), warehouse.id, '200')).map((each) => each.type === 'private-reply' && each.card.description)
+		).toEqual([
+			`**Over target**: Employee Pay's Spent, Committed and Reserved now come to $1,600 of its $1,500 target for ${thisMonth()}, $100 over.`
+		]);
+	});
+
 	it('never warns in a month with no Appropriation', () => {
 		const { payMe, parcel, warehouse } = courierAndLogistics();
 		approve(payMe, alex, parcel.id);
@@ -485,6 +498,38 @@ describe('Spending Category targets', () => {
 
 		expect(rowsIn(payMe, '2026-10')).toEqual([expect.objectContaining({ targetPercent: 6000, target: null })]);
 		expect(rowsIn(payMe, '2026-11')).toEqual([expect.objectContaining({ targetPercent: null, target: null })]);
+	});
+
+	it('clears the target of a Category when it is Retired, leaving its earlier months alone', () => {
+		const payMe = createTestPayMe();
+		created(setAppropriation(payMe, leadership(), '5000', '2026-09'));
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, '60', october));
+		created(retireSpendingCategory(payMe, leadership(), grants.id));
+
+		expect(created(setSpendingCategoryTarget(payMe, leadership(), 1, '100', november))).toBeTruthy();
+		expect(rowsIn(payMe, '2026-10').map((row) => [row.name, row.targetPercent])).toEqual([
+			['Employee Pay', null],
+			['Grants', 6000]
+		]);
+		expect(rowsIn(payMe, '2026-11').map((row) => row.name)).toEqual(['Employee Pay']);
+	});
+
+	it('shows an earlier month only the Categories that had a target or Spend then', () => {
+		const payMe = createTestPayMe();
+		created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+
+		expect(rowsIn(payMe, '2026-10').map((row) => row.name)).toEqual(['Employee Pay']);
+		expect(rowsIn(payMe, '2026-11').map((row) => row.name)).toEqual(['Employee Pay', 'Grants']);
+	});
+
+	it('leaves no cent over or under when target dollars round', () => {
+		const payMe = createTestPayMe();
+		created(setAppropriation(payMe, leadership(), '0.03', '2026-11'));
+		created(setSpendingCategoryTarget(payMe, leadership(), 1, '50', november));
+
+		const view = created(showAppropriation(payMe, leadership(), null, november));
+		expect(view.categories[0].target! + view.unassigned.amount!).toBe(3);
 	});
 
 	it('refuses targets that would total over 100%, a percentage it cannot read, and anyone but Leadership', () => {
@@ -529,7 +574,7 @@ describe('Spending Category targets', () => {
 						description: expect.stringContaining(
 							[
 								'**Spending Categories**',
-								'- Employee Pay: target 10% ($500) · Spent $1,000 · Committed $0 · **over target**',
+								'- Employee Pay: target 10% ($500) · Spent $1,000 · Committed $0 · Reserved $1,000 · **over target**',
 								'- Events: no target · Spent $0 · Committed $0',
 								'- Grants: target 30% ($1,500) · Spent $0 · Committed $0',
 								'- Unassigned: 60% ($3,000)'

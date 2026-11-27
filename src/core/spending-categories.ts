@@ -10,13 +10,13 @@ import {
 	updateSpendingCategoryName
 } from '../storage/spendingCategories';
 import type { Actor } from './actor';
-import { monthName, monthOf } from './appropriation';
+import { monthName, monthOf } from './months';
 import { notice } from './effects';
 import { getJob } from './jobs';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
-import { formatPercent, parsePercent } from './rates';
+import { formatPercent, parsePercent, wholePercent } from './rates';
 
 export interface SpendingCategory {
 	id: number;
@@ -75,7 +75,10 @@ export function editSpendingCategory(payMe: PayMe, actor: Actor, id: number, cha
 
 export function retireSpendingCategory(payMe: PayMe, actor: Actor, id: number): Outcome<SpendingCategory> {
 	return changeSpendingCategory(payMe, actor, id, (category) => {
+		const month = monthOf(new Date());
 		setSpendingCategoryRetired(payMe.storage, id, true);
+		// A Retired Category takes no new Spend, so its target stops counting toward 100% from this month.
+		if (selectSpendingCategoryTargets(payMe.storage, month).has(id)) insertSpendingCategoryTarget(payMe.storage, id, month, null, actor.userId);
 		return `Retired the ${category.name} Spending Category.`;
 	});
 }
@@ -94,22 +97,32 @@ export function spendingCategoryTargets(payMe: PayMe, month: string): Map<number
 	return selectSpendingCategoryTargets(payMe.storage, month);
 }
 
+/** The Category's target this month, in hundredths of a percent. */
+export function targetThisMonth(payMe: PayMe, id: number): number | null {
+	return spendingCategoryTargets(payMe, monthOf(new Date())).get(id) ?? null;
+}
+
+export function totalTarget(targets: ReadonlyMap<number, number>): number {
+	return [...targets.values()].reduce((sum, percent) => sum + percent, 0);
+}
+
 /** Sets the Category's share of the Appropriation from this month onward; empty text clears it. Earlier months keep theirs. */
 export function setSpendingCategoryTarget(payMe: PayMe, actor: Actor, id: number, percentText: string, now = new Date()): Outcome<SpendingCategory> {
 	const refused = requireLeadership(payMe, actor);
 	if (refused) return refused;
-	const percent = percentText.trim() === '' ? null : parsePercent(percentText);
-	if (percent === null && percentText.trim() !== '') return fail({ code: 'invalid-percent', percent: percentText });
+	const cleared = percentText.trim() === '';
+	const percent = cleared ? null : parsePercent(percentText);
+	if (!cleared && percent === null) return fail({ code: 'invalid-percent', percent: percentText });
 
 	const { storage } = payMe;
 	const month = monthOf(now);
 	return storage.transaction(() => {
 		const category = selectSpendingCategory(storage, id);
 		if (!category) return fail({ code: 'spending-category-not-found' });
-		const targets = selectSpendingCategoryTargets(storage, month);
-		targets.delete(id);
-		const total = [...targets.values()].reduce((sum, each) => sum + each, percent ?? 0);
-		if (total > 10000) return fail({ code: 'targets-over-100', total });
+		const others = selectSpendingCategoryTargets(storage, month);
+		others.delete(id);
+		const total = totalTarget(others) + (percent ?? 0);
+		if (total > wholePercent) return fail({ code: 'targets-over-100', total });
 
 		insertSpendingCategoryTarget(storage, id, month, percent, actor.userId);
 		const target = percent === null ? 'has no target' : `has a target of ${formatPercent(percent)} of the Appropriation`;
