@@ -205,7 +205,3 @@ Tests in `tests/core/` exercise the core through its public operations against a
 GitHub Actions runs typecheck, lint and tests on every push and pull request, then builds the Docker image (see `.github/workflows/image.yml`).
 
 Create new Sapphire pieces with the CLI, for example `pnpm sapphire generate slashcommand <name>`.
-
-## License
-
-[Unlicense](https://unlicense.org/).
