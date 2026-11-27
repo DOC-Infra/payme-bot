@@ -1,3 +1,4 @@
+import { requestedDisbursements } from './disbursements';
 import type { Card } from './effects';
 import { allJobs } from './jobs';
 import { payoutLabel } from './labels';
@@ -17,6 +18,12 @@ export function dashboardCard(payMe: PayMe): Card {
 		if (job.retired && waiting === 0 && toPay === 0) return [];
 		return [`- **${job.name}**: ${plural(waiting, 'request')} pending review, ${formatAmount(toPay)} to pay`];
 	});
+	const requested = requestedDisbursements(payMe);
+	const disbursements = requested.length
+		? [
+				`- **Disbursements**: ${plural(requested.length, 'Requested Disbursement')}, ${formatAmount(requested.reduce((sum, each) => sum + each.amount, 0))} to pay`
+			]
+		: [];
 	const openPayouts = owed.openPayouts.map(
 		(payout) => `- **${payoutLabel(payout.number)}** ${payout.minecraftName}: ${formatAmount(payout.total)}, waiting to be marked paid`
 	);
@@ -34,6 +41,7 @@ export function dashboardCard(payMe: PayMe): Card {
 		'',
 		`**To pay**: ${toPay}`,
 		...openPayouts,
+		...disbursements,
 		'',
 		'**Open Projects**',
 		...(projects.length ? projects : ['None.'])

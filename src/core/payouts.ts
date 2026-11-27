@@ -15,7 +15,7 @@ import { getProject, type Share } from './projects';
 import { formatAmount, plainAmount } from './rates';
 import { updateReviewCopies, type PaymentRequest } from './requests';
 import { employeePayId } from './spending-categories';
-import { disbursementGroupLines, requestedDisbursementGroups } from './disbursements';
+import { disbursementGroupLines, requestedDisbursementGroups, requestedDisbursementsEffect } from './disbursements';
 import { getTask } from './tasks';
 
 export interface PayoutLine {
@@ -316,7 +316,13 @@ export function generateAllPayouts(payMe: PayMe, actor: Actor): Outcome<Payout[]
 		const payouts = [...owedUserIds]
 			.flatMap((userId) => writePayout(payMe, actor, owingOf(owing, userId), userId) ?? [])
 			.sort((a, b) => a.number - b.number);
-		if (payouts.length === 0) return succeed([{ type: 'private-reply', card: notice('Nobody is owed anything.', 'neutral') }], payouts);
+		const disbursements = requestedDisbursementsEffect(payMe);
+		if (payouts.length === 0) {
+			const text = disbursements.length
+				? 'No Employee is owed anything. Open each Disbursement below for its Pay Command.'
+				: 'Nobody is owed anything.';
+			return succeed([{ type: 'private-reply', card: notice(text, 'neutral') }, ...disbursements], payouts);
+		}
 
 		const updated = owing.openPayouts.length;
 		const generated = payouts.length - updated;
@@ -327,7 +333,10 @@ export function generateAllPayouts(payMe: PayMe, actor: Actor): Outcome<Payout[]
 		].filter(Boolean);
 		const done = counts.join(' and ');
 		const summary = `${done[0].toUpperCase()}${done.slice(1)}. ${formatAmount(total)} to pay in all; run each Pay Command below, then mark it paid.`;
-		return succeed([{ type: 'private-reply', card: notice(summary, 'info') }, ...payouts.map((payout) => payoutEffect(payMe, payout))], payouts);
+		return succeed(
+			[{ type: 'private-reply', card: notice(summary, 'info') }, ...payouts.map((payout) => payoutEffect(payMe, payout)), ...disbursements],
+			payouts
+		);
 	});
 }
 

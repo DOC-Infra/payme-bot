@@ -3,6 +3,8 @@ import {
 	addSpendingCategory,
 	setAppropriation,
 	createJob,
+	dashboardCard,
+	generateAllPayouts,
 	showAppropriation,
 	voidDisbursement,
 	checkDisbursementChange,
@@ -475,5 +477,38 @@ describe('Voiding a Disbursement', () => {
 		expect(voidDisbursement(payMe, grantsOfficer, 2, 'No')).toEqual({ ok: false, error: { code: 'not-permitted' } });
 		expect(voidDisbursement(payMe, leadership(), 2, ' ')).toEqual({ ok: false, error: { code: 'reason-required' } });
 		expect(showDisbursement(payMe, leadership(), 2)).toMatchObject({ effects: [{ actions: ['void'] }] });
+	});
+});
+
+describe('Requested Disbursements alongside Payouts', () => {
+	it('lists them when Leadership generates every Payout, with a button to open each', () => {
+		const { payMe, category } = grantsOffice();
+		created(requestDisbursement(payMe, leadership(), grant(category.id)));
+		created(requestDisbursement(payMe, leadership(), grant(category.id, { recipient: 'Smith_Sam', amount: '1000', reason: 'A forge' })));
+
+		expect(generateAllPayouts(payMe, leadership())).toMatchObject({
+			ok: true,
+			value: [],
+			effects: [
+				{ type: 'private-reply', card: { description: 'No Employee is owed anything. Open each Disbursement below for its Pay Command.' } },
+				{
+					type: 'show-disbursements',
+					card: {
+						title: 'Requested Disbursements',
+						description:
+							'__Small Business Grants__\n- **D-1** to Bakery_Bob: $2,500 (Opening a bakery)\n- **D-2** to Smith_Sam: $1,000 (A forge)'
+					},
+					disbursementNumbers: [1, 2]
+				}
+			]
+		});
+	});
+
+	it('shows them on the dashboard under To pay', () => {
+		const { payMe, category } = grantsOffice();
+		expect(dashboardCard(payMe).description).not.toContain('Disbursements');
+		created(requestDisbursement(payMe, leadership(), grant(category.id)));
+
+		expect(dashboardCard(payMe).description).toContain('- **Disbursements**: 1 Requested Disbursement, $2,500 to pay');
 	});
 });
