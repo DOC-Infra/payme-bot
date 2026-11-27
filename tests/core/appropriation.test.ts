@@ -382,7 +382,8 @@ describe('Warnings when going over the Appropriation', () => {
 		const { payMe, warehouse } = courierAndLogistics();
 		created(setAppropriation(payMe, leadership(), '1500', '2000-01'));
 
-		expect(warnings(createProject(payMe, leadership(), { name: 'Depot', jobId: warehouse.jobId, budget: '600' }))).toHaveLength(1);
+		expect(warnings(createProject(payMe, leadership(), { name: 'Shed', jobId: warehouse.jobId, budget: '500' }))).toEqual([]);
+		expect(warnings(createProject(payMe, leadership(), { name: 'Depot', jobId: warehouse.jobId, budget: '1' }))).toHaveLength(1);
 	});
 
 	it('never warns in a month with no Appropriation', () => {
@@ -392,5 +393,6 @@ describe('Warnings when going over the Appropriation', () => {
 
 		expect(warnings(markPayoutPaid(payMe, leadership(), payout.number, payout.revision))).toEqual([]);
 		expect(warnings(fundProject(payMe, leadership(), warehouse.id, '1000000'))).toEqual([]);
+		expect(warnings(createProject(payMe, leadership(), { name: 'Depot', jobId: warehouse.jobId, budget: '1000000' }))).toEqual([]);
 	});
 });

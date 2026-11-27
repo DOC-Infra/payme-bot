@@ -78,20 +78,27 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 }
 
 /** A warning when marking a Payout paid has taken this month's Spent over its Appropriation (ADR 0003). */
-export function overSpentWarning(payMe: PayMe, now = new Date()): Effect[] {
-	const view = viewOf(payMe, monthOf(now), now);
-	if (view.appropriation === null || view.spent <= view.appropriation) return [];
-	const over = `${formatAmount(view.spent)} of its ${formatAmount(view.appropriation)}, ${formatAmount(view.spent - view.appropriation)} over`;
-	return [warning(`${monthName(view.month)} has spent ${over}.`)];
+export function overSpentWarning(payMe: PayMe): Effect[] {
+	const view = currentView(payMe);
+	return warnIfOver(view, view.spent, (amounts) => `${monthName(view.month)} has spent ${amounts}.`);
 }
 
 /** A warning when Spent, Committed and Reserved together now exceed this month's Appropriation (ADR 0003). */
-export function overCommittedWarning(payMe: PayMe, now = new Date()): Effect[] {
-	const view = viewOf(payMe, monthOf(now), now);
+export function overCommittedWarning(payMe: PayMe): Effect[] {
+	const view = currentView(payMe);
 	const total = view.spent + (view.committed ?? 0) + (view.reserved ?? 0);
+	return warnIfOver(view, total, (amounts) => `${monthName(view.month)}'s Spent, Committed and Reserved now come to ${amounts}.`);
+}
+
+function currentView(payMe: PayMe): AppropriationView {
+	const now = new Date();
+	return viewOf(payMe, monthOf(now), now);
+}
+
+function warnIfOver(view: AppropriationView, total: number, sentence: (amounts: string) => string): Effect[] {
 	if (view.appropriation === null || total <= view.appropriation) return [];
-	const over = `${formatAmount(total)} of its ${formatAmount(view.appropriation)}, ${formatAmount(total - view.appropriation)} over`;
-	return [warning(`${monthName(view.month)}'s Spent, Committed and Reserved now come to ${over}.`)];
+	const amounts = `${formatAmount(total)} of its ${formatAmount(view.appropriation)}, ${formatAmount(total - view.appropriation)} over`;
+	return [warning(sentence(amounts))];
 }
 
 function warning(text: string): Effect {
