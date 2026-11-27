@@ -6,13 +6,21 @@ import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
 import { getEmployee } from './employees';
 import { getJob } from './jobs';
-import { payoutLabel, requestLabel, shareLabel } from './labels';
+import { disbursementLabel, payoutLabel, requestLabel, shareLabel } from './labels';
+import { paidDisbursements, requestedDisbursements, type Disbursement } from './disbursements';
 import { owedSummary, paidPayouts, type Payout } from './payouts';
 import { allProjects, balanceOf, getProject } from './projects';
 import { getTask } from './tasks';
 import { monthName, monthOf, parseMonth } from './months';
 import { formatAmount, formatPercent, parseRate, plainAmount, wholePercent } from './rates';
-import { allSpendingCategories, employeePayId, spendingCategoryTargets, totalTarget, type SpendingCategory } from './spending-categories';
+import {
+	allSpendingCategories,
+	employeePayId,
+	getSpendingCategory,
+	spendingCategoryTargets,
+	totalTarget,
+	type SpendingCategory
+} from './spending-categories';
 
 export interface AppropriationView {
 	/** YYYY-MM, a calendar month in UTC. */
@@ -50,37 +58,32 @@ export interface CategorySpend {
 	overTarget: boolean;
 }
 
-interface MonthTotals {
+interface CategoryFigures {
 	spent: number;
 	committed: number | null;
 	reserved: number | null;
 }
 
-/** Until Disbursements exist, everything spent, committed and reserved is Employee Pay. */
 function categorySpendOf(
 	category: SpendingCategory,
 	targetPercent: number | null,
 	dollarsOf: (percent: number | null) => number | null,
-	totals: MonthTotals
+	figures: CategoryFigures
 ): CategorySpend {
-	const share = (amount: number | null) => (amount === null ? null : category.builtIn ? amount : 0);
-	const spent = share(totals.spent)!;
 	const target = dollarsOf(targetPercent);
 	return {
 		id: category.id,
 		name: category.name,
 		targetPercent,
 		target,
-		spent,
-		committed: share(totals.committed),
-		reserved: share(totals.reserved),
-		overTarget: target !== null && spent > target
+		...figures,
+		overTarget: target !== null && figures.spent > target
 	};
 }
 
 /** The current month lists every active Category; earlier and later ones only those that had a target or Spend. */
 function shownIn(category: SpendingCategory, row: CategorySpend, isCurrentMonth: boolean): boolean {
-	if (category.builtIn || row.targetPercent !== null || row.spent > 0) return true;
+	if (category.builtIn || row.targetPercent !== null || row.spent > 0 || (row.committed ?? 0) > 0) return true;
 	return isCurrentMonth && !category.retired;
 }
 
@@ -114,19 +117,28 @@ export function showAppropriation(payMe: PayMe, actor: Actor, monthText: string 
 function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 	const appropriation = selectAppropriationFor(payMe.storage, month);
 	const spentByJob = spendByJob(payMe, month);
-	const spent = spentByJob.reduce((sum, job) => sum + job.amount, 0);
+	const payoutsSpent = spentByJob.reduce((sum, job) => sum + job.amount, 0);
 	const isCurrentMonth = month === monthOf(now);
 	const owed = isCurrentMonth ? committedToday(payMe) : null;
-	const committed = owed?.committed ?? null;
-	const remaining = isCurrentMonth && appropriation !== null ? appropriation - spent : null;
+	const reserved = isCurrentMonth ? reservedToday(payMe) : null;
+	const disbursed = totalsByCategory(paidDisbursementsIn(payMe, [month]));
+	const requested = totalsByCategory(isCurrentMonth ? requestedDisbursements(payMe) : []);
+	const figuresFor = (category: SpendingCategory): CategoryFigures => {
+		if (category.builtIn) return { spent: payoutsSpent, committed: owed?.committed ?? null, reserved };
+		const committed = isCurrentMonth ? (requested.get(category.id) ?? 0) : null;
+		return { spent: disbursed.get(category.id) ?? 0, committed, reserved: null };
+	};
+
 	const targets = spendingCategoryTargets(payMe, month);
 	const dollarsOf = (percent: number | null) =>
 		percent === null || appropriation === null ? null : Math.round((appropriation * percent) / wholePercent);
-	const totals = { spent, committed, reserved: isCurrentMonth ? reservedToday(payMe) : null };
 	const categories = allSpendingCategories(payMe).flatMap((category) => {
-		const row = categorySpendOf(category, targets.get(category.id) ?? null, dollarsOf, totals);
+		const row = categorySpendOf(category, targets.get(category.id) ?? null, dollarsOf, figuresFor(category));
 		return shownIn(category, row, isCurrentMonth) ? [row] : [];
 	});
+	const spent = payoutsSpent + sumOf(disbursed);
+	const committed = owed === null ? null : owed.committed + sumOf(requested);
+	const remaining = isCurrentMonth && appropriation !== null ? appropriation - spent : null;
 	const assigned = categories.reduce((sum, row) => sum + (row.target ?? 0), 0);
 	return {
 		month,
@@ -135,12 +147,26 @@ function viewOf(payMe: PayMe, month: string, now: Date): AppropriationView {
 		spentByJob,
 		committed,
 		committedEstimate: owed?.estimated ?? null,
-		reserved: totals.reserved,
+		reserved,
 		remaining,
 		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed,
 		categories,
 		unassigned: { percent: wholePercent - totalTarget(targets), amount: appropriation === null ? null : appropriation - assigned }
 	};
+}
+
+function totalsByCategory(disbursements: readonly Disbursement[]): Map<number, number> {
+	const totals = new Map<number, number>();
+	for (const each of disbursements) totals.set(each.categoryId, (totals.get(each.categoryId) ?? 0) + each.amount);
+	return totals;
+}
+
+function sumOf(totals: ReadonlyMap<number, number>): number {
+	return [...totals.values()].reduce((sum, amount) => sum + amount, 0);
+}
+
+function paidDisbursementsIn(payMe: PayMe, months: readonly string[]): Disbursement[] {
+	return paidDisbursements(payMe).filter((each) => months.includes(monthOf(each.settledAt!)));
 }
 
 /** A warning when marking a Payout paid has taken this month's Spent over its Appropriation (ADR 0003). */
@@ -257,8 +283,20 @@ export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string
 		months.flatMap((month) => summaryRows(payMe, month, now))
 	);
 	const items = csv(
-		['date_paid', 'month', 'spending_category', 'job', 'task_or_project', 'recipient', 'amount', 'paid_by', 'reference', 'payout'],
-		paidIn(payMe, months).flatMap((payout) => itemRows(payMe, payout))
+		[
+			'date_paid',
+			'month',
+			'spending_category',
+			'job',
+			'task_or_project',
+			'recipient',
+			'amount',
+			'requested_by',
+			'paid_by',
+			'reference',
+			'payout'
+		],
+		paidItems(payMe, months)
 	);
 	const card = notice(`Spend from ${monthName(from)} to ${monthName(to)}.`, 'info');
 	const files = [
@@ -268,31 +306,69 @@ export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string
 	return succeed([{ type: 'private-files', card, files }], { summary, items });
 }
 
-/** Payouts marked paid in any of `months`, in the order they were paid. */
-function paidIn(payMe: PayMe, months: readonly string[]): Payout[] {
-	return paidPayouts(payMe)
+/** Every paid Payout line, Share and Disbursement in `months`, in the order they were paid. */
+function paidItems(payMe: PayMe, months: readonly string[]): string[][] {
+	const payouts = paidPayouts(payMe)
 		.filter((payout) => months.includes(monthOf(payout.settledAt!)))
-		.sort((a, b) => a.settledAt!.localeCompare(b.settledAt!) || a.number - b.number);
+		.sort((a, b) => a.number - b.number)
+		.flatMap((payout) => payoutItemRows(payMe, payout));
+	const disbursements = paidDisbursementsIn(payMe, months).map((each) => disbursementItemRow(payMe, each));
+	return [...payouts, ...disbursements].sort((a, b) => a.at.localeCompare(b.at)).map((item) => item.row);
 }
 
-function itemRows(payMe: PayMe, payout: Payout): string[][] {
-	const settledAt = payout.settledAt!;
-	const row = (jobId: number, item: string, amount: number, reference: string) => [
-		settledAt.slice(0, 10),
-		monthOf(settledAt),
-		employeePay,
-		getJob(payMe, jobId)!.name,
-		item,
-		payout.minecraftName,
-		plainAmount(amount),
-		getEmployee(payMe, payout.settledBy!)?.minecraftName ?? payout.settledBy!,
-		reference,
-		payoutLabel(payout.number)
-	];
+interface ItemRow {
+	/** When it was paid, to sort by. */
+	at: string;
+	row: string[];
+}
+
+function payoutItemRows(payMe: PayMe, payout: Payout): ItemRow[] {
+	const at = payout.settledAt!;
+	const row = (jobId: number, item: string, amount: number, reference: string): ItemRow => ({
+		at,
+		row: [
+			at.slice(0, 10),
+			monthOf(at),
+			employeePay,
+			getJob(payMe, jobId)!.name,
+			item,
+			payout.minecraftName,
+			plainAmount(amount),
+			'',
+			personName(payMe, payout.settledBy!),
+			reference,
+			payoutLabel(payout.number)
+		]
+	});
 	return [
 		...payout.lines.map((line) => row(line.jobId, getTask(payMe, line.taskId)!.name, line.rate, requestLabel(line.requestNumber))),
 		...payout.shares.map((line) => row(line.jobId, getProject(payMe, line.projectId)!.name, line.amount, shareLabel(line.shareId)))
 	];
+}
+
+function disbursementItemRow(payMe: PayMe, disbursement: Disbursement): ItemRow {
+	const at = disbursement.settledAt!;
+	return {
+		at,
+		row: [
+			at.slice(0, 10),
+			monthOf(at),
+			getSpendingCategory(payMe, disbursement.categoryId)!.name,
+			disbursement.jobId === null ? '' : getJob(payMe, disbursement.jobId)!.name,
+			'',
+			disbursement.recipient,
+			plainAmount(disbursement.amount),
+			personName(payMe, disbursement.requestedBy),
+			personName(payMe, disbursement.settledBy!),
+			disbursementLabel(disbursement.number),
+			''
+		]
+	};
+}
+
+/** A Minecraft Name when they are an Employee, otherwise their Discord ID. */
+function personName(payMe: PayMe, userId: string): string {
+	return getEmployee(payMe, userId)?.minecraftName ?? userId;
 }
 
 function summaryRows(payMe: PayMe, month: string, now: Date): string[][] {

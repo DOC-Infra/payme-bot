@@ -50,7 +50,7 @@ import {
 	type RoundPoster
 } from '../core';
 import { fetchActorIn, toActor } from './actor';
-import { reportButton } from './appropriation';
+import { disbursementsButton, reportButton } from './appropriation';
 import { disbursementButtons, settleDisbursementButtons } from './disbursements';
 import { scheduleDashboardRefresh } from './dashboard';
 import { scheduleRatesRefresh } from './ratesChannel';
@@ -141,7 +141,8 @@ const handlers: Handlers = {
 		if (channel.isThread() && channel.archived) await channel.setArchived(false);
 		await channel.messages.edit(card.messageId, disbursementMessage(effect));
 	},
-	'show-appropriation': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card, [reportButton(effect.month)]),
+	'show-appropriation': async (effect, { interaction }) =>
+		interaction && replyPrivately(interaction, effect.card, [reportButton(effect.month), disbursementsButton(effect.month)]),
 	'create-employee-channel': async (effect, { guildId, payMe }) => {
 		const guild = await container.client.guilds.fetch(guildId);
 		const overwrites: OverwriteData[] = [

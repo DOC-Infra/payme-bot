@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addTask,
+	appropriationDisbursements,
+	declineDisbursement,
+	markDisbursementPaid,
+	requestDisbursement,
 	addSpendingCategory,
 	setSpendingCategoryTarget,
 	retireSpendingCategory,
@@ -313,11 +317,11 @@ describe('The report', () => {
 
 		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11')).items).toBe(
 			[
-				'date_paid,month,spending_category,job,task_or_project,recipient,amount,paid_by,reference,payout',
-				'2026-10-15,2026-10,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,user-leadership,R-1,P-1',
-				'2026-11-02,2026-11,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,user-leadership,R-2,P-2',
-				'2026-11-20,2026-11,Employee Pay,Logistics,Load Crate,Bo_7,300,user-leadership,R-3,P-3',
-				'2026-11-20,2026-11,Employee Pay,Logistics,Warehouse,Bo_7,250.5,user-leadership,S-1,P-3',
+				'date_paid,month,spending_category,job,task_or_project,recipient,amount,requested_by,paid_by,reference,payout',
+				'2026-10-15,2026-10,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,,user-leadership,R-1,P-1',
+				'2026-11-02,2026-11,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,,user-leadership,R-2,P-2',
+				'2026-11-20,2026-11,Employee Pay,Logistics,Load Crate,Bo_7,300,,user-leadership,R-3,P-3',
+				'2026-11-20,2026-11,Employee Pay,Logistics,Warehouse,Bo_7,250.5,,user-leadership,S-1,P-3',
 				''
 			].join('\n')
 		);
@@ -584,5 +588,151 @@ describe('Spending Category targets', () => {
 				}
 			]
 		});
+	});
+});
+
+describe('Disbursements in the Appropriation', () => {
+	/** $5,000 from September. Grants draws on no Job; Leadership asks for D-1 ($500, paid on 1 November after being requested in October) and D-2 ($200, still Requested). */
+	function grantsMonths() {
+		const payMe = createTestPayMe();
+		created(setAppropriation(payMe, leadership(), '5000', '2026-09'));
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		const ask = (recipient: string, amount: string) =>
+			created(requestDisbursement(payMe, leadership(), { categoryId: grants.id, recipient, amount, reason: 'Grant', link: null }));
+		const first = ask('Bakery_Bob', '500');
+		created(markDisbursementPaid(payMe, leadership(), first.number));
+		const sql = payMe.storage.db.$client;
+		sql.prepare('UPDATE disbursements SET requested_at = ?, settled_at = ? WHERE number = ?').run(
+			'2026-10-20T10:00:00.000Z',
+			'2026-11-01T00:00:00.000Z',
+			first.number
+		);
+		ask('Stage_Co', '200');
+		return { payMe, grants };
+	}
+
+	it('counts a Paid Disbursement as Spend in its Category in the month it was paid, not the month it was requested', () => {
+		const { payMe } = grantsMonths();
+		const view = (month: string) => created(showAppropriation(payMe, leadership(), month, november));
+
+		expect(view('2026-10')).toMatchObject({ spent: 0, categories: [{ name: 'Employee Pay', spent: 0 }] });
+		expect(view('2026-11')).toMatchObject({
+			spent: 50000,
+			committed: 20000,
+			remaining: 450000,
+			remainingAfterCommitted: 430000,
+			categories: [
+				{ name: 'Employee Pay', spent: 0, committed: 0 },
+				{ name: 'Grants', spent: 50000, committed: 20000 }
+			]
+		});
+	});
+
+	it('reports Paid Disbursements in items.csv and summary.csv, with totals matching /appropriation', () => {
+		const { payMe } = grantsMonths();
+		const report = created(appropriationReport(payMe, leadership(), '2026-11', '2026-11', november));
+
+		expect(report.items.split('\n')).toEqual([
+			'date_paid,month,spending_category,job,task_or_project,recipient,amount,requested_by,paid_by,reference,payout',
+			'2026-11-01,2026-11,Grants,,,Bakery_Bob,500,user-leadership,user-leadership,D-1,',
+			''
+		]);
+		expect(report.summary.split('\n')).toEqual([
+			'month,spending_category,job,appropriation,target,spent,over_under',
+			'2026-11,,,5000,,500,-4500',
+			'2026-11,Employee Pay,,,,0,',
+			'2026-11,Grants,,,,500,',
+			''
+		]);
+	});
+
+	it("lists the month's Disbursements by date: those paid or decided in it, and those still Requested in the current month", () => {
+		const { payMe, grants } = grantsMonths();
+		created(declineDisbursement(payMe, leadership(), 2, 'Not this month'));
+		const sql = payMe.storage.db.$client;
+		sql.prepare('UPDATE disbursements SET requested_at = ?, settled_at = ? WHERE number = 2').run(
+			'2026-11-05T10:00:00.000Z',
+			'2026-11-06T10:00:00.000Z'
+		);
+		created(requestDisbursement(payMe, leadership(), { categoryId: grants.id, recipient: 'Old_Ask', amount: '50', reason: 'Grant', link: null }));
+		sql.prepare('UPDATE disbursements SET requested_at = ? WHERE number = 3').run('2026-10-02T10:00:00.000Z');
+
+		expect(appropriationDisbursements(payMe, leadership(), '2026-11', november)).toMatchObject({
+			effects: [
+				{
+					type: 'private-reply',
+					card: {
+						title: 'Disbursements · November 2026',
+						description: [
+							'- **D-3** Grants · Old_Ask · $50 · Requested',
+							'- **D-1** Grants · Bakery_Bob · $500 · Paid',
+							'- **D-2** Grants · Stage_Co · $200 · Declined'
+						].join('\n')
+					}
+				}
+			]
+		});
+		expect(appropriationDisbursements(payMe, leadership(), '2026-10', november)).toMatchObject({
+			effects: [{ card: { description: 'No Disbursements.' } }]
+		});
+		expect(appropriationDisbursements(payMe, member('user-casey'), '2026-11', november)).toEqual({ ok: false, error: { code: 'not-permitted' } });
+	});
+
+	it('keeps a Retired Category with Requested Disbursements in the current month, so its rows add up to Committed', () => {
+		const { payMe } = grantsMonths();
+		const events = created(addSpendingCategory(payMe, leadership(), { name: 'Events', jobIds: [] }));
+		created(
+			requestDisbursement(payMe, leadership(), { categoryId: events.id, recipient: 'Stage_Co', amount: '75', reason: 'Stage', link: null })
+		);
+		created(retireSpendingCategory(payMe, leadership(), events.id));
+
+		const view = created(showAppropriation(payMe, leadership(), '2026-11', november));
+		expect(view.categories.map((row) => [row.name, row.committed])).toEqual([
+			['Employee Pay', 0],
+			['Events', 7500],
+			['Grants', 20000]
+		]);
+	});
+
+	it('counts Requested Disbursements when warning that funding a Project goes over', () => {
+		const { payMe, warehouse } = courierAndLogistics();
+		created(setAppropriation(payMe, leadership(), '1500', '2000-01'));
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		created(
+			requestDisbursement(payMe, leadership(), { categoryId: grants.id, recipient: 'Bakery_Bob', amount: '400', reason: 'Grant', link: null })
+		);
+
+		const funded = fundProject(payMe, leadership(), warehouse.id, '200');
+		expect(
+			funded.ok && funded.effects.some((effect) => effect.type === 'private-reply' && effect.card.description?.includes('$1,600 of its $1,500'))
+		).toBe(true);
+	});
+
+	it('warns when marking a Disbursement paid takes its Category over its target or the month over its Appropriation, and still pays it', () => {
+		const payMe = createTestPayMe();
+		created(setAppropriation(payMe, leadership(), '600', '2000-01'));
+		const grants = created(addSpendingCategory(payMe, leadership(), { name: 'Grants', jobIds: [] }));
+		created(setSpendingCategoryTarget(payMe, leadership(), grants.id, '50', new Date()));
+		const ask = (amount: string) =>
+			created(
+				requestDisbursement(payMe, leadership(), { categoryId: grants.id, recipient: 'Bakery_Bob', amount, reason: 'Grant', link: null })
+			);
+		const descriptions = (outcome: Outcome<unknown>) =>
+			outcome.ok
+				? outcome.effects.flatMap((effect) =>
+						effect.type === 'private-reply' && effect.card.tone === 'warning' ? [effect.card.description] : []
+					)
+				: [];
+		const month = monthName(monthOf(new Date()));
+
+		expect(descriptions(markDisbursementPaid(payMe, leadership(), ask('500').number))).toEqual([
+			`**Over target**: Grants has spent $500 of its $300 target for ${month}, $200 over.`
+		]);
+		const second = markDisbursementPaid(payMe, leadership(), ask('200').number);
+		expect(descriptions(second)).toEqual([
+			`**Over the Appropriation**: ${month} has spent $700 of its $600, $100 over.`,
+			`**Over target**: Grants has spent $700 of its $300 target for ${month}, $400 over.`
+		]);
+		expect(second).toMatchObject({ ok: true, value: { state: 'paid' } });
 	});
 });

@@ -10,6 +10,13 @@ export function reportButton(month: string): ButtonBuilder {
 		.setStyle(ButtonStyle.Secondary);
 }
 
+export function disbursementsButton(month: string): ButtonBuilder {
+	return new ButtonBuilder()
+		.setCustomId(encodeCustomId({ kind: 'appropriation-disbursements-button', month }))
+		.setLabel('Disbursements')
+		.setStyle(ButtonStyle.Secondary);
+}
+
 /** Asks for the months to report on, starting with the month being viewed. */
 export function buildReportModal(month: string): ModalBuilder {
 	const monthInput = (id: string) =>

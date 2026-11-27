@@ -77,6 +77,7 @@ const everyKind: CustomId[] = [
 	{ kind: 'disbursement-button', action: 'decline', disbursementNumber: 4 },
 	{ kind: 'disbursement-decline-modal', disbursementNumber: 4 },
 	{ kind: 'appropriation-report-button', month: '2026-11' },
+	{ kind: 'appropriation-disbursements-button', month: '2026-11' },
 	{ kind: 'appropriation-report-modal' }
 ];
 
@@ -146,6 +147,8 @@ describe('custom IDs', () => {
 		'disbursement-decline',
 		'disbursement-decline:4:1',
 		'appropriation-report:2026-13',
+		'appropriation-disbursements',
+		'appropriation-disbursements:2026-11:1',
 		'appropriation-report:2026-11:1',
 		'appropriation-report-form:1',
 		'constructor'
