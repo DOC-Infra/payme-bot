@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addTask,
+	fundProject,
+	getPayout,
+	monthName,
+	monthOf,
 	appropriationReport,
 	recentMonths,
 	approveRequest,
@@ -326,5 +330,69 @@ describe('The report', () => {
 		payMe.storage.db.$client.prepare('UPDATE projects SET name = ? WHERE id = ?').run('=HYPERLINK("x")', warehouse.id);
 
 		expect(created(appropriationReport(payMe, leadership(), '2026-11', '2026-11')).items).toContain(`,"'=HYPERLINK(""x"")",Bo_7,250.5,`);
+	});
+});
+
+describe('Warnings when going over the Appropriation', () => {
+	const thisMonth = () => monthName(monthOf(new Date()));
+	const warnings = (outcome: Outcome<unknown>) =>
+		outcome.ok ? outcome.effects.filter((effect) => effect.type === 'private-reply' && effect.card.tone === 'warning') : [];
+
+	it('warns when marking a Payout paid takes Spent over, and still marks it paid', () => {
+		const { payMe, parcel } = courierAndLogistics();
+		created(setAppropriation(payMe, leadership(), '1500', '2000-01'));
+		approve(payMe, alex, parcel.id);
+		const first = created(generatePayout(payMe, leadership(), alex.userId));
+		expect(warnings(markPayoutPaid(payMe, leadership(), first.number, first.revision))).toEqual([]);
+
+		approve(payMe, alex, parcel.id);
+		const second = created(generatePayout(payMe, leadership(), alex.userId));
+		const paid = markPayoutPaid(payMe, leadership(), second.number, second.revision);
+
+		expect(warnings(paid)).toEqual([
+			{
+				type: 'private-reply',
+				card: { tone: 'warning', description: `**Over the Appropriation**: ${thisMonth()} has spent $2,000 of its $1,500, $500 over.` }
+			}
+		]);
+		expect(getPayout(payMe, second.number)?.state).toBe('paid');
+	});
+
+	it('warns when funding a Project takes Spent, Committed and Reserved over, and still funds it', () => {
+		const { payMe, crate, warehouse } = courierAndLogistics();
+		created(setAppropriation(payMe, leadership(), '1500', '2000-01'));
+		approve(payMe, bo, crate.id);
+
+		expect(warnings(fundProject(payMe, leadership(), warehouse.id, '100'))).toEqual([]);
+		const funded = fundProject(payMe, leadership(), warehouse.id, '200');
+
+		expect(warnings(funded)).toEqual([
+			{
+				type: 'private-reply',
+				card: {
+					tone: 'warning',
+					description: `**Over the Appropriation**: ${thisMonth()}'s Spent, Committed and Reserved now come to $1,600 of its $1,500, $100 over.`
+				}
+			}
+		]);
+		expect(created(funded).funding.map((entry) => entry.amount)).toEqual([100000, 10000, 20000]);
+	});
+
+	it('warns when the opening budget of a new Project goes over', () => {
+		const { payMe, warehouse } = courierAndLogistics();
+		created(setAppropriation(payMe, leadership(), '1500', '2000-01'));
+
+		expect(warnings(createProject(payMe, leadership(), { name: 'Shed', jobId: warehouse.jobId, budget: '500' }))).toEqual([]);
+		expect(warnings(createProject(payMe, leadership(), { name: 'Depot', jobId: warehouse.jobId, budget: '1' }))).toHaveLength(1);
+	});
+
+	it('never warns in a month with no Appropriation', () => {
+		const { payMe, parcel, warehouse } = courierAndLogistics();
+		approve(payMe, alex, parcel.id);
+		const payout = created(generatePayout(payMe, leadership(), alex.userId));
+
+		expect(warnings(markPayoutPaid(payMe, leadership(), payout.number, payout.revision))).toEqual([]);
+		expect(warnings(fundProject(payMe, leadership(), warehouse.id, '1000000'))).toEqual([]);
+		expect(warnings(createProject(payMe, leadership(), { name: 'Depot', jobId: warehouse.jobId, budget: '1000000' }))).toEqual([]);
 	});
 });
