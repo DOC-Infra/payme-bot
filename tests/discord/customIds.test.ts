@@ -60,7 +60,9 @@ const everyKind: CustomId[] = [
 	{ kind: 'manage-menu', action: 'open-task' },
 	{ kind: 'manage-modal', action: 'new-job', id: null },
 	{ kind: 'manage-modal', action: 'edit-task', id: 7 },
-	{ kind: 'manage-modal', action: 'task-jobs', id: 7 }
+	{ kind: 'manage-modal', action: 'task-jobs', id: 7 },
+	{ kind: 'appropriation-report-button', month: '2026-11' },
+	{ kind: 'appropriation-report-modal' }
 ];
 
 describe('custom IDs', () => {
@@ -123,6 +125,10 @@ describe('custom IDs', () => {
 		'manage:edit-job:3:4',
 		'manage-pick:open-job:3',
 		'manage-form:retire-job:3',
+		'appropriation-report',
+		'appropriation-report:2026-13',
+		'appropriation-report:2026-11:1',
+		'appropriation-report-form:1',
 		'constructor'
 	])('rejects %j', (customId) => {
 		expect(decodeCustomId(customId)).toBeNull();

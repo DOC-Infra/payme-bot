@@ -52,6 +52,8 @@ export type PayMeError =
 	| { code: 'cannot-pay'; number: number; state: RequestState }
 	| { code: 'invalid-amount'; amount: string }
 	| { code: 'invalid-month'; month: string }
+	| { code: 'invalid-month-range'; from: string; to: string }
+	| { code: 'report-too-long'; months: number; max: number }
 	| { code: 'project-not-found' }
 	| { code: 'project-name-taken'; name: string }
 	| { code: 'project-closed'; name: string }
@@ -166,7 +168,11 @@ export function describeError(error: PayMeError): string {
 		case 'invalid-amount':
 			return `${error.amount} is not a valid amount. Use a plain number above zero with at most two decimal places and no currency symbol, like 1500 or 12.5.`;
 		case 'invalid-month':
-			return `${error.month} is not a valid month. Use the year and month, like 2026-11.`;
+			return `${error.month} is not a valid month. Use the year and month, like 2026-11, from 2000 to 2999.`;
+		case 'invalid-month-range':
+			return `${error.to} is before ${error.from}. Give the earlier month first.`;
+		case 'report-too-long':
+			return `That is ${error.months} months. A report can cover at most ${error.max}.`;
 		case 'project-not-found':
 			return 'That Project does not exist.';
 		case 'project-name-taken':

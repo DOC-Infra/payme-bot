@@ -1,4 +1,4 @@
-import type { EntryAction } from '../core';
+import { parseMonth, type EntryAction } from '../core';
 
 export type ReviewAction = 'approve' | 'reject' | 'deny';
 export type ReasonAction = Exclude<ReviewAction, 'approve'>;
@@ -39,7 +39,9 @@ export type CustomId =
 	| { kind: 'settings-modal' }
 	| { kind: 'manage-button'; action: ManageButtonAction; id: number | null }
 	| { kind: 'manage-menu'; action: ManageMenuAction }
-	| { kind: 'manage-modal'; action: ManageModalAction; id: number | null };
+	| { kind: 'manage-modal'; action: ManageModalAction; id: number | null }
+	| { kind: 'appropriation-report-button'; month: string }
+	| { kind: 'appropriation-report-modal' };
 
 const entryButtons = ['amend', 'withdraw', 'confirm-withdraw'] as const;
 const reviewActions = ['approve', 'reject', 'deny'] as const;
@@ -118,6 +120,10 @@ export function encodeCustomId(id: CustomId): string {
 			return join('manage-pick', id.action);
 		case 'manage-modal':
 			return join('manage-form', id.action, id.id);
+		case 'appropriation-report-button':
+			return join('appropriation-report', id.month);
+		case 'appropriation-report-modal':
+			return 'appropriation-report-form';
 	}
 }
 
@@ -166,7 +172,12 @@ const decoders = new Map<string, (parts: string[]) => CustomId | null>([
 	['manage-form', (parts) => withOptionalId(parts, manageModals, (action, id) => ({ kind: 'manage-modal', action, id }))],
 	['settings', (parts) => (parts.length ? null : { kind: 'settings-modal' })],
 	['dashboard-request-for', (parts) => (parts.length ? null : { kind: 'dashboard-request-for' })],
-	['share-pick', ([id, ...rest]) => (isDigits(id) && !rest.length ? { kind: 'share-select', projectId: Number(id) } : null)]
+	['share-pick', ([id, ...rest]) => (isDigits(id) && !rest.length ? { kind: 'share-select', projectId: Number(id) } : null)],
+	[
+		'appropriation-report',
+		([month = '', ...rest]) => (parseMonth(month) === month && !rest.length ? { kind: 'appropriation-report-button', month } : null)
+	],
+	['appropriation-report-form', (parts) => (parts.length ? null : { kind: 'appropriation-report-modal' })]
 ]);
 
 function decodeProjectButton(parts: string[]): CustomId | null {
