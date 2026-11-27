@@ -70,6 +70,7 @@ export type PayMeError =
 	| { code: 'own-disbursement' }
 	| { code: 'disbursement-not-found' }
 	| { code: 'not-your-disbursement' }
+	| { code: 'disbursement-decided'; number: number; state: DisbursementState }
 	| { code: 'cannot-withdraw-disbursement'; number: number; state: DisbursementState }
 	| { code: 'invalid-percent'; percent: string }
 	| { code: 'targets-over-100'; total: number }
@@ -212,6 +213,8 @@ export function describeError(error: PayMeError): string {
 			return "You can't request a Disbursement to yourself. Ask Leadership.";
 		case 'disbursement-not-found':
 			return 'That Disbursement does not exist.';
+		case 'disbursement-decided':
+			return `${disbursementLabel(error.number)} is ${disbursementStateName(error.state)}, so it can't be paid or declined.`;
 		case 'not-your-disbursement':
 			return 'Only whoever requested it, or Leadership, can withdraw it.';
 		case 'cannot-withdraw-disbursement':

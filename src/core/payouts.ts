@@ -7,7 +7,7 @@ import { getEmployee } from './employees';
 import { jobsHeldBy, jobsManagedBy } from './job-membership';
 import { changeState } from './lifecycle';
 import { getJob, type Job } from './jobs';
-import { payoutLabel, payoutStateName, payoutTone, requestLabel, shareLabel, type PayoutState } from './labels';
+import { disbursementLabel, payoutLabel, payoutStateName, payoutTone, requestLabel, shareLabel, type PayoutState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership, requireLeadership } from './permissions';
@@ -15,6 +15,7 @@ import { getProject, type Share } from './projects';
 import { formatAmount, plainAmount } from './rates';
 import { updateReviewCopies, type PaymentRequest } from './requests';
 import { employeePayId } from './spending-categories';
+import { disbursementGroupLines, requestedDisbursementGroups } from './disbursements';
 import { getTask } from './tasks';
 
 export interface PayoutLine {
@@ -221,7 +222,8 @@ function owedForJobs(owing: Owing, jobs: readonly Job[]): string[] {
 
 function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
 	const view = owedAndHistory(payMe, loadOwing(payMe));
-	const actions = view.owed.map((employee): PayoutAction =>
+	const disbursements = requestedDisbursementGroups(payMe);
+	const employeeActions = view.owed.map((employee): PayoutAction =>
 		employee.openPayout && !owesMore(employee)
 			? {
 					kind: 'show',
@@ -230,7 +232,18 @@ function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
 				}
 			: { kind: 'generate', employeeUserId: employee.employeeUserId, label: generateLabel(employee) }
 	);
-	return succeed([{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts', description: owedLines(view).join('\n') }, actions }], view);
+	const disbursementActions = disbursements.flatMap(({ items }) =>
+		items.map((item): PayoutAction => ({
+			kind: 'disbursement',
+			disbursementNumber: item.number,
+			label: `${disbursementLabel(item.number)} to ${item.recipient}`
+		}))
+	);
+	const description = [...owedLines(view), ...disbursementGroupLines(disbursements)].join('\n');
+	return succeed(
+		[{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts', description }, actions: [...employeeActions, ...disbursementActions] }],
+		view
+	);
 }
 
 /** Owed something not yet in their Open Payout, if they have one. */

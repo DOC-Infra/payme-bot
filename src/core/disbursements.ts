@@ -2,6 +2,7 @@ import {
 	deleteUnpostedDisbursement,
 	insertDisbursement,
 	selectDisbursement,
+	selectDisbursementsInState,
 	settleDisbursement,
 	updateDisbursementCard
 } from '../storage/disbursements';
@@ -13,8 +14,8 @@ import { getJob, type Job } from './jobs';
 import { disbursementLabel, disbursementStateName, disbursementTone, type DisbursementState } from './labels';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import { isLeadership } from './permissions';
-import { formatAmount, parseRate } from './rates';
+import { isLeadership, requireLeadership } from './permissions';
+import { formatAmount, parseRate, plainAmount } from './rates';
 import { isValidLink } from './requests';
 import { allSpendingCategories, getSpendingCategory, type SpendingCategory } from './spending-categories';
 
@@ -32,6 +33,8 @@ export interface Disbursement {
 	requestedAt: string;
 	settledBy: string | null;
 	settledAt: string | null;
+	/** Why it was Declined or Voided. */
+	outcomeReason: string | null;
 	channelId: string | null;
 	messageId: string | null;
 }
@@ -122,6 +125,98 @@ export function withdrawDisbursement(payMe: PayMe, actor: Actor, number: number)
 	});
 }
 
+/** Disbursements waiting for Leadership to pay or decline them, oldest first. */
+export function requestedDisbursements(payMe: PayMe): Disbursement[] {
+	return selectDisbursementsInState(payMe.storage, 'requested');
+}
+
+export interface DisbursementGroup {
+	category: string;
+	items: Disbursement[];
+}
+
+/** Requested Disbursements grouped by Spending Category, Categories by name. */
+export function requestedDisbursementGroups(payMe: PayMe): DisbursementGroup[] {
+	const groups = new Map<string, Disbursement[]>();
+	for (const disbursement of requestedDisbursements(payMe)) {
+		const name = getSpendingCategory(payMe, disbursement.categoryId)!.name;
+		groups.set(name, [...(groups.get(name) ?? []), disbursement]);
+	}
+	return [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([category, items]) => ({ category, items }));
+}
+
+export function disbursementGroupLines(groups: readonly DisbursementGroup[]): string[] {
+	if (groups.length === 0) return [];
+	return [
+		'',
+		'**Disbursements**',
+		...groups.flatMap(({ category, items }) => [
+			`__${category}__`,
+			...items.map((item) => `- **${disbursementLabel(item.number)}** to ${item.recipient}: ${formatAmount(item.amount)} (${item.reason})`)
+		])
+	];
+}
+
+/** The Disbursement privately for Leadership, with its Pay Command while it is Requested. */
+export function showDisbursement(payMe: PayMe, actor: Actor, number: number): Outcome<Disbursement> {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	const disbursement = getDisbursement(payMe, number);
+	if (!disbursement) return fail({ code: 'disbursement-not-found' });
+	return succeed([privateEffect(payMe, disbursement)], disbursement);
+}
+
+/** Refuses before Leadership is asked for a reason, when the Disbursement can no longer be paid or declined. */
+export function checkDisbursementDecision(payMe: PayMe, actor: Actor, number: number): Failure | null {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	const disbursement = getDisbursement(payMe, number);
+	if (!disbursement) return fail({ code: 'disbursement-not-found' });
+	return disbursement.state === 'requested' ? null : fail({ code: 'disbursement-decided', number, state: disbursement.state });
+}
+
+export function markDisbursementPaid(payMe: PayMe, actor: Actor, number: number): Outcome<Disbursement> {
+	return decide(payMe, actor, number, 'paid', null);
+}
+
+export function declineDisbursement(payMe: PayMe, actor: Actor, number: number, reasonText: string): Outcome<Disbursement> {
+	const reason = reasonText.trim();
+	if (!reason) return fail({ code: 'reason-required' });
+	return decide(payMe, actor, number, 'declined', reason);
+}
+
+function decide(payMe: PayMe, actor: Actor, number: number, to: 'paid' | 'declined', reason: string | null): Outcome<Disbursement> {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+
+	const { storage } = payMe;
+	return storage.transaction(() => {
+		const disbursement = getDisbursement(payMe, number);
+		if (!disbursement) return fail({ code: 'disbursement-not-found' });
+		if (!settleDisbursement(storage, number, to, actor.userId, reason))
+			return fail({ code: 'disbursement-decided', number, state: disbursement.state });
+
+		const decided = getDisbursement(payMe, number)!;
+		return succeed([cardEffect(payMe, decided, 'update-disbursement'), privateEffect(payMe, decided)], decided);
+	});
+}
+
+function disbursementPayCommand(disbursement: Disbursement, category: SpendingCategory): string {
+	return `/gov payout GovCommerce ${disbursement.recipient} ${plainAmount(disbursement.amount)} ${category.name}`;
+}
+
+function privateEffect(payMe: PayMe, disbursement: Disbursement): Effect {
+	const category = getSpendingCategory(payMe, disbursement.categoryId)!;
+	const card = disbursementCard(payMe, disbursement, category);
+	const requested = disbursement.state === 'requested';
+	if (requested)
+		card.fields = [
+			...(card.fields ?? []),
+			{ name: 'Pay Command', value: ['```', disbursementPayCommand(disbursement, category), '```'].join('\n') }
+		];
+	return { type: 'show-disbursement', disbursementNumber: disbursement.number, card, settleButtons: requested };
+}
+
 export function recordDisbursementCard(payMe: PayMe, number: number, card: MessageRef): void {
 	updateDisbursementCard(payMe.storage, number, card.channelId, card.messageId);
 }
@@ -171,5 +266,6 @@ function disbursementCard(payMe: PayMe, disbursement: Disbursement, category: Sp
 
 function stateText(disbursement: Disbursement): string {
 	const state = `**${disbursementStateName(disbursement.state)}**`;
-	return disbursement.settledBy ? `${state} by <@${disbursement.settledBy}>` : state;
+	const by = disbursement.settledBy ? `${state} by <@${disbursement.settledBy}>` : state;
+	return disbursement.outcomeReason ? `${by}: ${disbursement.outcomeReason}` : by;
 }

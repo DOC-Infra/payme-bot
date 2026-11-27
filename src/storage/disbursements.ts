@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 import type { Disbursement } from '../core/disbursements';
 import type { DisbursementState } from '../core/labels';
 import { disbursements } from './schema';
@@ -27,10 +27,16 @@ export function selectDisbursement(storage: Storage, number: number): Disburseme
 }
 
 /** Moves a Requested Disbursement to `to`, recording who did it. False if it was no longer Requested. */
-export function settleDisbursement(storage: Storage, number: number, to: Exclude<DisbursementState, 'requested'>, actorUserId: string): boolean {
+export function settleDisbursement(
+	storage: Storage,
+	number: number,
+	to: Exclude<DisbursementState, 'requested'>,
+	actorUserId: string,
+	reason: string | null = null
+): boolean {
 	const { changes } = storage.db
 		.update(disbursements)
-		.set({ state: to, settledBy: actorUserId, settledAt: new Date().toISOString() })
+		.set({ state: to, settledBy: actorUserId, settledAt: new Date().toISOString(), outcomeReason: reason })
 		.where(and(eq(disbursements.number, number), eq(disbursements.state, 'requested')))
 		.run();
 	return changes > 0;
@@ -46,4 +52,8 @@ export function deleteUnpostedDisbursement(storage: Storage, number: number) {
 		.delete(disbursements)
 		.where(and(eq(disbursements.number, number), eq(disbursements.state, 'requested'), isNull(disbursements.messageId)))
 		.run();
+}
+
+export function selectDisbursementsInState(storage: Storage, state: DisbursementState): Disbursement[] {
+	return storage.db.select().from(disbursements).where(eq(disbursements.state, state)).orderBy(asc(disbursements.number)).all();
 }
