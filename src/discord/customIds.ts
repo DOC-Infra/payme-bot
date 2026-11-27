@@ -1,4 +1,4 @@
-import type { EntryAction } from '../core';
+import { parseMonth, type EntryAction } from '../core';
 
 export type ReviewAction = 'approve' | 'reject' | 'deny';
 export type ReasonAction = Exclude<ReviewAction, 'approve'>;
@@ -175,7 +175,7 @@ const decoders = new Map<string, (parts: string[]) => CustomId | null>([
 	['share-pick', ([id, ...rest]) => (isDigits(id) && !rest.length ? { kind: 'share-select', projectId: Number(id) } : null)],
 	[
 		'appropriation-report',
-		([month, ...rest]) => (/^\d{4}-(0[1-9]|1[0-2])$/.test(month ?? '') && !rest.length ? { kind: 'appropriation-report-button', month } : null)
+		([month = '', ...rest]) => (parseMonth(month) === month && !rest.length ? { kind: 'appropriation-report-button', month } : null)
 	],
 	['appropriation-report-form', (parts) => (parts.length ? null : { kind: 'appropriation-report-modal' })]
 ]);

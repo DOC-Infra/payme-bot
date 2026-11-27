@@ -311,4 +311,20 @@ describe('The report', () => {
 			error: { code: 'invalid-month-range', from: '2026-11', to: '2026-10' }
 		});
 	});
+
+	it('refuses months outside 2000 to 2999, and ranges longer than ten years', () => {
+		const payMe = createTestPayMe();
+
+		expect(appropriationReport(payMe, leadership(), '2026-01', '9999-12')).toMatchObject({ error: { code: 'invalid-month', month: '9999-12' } });
+		expect(appropriationReport(payMe, leadership(), '0050-01', '2026-01')).toMatchObject({ error: { code: 'invalid-month', month: '0050-01' } });
+		expect(appropriationReport(payMe, leadership(), '2016-01', '2026-01')).toMatchObject({ error: { code: 'report-too-long', months: 121 } });
+		expect(appropriationReport(payMe, leadership(), '2016-02', '2026-01')).toMatchObject({ ok: true });
+	});
+
+	it('keeps names a spreadsheet would read as formulas from running', () => {
+		const { payMe, warehouse } = twoMonths();
+		payMe.storage.db.$client.prepare('UPDATE projects SET name = ? WHERE id = ?').run('=HYPERLINK("x")', warehouse.id);
+
+		expect(created(appropriationReport(payMe, leadership(), '2026-11', '2026-11')).items).toContain(`,"'=HYPERLINK(""x"")",Bo_7,250.5,`);
+	});
 });

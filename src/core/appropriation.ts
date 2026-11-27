@@ -91,6 +91,9 @@ function appropriationCard(view: AppropriationView): Card {
 	return { tone: 'info', title: `Appropriation · ${monthName(view.month)}`, description, footer: 'Months are calendar months in UTC.' };
 }
 
+const employeePay = 'Employee Pay';
+const maxReportMonths = 120;
+
 export interface AppropriationReport {
 	summary: string;
 	items: string;
@@ -105,6 +108,8 @@ export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string
 	const to = parseMonth(toText);
 	if (!to) return fail({ code: 'invalid-month', month: toText });
 	if (to < from) return fail({ code: 'invalid-month-range', from, to });
+	const length = monthIndex(to) - monthIndex(from) + 1;
+	if (length > maxReportMonths) return fail({ code: 'report-too-long', months: length, max: maxReportMonths });
 
 	const months = monthsBetween(from, to);
 	const summary = csv(
@@ -163,18 +168,19 @@ function summaryRows(payMe: PayMe, month: string): string[][] {
 	];
 }
 
-const employeePay = 'Employee Pay';
-
-/** Every month from `from` to `to`, oldest first. */
 function monthsBetween(from: string, to: string): string[] {
-	const months: string[] = [];
-	for (let month = from; month <= to; month = nextMonth(month)) months.push(month);
-	return months;
+	const start = monthIndex(from);
+	return Array.from({ length: monthIndex(to) - start + 1 }, (_, offset) => monthAt(start + offset));
 }
 
-function nextMonth(month: string): string {
+/** Months since year 0, so months can be counted and stepped through. */
+function monthIndex(month: string): number {
 	const [year, monthNumber] = month.split('-').map(Number);
-	return monthOf(new Date(Date.UTC(year, monthNumber)));
+	return year * 12 + monthNumber - 1;
+}
+
+function monthAt(index: number): string {
+	return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, '0')}`;
 }
 
 function signedAmount(hundredths: number): string {
@@ -185,8 +191,10 @@ function csv(header: readonly string[], rows: readonly (readonly string[])[]): s
 	return [header, ...rows].map((row) => row.map(csvField).join(',')).join('\n') + '\n';
 }
 
+/** Quotes what needs it, and stops a spreadsheet reading text such as `=SUM(...)` as a formula. */
 function csvField(value: string): string {
-	return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+	const safe = /^[=+\-@\t\r]/.test(value) && !/^-\d+(\.\d+)?$/.test(value) ? `'${value}` : value;
+	return /[",\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
 }
 
 function committedToday(payMe: PayMe): { committed: number; estimated: number } {
@@ -210,11 +218,10 @@ function spendByJob(payMe: PayMe, month: string): JobSpend[] {
 	return [...byJob].map(([jobId, amount]) => ({ job: getJob(payMe, jobId)!.name, amount })).sort((a, b) => a.job.localeCompare(b.job));
 }
 
-function parseMonth(text: string): string | null {
-	const match = /^(\d{4})-(\d{2})$/.exec(text.trim());
-	if (!match) return null;
-	const month = Number(match[2]);
-	return month >= 1 && month <= 12 ? match[0] : null;
+/** A month as YYYY-MM, from 2000-01 to 2999-12, or null. */
+export function parseMonth(text: string): string | null {
+	const match = /^(2\d{3})-(0[1-9]|1[0-2])$/.exec(text.trim());
+	return match ? match[0] : null;
 }
 
 /** The UTC calendar month a time falls in, as YYYY-MM. */
