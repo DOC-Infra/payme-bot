@@ -217,6 +217,28 @@ export const appropriations = sqliteTable('appropriations', {
 	at: text('at').notNull().default(now)
 });
 
+/** Employee Pay is the one built-in row, added by its migration. */
+export const spendingCategories = sqliteTable('spending_categories', {
+	id: integer('id').primaryKey(),
+	name: text('name').notNull().unique(),
+	builtIn: integer('built_in', { mode: 'boolean' }).notNull().default(false),
+	retired: integer('retired', { mode: 'boolean' }).notNull().default(false)
+});
+
+/** The Jobs whose Employees and Managers may request Disbursements from a Spending Category. */
+export const spendingCategoryJobs = sqliteTable(
+	'spending_category_jobs',
+	{
+		categoryId: integer('category_id')
+			.notNull()
+			.references(() => spendingCategories.id),
+		jobId: integer('job_id')
+			.notNull()
+			.references(() => jobs.id)
+	},
+	(table) => [primaryKey({ columns: [table.categoryId, table.jobId] })]
+);
+
 /** One value per key, for things Leadership sets from Discord, like the Rates Channel. */
 export const settings = sqliteTable('settings', {
 	key: text('key').primaryKey(),

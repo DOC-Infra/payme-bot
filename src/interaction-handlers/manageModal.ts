@@ -1,10 +1,24 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ModalSubmitInteraction } from 'discord.js';
-import { addTask, checkNewJob, createJob, fail, editJob, editTask, reviewChannelName, setManagerRoles, setTaskJobs, type Actor } from '../core';
+import {
+	addSpendingCategory,
+	addTask,
+	checkNewJob,
+	createJob,
+	editJob,
+	editSpendingCategory,
+	editTask,
+	fail,
+	getSpendingCategory,
+	reviewChannelName,
+	setManagerRoles,
+	setTaskJobs,
+	type Actor
+} from '../core';
 import { decodeCustomId, type ManageModalAction } from '../discord/customIds';
 import { holderUserIds } from '../discord/jobs';
-import { manageFieldIds } from '../discord/manage';
+import { formJobs, manageFieldIds } from '../discord/manage';
 import { paymentReviewChannel } from '../discord/paymentReview';
 import { runAsActor } from '../discord/runner';
 import { payMeOf } from '../discord/servers';
@@ -33,6 +47,8 @@ export class ModalHandler extends InteractionHandler {
 		const { fields } = interaction;
 		const text = (fieldId: string) => fields.getTextInputValue(fieldId).trim();
 		const jobIds = () => fields.getStringSelectValues(manageFieldIds.jobs).map(Number);
+		/** The form leaves out the Jobs field when there are no active Jobs. */
+		const pickedJobIds = () => (fields.fields.has(manageFieldIds.jobs) ? jobIds() : []);
 
 		if (action === 'new-job' || (action === 'edit-job' && id !== null)) {
 			const name = text(manageFieldIds.name);
@@ -49,6 +65,7 @@ export class ModalHandler extends InteractionHandler {
 			if (!review) return fail({ code: 'review-channel-unavailable', name: channelName });
 			return createJob(payMe, actor, { name, employeeRoleId, reviewChannelId: review.id });
 		}
+		if (action === 'new-spending-category') return addSpendingCategory(payMe, actor, { name: text(manageFieldIds.name), jobIds: pickedJobIds() });
 		if (action === 'new-task') {
 			return addTask(payMe, actor, {
 				name: text(manageFieldIds.name),
@@ -62,6 +79,12 @@ export class ModalHandler extends InteractionHandler {
 		if (action === 'job-managers') {
 			const roleIds = [...(fields.getSelectedRoles(manageFieldIds.managerRoles)?.keys() ?? [])];
 			return setManagerRoles(payMe, actor, id, roleIds, await holderUserIds(interaction.guildId!, id));
+		}
+		if (action === 'edit-spending-category') {
+			// Keep the Jobs the form had no room to offer, so editing never drops them unseen.
+			const offered = formJobs(payMe).map((job) => job.id);
+			const unseen = getSpendingCategory(payMe, id)?.jobIds.filter((jobId) => !offered.includes(jobId)) ?? [];
+			return editSpendingCategory(payMe, actor, id, { name: text(manageFieldIds.name), jobIds: [...pickedJobIds(), ...unseen] });
 		}
 		if (action === 'edit-task') {
 			return editTask(payMe, actor, id, {

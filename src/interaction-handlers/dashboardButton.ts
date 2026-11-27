@@ -1,7 +1,17 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
 import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { employeeCategoryId, generateAllPayouts, jobsView, listProjects, requireLeadership, tasksView, type Actor, type PayMe } from '../core';
+import {
+	employeeCategoryId,
+	generateAllPayouts,
+	jobsView,
+	listProjects,
+	requireLeadership,
+	spendingCategoriesView,
+	tasksView,
+	type Actor,
+	type PayMe
+} from '../core';
 import { decodeCustomId, type DashboardButton } from '../discord/customIds';
 import { buildSettingsModal } from '../discord/dashboard';
 import { runAsActor } from '../discord/runner';
@@ -34,6 +44,7 @@ export class ButtonHandler extends InteractionHandler {
 		if (action === 'payouts') return generateAllPayouts(payMe, actor);
 		if (action === 'projects') return listProjects(payMe, actor);
 		if (action === 'jobs') return jobsView(payMe, actor);
+		if (action === 'spending-categories') return spendingCategoriesView(payMe, actor);
 		return tasksView(payMe, actor);
 	}
 }

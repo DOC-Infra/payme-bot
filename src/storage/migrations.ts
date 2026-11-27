@@ -211,5 +211,22 @@ export const migrations: Migration[] = [
 				at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 			);
 		`
+	},
+	{
+		name: '0014-spending-categories',
+		sql: `
+			CREATE TABLE spending_categories (
+				id INTEGER PRIMARY KEY,
+				name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+				built_in INTEGER NOT NULL DEFAULT 0,
+				retired INTEGER NOT NULL DEFAULT 0
+			);
+			CREATE TABLE spending_category_jobs (
+				category_id INTEGER NOT NULL REFERENCES spending_categories (id),
+				job_id INTEGER NOT NULL REFERENCES jobs (id),
+				PRIMARY KEY (category_id, job_id)
+			);
+			INSERT INTO spending_categories (name, built_in) VALUES ('Employee Pay', 1);
+		`
 	}
 ];

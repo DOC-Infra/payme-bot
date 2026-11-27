@@ -85,7 +85,7 @@ async function refreshDashboard(guildId: string): Promise<void> {
 function dashboardContent(guildId: string) {
 	return {
 		embeds: toEmbeds(dashboardCard(payMeFor(guildId))),
-		components: [dashboardButtons(), requestForRow()],
+		components: [...dashboardButtons(), requestForRow()],
 		allowedMentions: { parse: [] }
 	} satisfies MessageCreateOptions;
 }
@@ -102,18 +102,21 @@ const buttons: [DashboardButton, string][] = [
 	['projects', 'Projects'],
 	['jobs', 'Jobs'],
 	['tasks', 'Tasks'],
+	['spending-categories', 'Spending Categories'],
 	['settings', 'Settings']
 ];
 
-function dashboardButtons(): ActionRowBuilder<ButtonBuilder> {
-	return new ActionRowBuilder<ButtonBuilder>().addComponents(
-		buttons.map(([action, label]) =>
-			new ButtonBuilder()
-				.setCustomId(encodeCustomId({ kind: 'dashboard-button', action }))
-				.setLabel(label)
-				.setStyle(action === 'payouts' ? ButtonStyle.Primary : ButtonStyle.Secondary)
-		)
+/** Discord fits five buttons in a row. */
+function dashboardButtons(): ActionRowBuilder<ButtonBuilder>[] {
+	const all = buttons.map(([action, label]) =>
+		new ButtonBuilder()
+			.setCustomId(encodeCustomId({ kind: 'dashboard-button', action }))
+			.setLabel(label)
+			.setStyle(action === 'payouts' ? ButtonStyle.Primary : ButtonStyle.Secondary)
 	);
+	const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+	for (let start = 0; start < all.length; start += 5) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(all.slice(start, start + 5)));
+	return rows;
 }
 
 function requestForRow(): ActionRowBuilder<UserSelectMenuBuilder> {

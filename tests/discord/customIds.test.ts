@@ -61,6 +61,14 @@ const everyKind: CustomId[] = [
 	{ kind: 'manage-modal', action: 'new-job', id: null },
 	{ kind: 'manage-modal', action: 'edit-task', id: 7 },
 	{ kind: 'manage-modal', action: 'task-jobs', id: 7 },
+	{ kind: 'dashboard-button', action: 'spending-categories' },
+	{ kind: 'manage-button', action: 'new-spending-category', id: null },
+	{ kind: 'manage-button', action: 'edit-spending-category', id: 2 },
+	{ kind: 'manage-button', action: 'retire-spending-category', id: 2 },
+	{ kind: 'manage-button', action: 'restore-spending-category', id: 2 },
+	{ kind: 'manage-menu', action: 'open-spending-category' },
+	{ kind: 'manage-modal', action: 'new-spending-category', id: null },
+	{ kind: 'manage-modal', action: 'edit-spending-category', id: 2 },
 	{ kind: 'appropriation-report-button', month: '2026-11' },
 	{ kind: 'appropriation-report-modal' }
 ];
