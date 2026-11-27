@@ -45,6 +45,7 @@ import {
 	type RoundPoster
 } from '../core';
 import { fetchActorIn, toActor } from './actor';
+import { reportButton } from './appropriation';
 import { scheduleDashboardRefresh } from './dashboard';
 import { scheduleRatesRefresh } from './ratesChannel';
 import { toEmbeds } from './embeds';
@@ -63,6 +64,7 @@ type ComponentRow = ActionRowBuilder<MessageActionRowComponentBuilder>;
 interface PrivateMessage {
 	embeds?: EmbedBuilder[];
 	components: ComponentRow[];
+	files?: { attachment: Buffer; name: string }[];
 }
 
 /** Which server the effects belong to, its PayMe, and the interaction to reply to, if any. */
@@ -98,6 +100,14 @@ function allowing(flags: readonly bigint[]): Partial<Record<PermissionsString, t
 
 const handlers: Handlers = {
 	'private-reply': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card),
+	'private-files': async (effect, { interaction }) =>
+		interaction &&
+		sendPrivately(interaction, {
+			embeds: toEmbeds(effect.card),
+			components: [],
+			files: effect.files.map((file) => ({ attachment: Buffer.from(file.content), name: file.name }))
+		}),
+	'show-appropriation': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card, [reportButton(effect.month)]),
 	'create-employee-channel': async (effect, { guildId, payMe }) => {
 		const guild = await container.client.guilds.fetch(guildId);
 		const overwrites: OverwriteData[] = [

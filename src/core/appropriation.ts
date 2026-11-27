@@ -4,10 +4,13 @@ import { notice, type Card } from './effects';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { requireLeadership } from './permissions';
+import { getEmployee } from './employees';
 import { getJob } from './jobs';
-import { owedSummary, paidPayouts } from './payouts';
-import { allProjects, balanceOf } from './projects';
-import { formatAmount, parseRate } from './rates';
+import { payoutLabel, requestLabel, shareLabel } from './labels';
+import { owedSummary, paidPayouts, type Payout } from './payouts';
+import { allProjects, balanceOf, getProject } from './projects';
+import { getTask } from './tasks';
+import { formatAmount, parseRate, plainAmount } from './rates';
 
 export interface AppropriationView {
 	/** YYYY-MM, a calendar month in UTC. */
@@ -67,7 +70,7 @@ export function showAppropriation(payMe: PayMe, actor: Actor, monthText: string 
 		remaining,
 		remainingAfterCommitted: remaining === null || committed === null ? null : remaining - committed
 	};
-	return succeed([{ type: 'private-reply', card: appropriationCard(view) }], view);
+	return succeed([{ type: 'show-appropriation', card: appropriationCard(view), month }], view);
 }
 
 function appropriationCard(view: AppropriationView): Card {
@@ -86,6 +89,104 @@ function appropriationCard(view: AppropriationView): Card {
 		...(jobs.length ? jobs : ['Nothing was paid.'])
 	].join('\n');
 	return { tone: 'info', title: `Appropriation · ${monthName(view.month)}`, description, footer: 'Months are calendar months in UTC.' };
+}
+
+export interface AppropriationReport {
+	summary: string;
+	items: string;
+}
+
+/** Spend for every month from `fromText` to `toText`, as CSV for the authority that grants the Appropriation. */
+export function appropriationReport(payMe: PayMe, actor: Actor, fromText: string, toText: string): Outcome<AppropriationReport> {
+	const refused = requireLeadership(payMe, actor);
+	if (refused) return refused;
+	const from = parseMonth(fromText);
+	if (!from) return fail({ code: 'invalid-month', month: fromText });
+	const to = parseMonth(toText);
+	if (!to) return fail({ code: 'invalid-month', month: toText });
+	if (to < from) return fail({ code: 'invalid-month-range', from, to });
+
+	const months = monthsBetween(from, to);
+	const summary = csv(
+		['month', 'spending_category', 'job', 'appropriation', 'spent', 'over_under'],
+		months.flatMap((month) => summaryRows(payMe, month))
+	);
+	const items = csv(
+		['date_paid', 'month', 'spending_category', 'job', 'task_or_project', 'recipient', 'amount', 'paid_by', 'reference', 'payout'],
+		paidIn(payMe, months).flatMap((payout) => itemRows(payMe, payout))
+	);
+	const card = notice(`Spend from ${monthName(from)} to ${monthName(to)}.`, 'info');
+	const files = [
+		{ name: 'summary.csv', content: summary },
+		{ name: 'items.csv', content: items }
+	];
+	return succeed([{ type: 'private-files', card, files }], { summary, items });
+}
+
+/** Payouts marked paid in any of `months`, in the order they were paid. */
+function paidIn(payMe: PayMe, months: readonly string[]): Payout[] {
+	return paidPayouts(payMe)
+		.filter((payout) => months.includes(monthOf(payout.settledAt!)))
+		.sort((a, b) => a.settledAt!.localeCompare(b.settledAt!) || a.number - b.number);
+}
+
+function itemRows(payMe: PayMe, payout: Payout): string[][] {
+	const settledAt = payout.settledAt!;
+	const row = (jobId: number, item: string, amount: number, reference: string) => [
+		settledAt.slice(0, 10),
+		monthOf(settledAt),
+		employeePay,
+		getJob(payMe, jobId)!.name,
+		item,
+		payout.minecraftName,
+		plainAmount(amount),
+		getEmployee(payMe, payout.settledBy!)?.minecraftName ?? payout.settledBy!,
+		reference,
+		payoutLabel(payout.number)
+	];
+	return [
+		...payout.lines.map((line) => row(line.jobId, getTask(payMe, line.taskId)!.name, line.rate, requestLabel(line.requestNumber))),
+		...payout.shares.map((line) => row(line.jobId, getProject(payMe, line.projectId)!.name, line.amount, shareLabel(line.shareId)))
+	];
+}
+
+function summaryRows(payMe: PayMe, month: string): string[][] {
+	const appropriation = selectAppropriationFor(payMe.storage, month);
+	const byJob = spendByJob(payMe, month);
+	const total = byJob.reduce((sum, job) => sum + job.amount, 0);
+	const spent = plainAmount(total);
+	const overUnder = appropriation === null ? '' : signedAmount(total - appropriation);
+	return [
+		[month, '', '', appropriation === null ? '' : plainAmount(appropriation), spent, overUnder],
+		[month, employeePay, '', '', spent, ''],
+		...byJob.map((job) => [month, employeePay, job.job, '', plainAmount(job.amount), ''])
+	];
+}
+
+const employeePay = 'Employee Pay';
+
+/** Every month from `from` to `to`, oldest first. */
+function monthsBetween(from: string, to: string): string[] {
+	const months: string[] = [];
+	for (let month = from; month <= to; month = nextMonth(month)) months.push(month);
+	return months;
+}
+
+function nextMonth(month: string): string {
+	const [year, monthNumber] = month.split('-').map(Number);
+	return monthOf(new Date(Date.UTC(year, monthNumber)));
+}
+
+function signedAmount(hundredths: number): string {
+	return hundredths < 0 ? `-${plainAmount(-hundredths)}` : plainAmount(hundredths);
+}
+
+function csv(header: readonly string[], rows: readonly (readonly string[])[]): string {
+	return [header, ...rows].map((row) => row.map(csvField).join(',')).join('\n') + '\n';
+}
+
+function csvField(value: string): string {
+	return /[",\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
 
 function committedToday(payMe: PayMe): { committed: number; estimated: number } {

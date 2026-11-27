@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	addTask,
+	appropriationReport,
 	recentMonths,
 	approveRequest,
 	closeProject,
@@ -186,7 +187,8 @@ describe('What Leadership sees', () => {
 		expect(showAppropriation(payMe, leadership(), null, november)).toMatchObject({
 			effects: [
 				{
-					type: 'private-reply',
+					type: 'show-appropriation',
+					month: '2026-11',
 					card: {
 						title: 'Appropriation · November 2026',
 						description: [
@@ -229,5 +231,84 @@ describe('Months to pick from', () => {
 		expect(months).toHaveLength(13);
 		expect(months.slice(0, 3)).toEqual(['2027-01', '2026-12', '2026-11']);
 		expect(months.at(-1)).toBe('2026-01');
+	});
+});
+
+describe('The report', () => {
+	/** October: Alex paid with no Appropriation set. November ($5,000): Alex paid, then Bo paid for a request and a Warehouse Share. */
+	function twoMonths() {
+		const fixture = courierAndLogistics();
+		const { payMe, parcel, crate, warehouse } = fixture;
+		created(setAppropriation(payMe, leadership(), '5000', '2026-11'));
+		approve(payMe, alex, parcel.id);
+		paidAt(payMe, alex, '2026-10-15T08:00:00.000Z');
+		approve(payMe, alex, parcel.id);
+		paidAt(payMe, alex, '2026-11-02T10:00:00.000Z');
+		approve(payMe, bo, crate.id);
+		created(giveShare(payMe, leadership(), warehouse.id, bo, { amount: '250.5', note: null }));
+		paidAt(payMe, bo, '2026-11-20T09:00:00.000Z');
+		return fixture;
+	}
+
+	it('summarises each month against its Appropriation, with Employee Pay by Job', () => {
+		const { payMe } = twoMonths();
+
+		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11')).summary).toBe(
+			[
+				'month,spending_category,job,appropriation,spent,over_under',
+				'2026-10,,,,1000,',
+				'2026-10,Employee Pay,,,1000,',
+				'2026-10,Employee Pay,Courier,,1000,',
+				'2026-11,,,5000,1550.5,-3449.5',
+				'2026-11,Employee Pay,,,1550.5,',
+				'2026-11,Employee Pay,Courier,,1000,',
+				'2026-11,Employee Pay,Logistics,,550.5,',
+				''
+			].join('\n')
+		);
+	});
+
+	it('lists every paid Payout line and Share at its frozen amount, by date paid', () => {
+		const { payMe } = twoMonths();
+
+		expect(created(appropriationReport(payMe, leadership(), '2026-10', '2026-11')).items).toBe(
+			[
+				'date_paid,month,spending_category,job,task_or_project,recipient,amount,paid_by,reference,payout',
+				'2026-10-15,2026-10,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,user-leadership,R-1,P-1',
+				'2026-11-02,2026-11,Employee Pay,Courier,Deliver Parcel,Alex_42,1000,user-leadership,R-2,P-2',
+				'2026-11-20,2026-11,Employee Pay,Logistics,Load Crate,Bo_7,300,user-leadership,R-3,P-3',
+				'2026-11-20,2026-11,Employee Pay,Logistics,Warehouse,Bo_7,250.5,user-leadership,S-1,P-3',
+				''
+			].join('\n')
+		);
+	});
+
+	it('attaches both files to a private reply for the months chosen', () => {
+		const { payMe } = twoMonths();
+		const report = appropriationReport(payMe, leadership(), '2026-11', '2026-11');
+
+		expect(report).toMatchObject({
+			effects: [
+				{
+					type: 'private-files',
+					card: { description: 'Spend from November 2026 to November 2026.' },
+					files: [
+						{ name: 'summary.csv', content: created(report).summary },
+						{ name: 'items.csv', content: created(report).items }
+					]
+				}
+			]
+		});
+		expect(created(report).items.split('\n')).toHaveLength(5);
+	});
+
+	it('is refused to anyone but Leadership, and for months that run backwards', () => {
+		const payMe = createTestPayMe();
+
+		expect(appropriationReport(payMe, member('user-casey'), '2026-10', '2026-11')).toEqual({ ok: false, error: { code: 'not-permitted' } });
+		expect(appropriationReport(payMe, leadership(), '2026-11', '2026-10')).toEqual({
+			ok: false,
+			error: { code: 'invalid-month-range', from: '2026-11', to: '2026-10' }
+		});
 	});
 });

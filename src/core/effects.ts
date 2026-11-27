@@ -1,5 +1,7 @@
 export type Effect =
 	| PrivateReply
+	| PrivateFiles
+	| ShowAppropriation
 	| CreateEmployeeChannel
 	| StartRequestsThread
 	| GrantChannelAccess
@@ -56,6 +58,25 @@ export interface MessageRef {
 export interface PrivateReply {
 	type: 'private-reply';
 	card: Card;
+}
+
+/** A private reply with text files attached. */
+export interface PrivateFiles {
+	type: 'private-files';
+	card: Card;
+	files: TextFile[];
+}
+
+export interface TextFile {
+	name: string;
+	content: string;
+}
+
+/** The private `/appropriation` reply for `month`, with a button to make a report. */
+export interface ShowAppropriation {
+	type: 'show-appropriation';
+	card: Card;
+	month: string;
 }
 
 /**
