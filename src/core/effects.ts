@@ -16,7 +16,6 @@ export type Effect =
 	| PostRound
 	| UpdateReviewCopies
 	| ShowPayout
-	| ShowPayouts
 	| ShowProject
 	| ShowProjects
 	| ShowManage
@@ -248,18 +247,6 @@ export interface ShowPayout {
 	revision: number;
 	card: Card;
 	settleButtons: boolean;
-}
-
-export type PayoutAction =
-	| { kind: 'generate'; employeeUserId: string; label: string }
-	| { kind: 'show'; payoutNumber: number; label: string }
-	| { kind: 'disbursement'; disbursementNumber: number; label: string };
-
-/** Show the payouts view privately to the actor, with one button per action. */
-export interface ShowPayouts {
-	type: 'show-payouts';
-	card: Card;
-	actions: PayoutAction[];
 }
 
 /** What the viewer of a Project can do to it with a button. */

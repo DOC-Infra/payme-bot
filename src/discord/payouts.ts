@@ -1,16 +1,5 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
-import type { PayoutAction } from '../core';
 import { encodeCustomId, type PayoutButton } from './customIds';
-import { disbursementButton } from './disbursements';
-
-export function payoutActionButtons(actions: readonly PayoutAction[]): ButtonBuilder[] {
-	return actions.map((action) => {
-		if (action.kind === 'generate')
-			return button({ action: 'generate', employeeUserId: action.employeeUserId }, action.label, ButtonStyle.Primary);
-		if (action.kind === 'show') return button({ action: 'show', payoutNumber: action.payoutNumber }, action.label, ButtonStyle.Secondary);
-		return disbursementButton(action.disbursementNumber, 'show', action.label);
-	});
-}
 
 export function settleButtons(payoutNumber: number, revision: number): ButtonBuilder[] {
 	return [

@@ -185,7 +185,7 @@ export function describeError(error: PayMeError): string {
 			return `${payoutLabel(error.number)} is no longer Open: it is ${payoutStateName(error.state)}.`;
 		case 'payout-updated': {
 			const label = payoutLabel(error.number);
-			return `${label} has been updated since this was shown, so its total and Pay Command may have changed. Nothing was changed. Open the latest ${label} from Generate Payouts or /payouts.`;
+			return `${label} has been updated since this was shown, so its total and Pay Command may have changed. Nothing was changed. Press Generate Payouts for the latest ${label}.`;
 		}
 		case 'not-your-request':
 			return 'Only the Employee who submitted this Payment Request can do that.';

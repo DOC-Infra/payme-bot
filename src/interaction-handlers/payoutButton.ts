@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { InteractionHandler, InteractionHandlerTypes } from '@sapphire/framework';
-import { MessageFlags, type ButtonInteraction } from 'discord.js';
-import { discardPayout, generatePayout, markPayoutPaid, showPayout, type Actor, type PayMe } from '../core';
+import type { ButtonInteraction } from 'discord.js';
+import { discardPayout, markPayoutPaid, type Actor, type PayMe } from '../core';
 import { decodeCustomId, type PayoutButton } from '../discord/customIds';
 import { acknowledge, runAsActor } from '../discord/runner';
 
@@ -10,8 +10,7 @@ import { acknowledge, runAsActor } from '../discord/runner';
 })
 export class ButtonHandler extends InteractionHandler {
 	public async run(interaction: ButtonInteraction, button: InteractionHandler.ParseResult<this>) {
-		if (button.action === 'paid' || button.action === 'discard') await acknowledge(interaction);
-		else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+		await acknowledge(interaction);
 		await runAsActor(interaction, { code: 'not-permitted' }, (actor, payMe) => this.press(payMe, actor, button));
 	}
 
@@ -21,8 +20,6 @@ export class ButtonHandler extends InteractionHandler {
 	}
 
 	private press(payMe: PayMe, actor: Actor, button: PayoutButton) {
-		if (button.action === 'generate') return generatePayout(payMe, actor, button.employeeUserId);
-		if (button.action === 'show') return showPayout(payMe, actor, button.payoutNumber);
 		if (button.action === 'paid') return markPayoutPaid(payMe, actor, button.payoutNumber, button.revision);
 		return discardPayout(payMe, actor, button.payoutNumber, button.revision);
 	}
