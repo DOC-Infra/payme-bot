@@ -32,12 +32,14 @@ import {
 	recordRequestsThread,
 	carryOutRound,
 	disbursementLabel,
+	discardUnpostedDisbursement,
 	getDisbursement,
 	recordDisbursementCard,
 	employeeCategoryId,
 	requestEntry,
 	type Actor,
 	type Card,
+	type DisbursementAction,
 	type Effect,
 	type EvidenceFile,
 	type MessageRef,
@@ -112,15 +114,19 @@ const handlers: Handlers = {
 			files: effect.files.map((file) => ({ attachment: Buffer.from(file.content), name: file.name }))
 		}),
 	'post-disbursement': async (effect, { payMe, interaction }) => {
-		const channel = interaction?.channel;
-		if (!channel?.isSendable()) throw new Error(`PayMe can't post ${disbursementLabel(effect.disbursementNumber)} in this channel`);
-		const message = await channel.send({
-			embeds: toEmbeds(effect.card),
-			components: reviewRow(disbursementButtons(effect.disbursementNumber, effect.actions)),
-			allowedMentions: { parse: [] }
-		});
-		recordDisbursementCard(payMe, effect.disbursementNumber, { channelId: channel.id, messageId: message.id });
-		await replyPrivately(interaction!, notice(`Posted ${disbursementLabel(effect.disbursementNumber)} here for discussion.`));
+		if (!interaction) return;
+		const label = disbursementLabel(effect.disbursementNumber);
+		const { channel } = interaction;
+		const message = channel?.isSendable() ? await channel.send(disbursementMessage(effect)).catch(() => null) : null;
+		if (!message) {
+			discardUnpostedDisbursement(payMe, effect.disbursementNumber);
+			return replyPrivately(
+				interaction,
+				notice(`PayMe can't post here, so ${label} was not requested. Try a channel PayMe can send messages in.`, 'danger')
+			);
+		}
+		recordDisbursementCard(payMe, effect.disbursementNumber, { channelId: message.channelId, messageId: message.id });
+		await replyPrivately(interaction, notice(`Posted ${label} here for discussion.`));
 	},
 	'update-disbursement': async (effect, { payMe }) => {
 		const card = getDisbursement(payMe, effect.disbursementNumber);
@@ -128,11 +134,7 @@ const handlers: Handlers = {
 		const channel = await container.client.channels.fetch(card.channelId);
 		if (!channel?.isTextBased()) throw new Error(`The card for ${disbursementLabel(effect.disbursementNumber)} is not in a text channel`);
 		if (channel.isThread() && channel.archived) await channel.setArchived(false);
-		await channel.messages.edit(card.messageId, {
-			embeds: toEmbeds(effect.card),
-			components: reviewRow(disbursementButtons(effect.disbursementNumber, effect.actions)),
-			allowedMentions: { parse: [] }
-		});
+		await channel.messages.edit(card.messageId, disbursementMessage(effect));
 	},
 	'show-appropriation': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card, [reportButton(effect.month)]),
 	'create-employee-channel': async (effect, { guildId, payMe }) => {
@@ -264,6 +266,14 @@ function roundPoster({ guildId, payMe }: EffectContext): RoundPoster {
 	return {
 		postEntry: (round) => postRequestEntry(payMe, round),
 		postReviewCopy: (round, channelId, entry) => postReviewCopy(round, channelId, entryLinkButton(guildId, entry))
+	};
+}
+
+function disbursementMessage(effect: { disbursementNumber: number; card: Card; actions: readonly DisbursementAction[] }) {
+	return {
+		embeds: toEmbeds(effect.card),
+		components: reviewRow(disbursementButtons(effect.disbursementNumber, effect.actions)),
+		allowedMentions: { parse: [] }
 	};
 }
 

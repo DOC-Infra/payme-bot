@@ -1,7 +1,7 @@
 import { ApplyOptions } from '@sapphire/decorators';
 import { Command } from '@sapphire/framework';
 import { InteractionContextType, MessageFlags } from 'discord.js';
-import { getSpendingCategory, requestableCategories, requestDisbursement, requestJobs } from '../core';
+import { getSpendingCategory, jobsRequestableFrom, requestableCategories, requestDisbursement, type Actor } from '../core';
 import { toActor } from '../discord/actor';
 import { runAsActor } from '../discord/runner';
 import { payMeOf } from '../discord/servers';
@@ -51,8 +51,7 @@ export class UserCommand extends Command {
 		const actor = toActor(interaction);
 		if (!actor) return interaction.respond([]);
 		const focused = interaction.options.getFocused(true);
-		const category = getSpendingCategory(payMe, interaction.options.getInteger('category') ?? 0);
-		const choices = focused.name === 'job' ? (category ? requestJobs(payMe, actor, category) : []) : requestableCategories(payMe, actor);
+		const choices = focused.name === 'job' ? this.jobChoices(interaction, actor) : requestableCategories(payMe, actor);
 		const query = focused.value.toLowerCase();
 		await interaction.respond(
 			choices
@@ -60,5 +59,12 @@ export class UserCommand extends Command {
 				.slice(0, 25)
 				.map((choice) => ({ name: choice.name, value: choice.id }))
 		);
+	}
+
+	/** The requester's Jobs that draw on the Category already picked. */
+	private jobChoices(interaction: Command.AutocompleteInteraction, actor: Actor) {
+		const payMe = payMeOf(interaction);
+		const category = getSpendingCategory(payMe, interaction.options.getInteger('category') ?? 0);
+		return category ? jobsRequestableFrom(payMe, actor, category) : [];
 	}
 }

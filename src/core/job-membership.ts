@@ -28,3 +28,8 @@ export function managesJob(payMe: PayMe, member: Actor, job: Job): boolean {
 export function managerRoleIdsOfHeldJobs(payMe: PayMe, member: Actor): string[] {
 	return [...new Set(jobsHeldBy(payMe, member).flatMap((job) => job.managerRoleIds))];
 }
+
+/** Whether the member holds the Job's role or one of its manager roles. Unlike `managesJob`, being Leadership doesn't count. */
+export function worksIn(member: Actor, job: Job): boolean {
+	return [job.employeeRoleId, ...job.managerRoleIds].some((roleId) => member.roleIds.includes(roleId));
+}

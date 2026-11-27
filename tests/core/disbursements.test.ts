@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	addSpendingCategory,
 	createJob,
+	discardUnpostedDisbursement,
 	getDisbursement,
 	recordDisbursementCard,
 	requestableCategories,
@@ -10,7 +11,6 @@ import {
 	retireSpendingCategory,
 	setManagerRoles,
 	withdrawDisbursement,
-	type Actor,
 	type NewDisbursement,
 	type Outcome,
 	type PayMe
@@ -44,15 +44,11 @@ function grant(categoryId: number, changes: Partial<NewDisbursement> = {}): NewD
 	return { categoryId, recipient: 'Bakery_Bob', amount: '2500', reason: 'Opening a bakery', link: null, ...changes };
 }
 
-function request(payMe: PayMe, actor: Actor, input: NewDisbursement) {
-	return requestDisbursement(payMe, actor, input);
-}
-
 describe('Requesting a Disbursement', () => {
 	it('records it as Requested under the Job it was asked for, and posts its card with a Withdraw button', () => {
 		const { payMe, grants, category } = grantsOffice();
 
-		const requested = request(payMe, grantsOfficer, grant(category.id, { link: 'https://forum.example/bakery' }));
+		const requested = requestDisbursement(payMe, grantsOfficer, grant(category.id, { link: 'https://forum.example/bakery' }));
 
 		expect(created(requested)).toMatchObject({
 			number: 1,
@@ -92,21 +88,22 @@ describe('Requesting a Disbursement', () => {
 		const { payMe, grants, commerce, category } = grantsOffice();
 		const both = member('user-bo', 'role-grants', 'role-commerce');
 
-		expect(created(request(payMe, member('user-cy', 'role-commerce'), grant(category.id))).jobId).toBe(commerce.id);
-		expect(created(request(payMe, member('user-di', 'role-grants-manager'), grant(category.id))).jobId).toBe(grants.id);
-		expect(request(payMe, both, grant(category.id))).toEqual({
+		expect(created(requestDisbursement(payMe, member('user-cy', 'role-commerce'), grant(category.id))).jobId).toBe(commerce.id);
+		expect(created(requestDisbursement(payMe, member('user-di', 'role-grants-manager'), grant(category.id))).jobId).toBe(grants.id);
+		expect(requestDisbursement(payMe, both, grant(category.id))).toEqual({
 			ok: false,
 			error: { code: 'disbursement-job-required', category: 'Small Business Grants' }
 		});
-		expect(created(request(payMe, both, grant(category.id, { jobId: commerce.id }))).jobId).toBe(commerce.id);
+		expect(created(requestDisbursement(payMe, both, grant(category.id, { jobId: commerce.id }))).jobId).toBe(commerce.id);
 	});
 
-	it('lets Leadership request from any active Category, under no Job when they hold none of its Jobs', () => {
-		const { payMe, category } = grantsOffice();
+	it('lets Leadership request from any active Category, under no Job when they hold none of its Jobs, or under any of its Jobs', () => {
+		const { payMe, grants, category } = grantsOffice();
 		const events = created(addSpendingCategory(payMe, leadership(), { name: 'Events', jobIds: [] }));
 
-		expect(created(request(payMe, leadership(), grant(category.id))).jobId).toBeNull();
-		expect(created(request(payMe, leadership(), grant(events.id))).jobId).toBeNull();
+		expect(created(requestDisbursement(payMe, leadership(), grant(category.id))).jobId).toBeNull();
+		expect(created(requestDisbursement(payMe, leadership(), grant(events.id))).jobId).toBeNull();
+		expect(created(requestDisbursement(payMe, leadership(), grant(category.id, { jobId: grants.id }))).jobId).toBe(grants.id);
 	});
 
 	it('refuses anyone outside the Category, a Job they cannot request under, Employee Pay and Retired Categories', () => {
@@ -115,13 +112,20 @@ describe('Requesting a Disbursement', () => {
 		created(retireSpendingCategory(payMe, leadership(), archive.id));
 		const other = job(payMe, 'Couriers');
 
-		expect(request(payMe, member('user-ed', 'role-couriers'), grant(category.id))).toEqual({
+		expect(requestDisbursement(payMe, member('user-ed', 'role-couriers'), grant(category.id))).toEqual({
 			ok: false,
 			error: { code: 'disbursement-not-allowed', category: 'Small Business Grants' }
 		});
-		expect(request(payMe, grantsOfficer, grant(category.id, { jobId: other.id }))).toMatchObject({ error: { code: 'disbursement-not-allowed' } });
-		expect(request(payMe, leadership(), grant(1))).toEqual({ ok: false, error: { code: 'spending-category-unavailable', name: 'Employee Pay' } });
-		expect(request(payMe, leadership(), grant(archive.id))).toMatchObject({ error: { code: 'spending-category-unavailable', name: 'Archive' } });
+		expect(requestDisbursement(payMe, grantsOfficer, grant(category.id, { jobId: other.id }))).toMatchObject({
+			error: { code: 'disbursement-not-allowed' }
+		});
+		expect(requestDisbursement(payMe, leadership(), grant(1))).toEqual({
+			ok: false,
+			error: { code: 'spending-category-unavailable', name: 'Employee Pay' }
+		});
+		expect(requestDisbursement(payMe, leadership(), grant(archive.id))).toMatchObject({
+			error: { code: 'spending-category-unavailable', name: 'Archive' }
+		});
 	});
 
 	it('refuses a requester naming their own Minecraft Name, unless they are Leadership', () => {
@@ -129,29 +133,31 @@ describe('Requesting a Disbursement', () => {
 		created(hireEmployee(payMe, leadership(), grantsOfficer, 'Alex_42'));
 		created(hireEmployee(payMe, leadership(), leadership(), 'Lead_1'));
 
-		expect(request(payMe, grantsOfficer, grant(category.id, { recipient: 'alex_42' }))).toEqual({
+		expect(requestDisbursement(payMe, grantsOfficer, grant(category.id, { recipient: 'alex_42' }))).toEqual({
 			ok: false,
 			error: { code: 'own-disbursement' }
 		});
-		expect(request(payMe, leadership(), grant(category.id, { recipient: 'Lead_1' }))).toMatchObject({ ok: true });
+		expect(requestDisbursement(payMe, leadership(), grant(category.id, { recipient: 'Lead_1' }))).toMatchObject({ ok: true });
 	});
 
 	it('refuses a recipient, amount, reason or link it cannot use', () => {
 		const { payMe, category } = grantsOffice();
 
-		expect(request(payMe, grantsOfficer, grant(category.id, { recipient: 'Bad Name!' }))).toMatchObject({
+		expect(requestDisbursement(payMe, grantsOfficer, grant(category.id, { recipient: 'Bad Name!' }))).toMatchObject({
 			error: { code: 'invalid-minecraft-name' }
 		});
-		expect(request(payMe, grantsOfficer, grant(category.id, { amount: '$25' }))).toMatchObject({ error: { code: 'invalid-amount' } });
-		expect(request(payMe, grantsOfficer, grant(category.id, { reason: '  ' }))).toMatchObject({ error: { code: 'reason-required' } });
-		expect(request(payMe, grantsOfficer, grant(category.id, { link: 'forum.example' }))).toMatchObject({ error: { code: 'invalid-link' } });
+		expect(requestDisbursement(payMe, grantsOfficer, grant(category.id, { amount: '$25' }))).toMatchObject({ error: { code: 'invalid-amount' } });
+		expect(requestDisbursement(payMe, grantsOfficer, grant(category.id, { reason: '  ' }))).toMatchObject({ error: { code: 'reason-required' } });
+		expect(requestDisbursement(payMe, grantsOfficer, grant(category.id, { link: 'forum.example' }))).toMatchObject({
+			error: { code: 'invalid-link' }
+		});
 	});
 });
 
 describe('Withdrawing a Disbursement', () => {
 	it('lets the requester withdraw it while Requested, editing its card to show who did', () => {
 		const { payMe, category } = grantsOffice();
-		const requested = created(request(payMe, grantsOfficer, grant(category.id)));
+		const requested = created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
 
 		const withdrawn = withdrawDisbursement(payMe, grantsOfficer, requested.number);
 
@@ -172,7 +178,7 @@ describe('Withdrawing a Disbursement', () => {
 
 	it("lets Leadership withdraw anyone's, and refuses others or one no longer Requested", () => {
 		const { payMe, category } = grantsOffice();
-		const first = created(request(payMe, grantsOfficer, grant(category.id)));
+		const first = created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
 		const colleague = member('user-cy', 'role-grants');
 
 		expect(withdrawDisbursement(payMe, colleague, first.number)).toEqual({ ok: false, error: { code: 'not-your-disbursement' } });
@@ -188,7 +194,7 @@ describe('Withdrawing a Disbursement', () => {
 describe('The public card', () => {
 	it('is remembered once posted, so later changes edit it', () => {
 		const { payMe, category } = grantsOffice();
-		const requested = created(request(payMe, grantsOfficer, grant(category.id)));
+		const requested = created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
 
 		recordDisbursementCard(payMe, requested.number, { channelId: 'thread-grants', messageId: 'message-1' });
 
@@ -204,5 +210,20 @@ describe('Categories a requester can pick', () => {
 		expect(requestableCategories(payMe, grantsOfficer).map((each) => each.id)).toEqual([category.id]);
 		expect(requestableCategories(payMe, member('user-ed')).map((each) => each.id)).toEqual([]);
 		expect(requestableCategories(payMe, leadership()).map((each) => each.id)).toEqual([events.id, category.id]);
+	});
+});
+
+describe('A card that could not be posted', () => {
+	it('discards its Disbursement, so nothing is left that nobody can see or withdraw', () => {
+		const { payMe, category } = grantsOffice();
+		const unposted = created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+		const posted = created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
+		recordDisbursementCard(payMe, posted.number, { channelId: 'thread-grants', messageId: 'message-2' });
+
+		discardUnpostedDisbursement(payMe, unposted.number);
+		discardUnpostedDisbursement(payMe, posted.number);
+
+		expect(getDisbursement(payMe, unposted.number)).toBeNull();
+		expect(getDisbursement(payMe, posted.number)).toMatchObject({ state: 'requested' });
 	});
 });

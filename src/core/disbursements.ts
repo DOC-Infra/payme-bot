@@ -1,13 +1,21 @@
-import { insertDisbursement, selectDisbursement, settleDisbursement, updateDisbursementCard } from '../storage/disbursements';
+import {
+	deleteUnpostedDisbursement,
+	insertDisbursement,
+	selectDisbursement,
+	settleDisbursement,
+	updateDisbursementCard
+} from '../storage/disbursements';
 import type { Actor } from './actor';
 import type { Card, CardField, DisbursementAction, Effect, MessageRef } from './effects';
 import { getEmployee, isValidMinecraftName } from './employees';
+import { worksIn } from './job-membership';
 import { getJob, type Job } from './jobs';
 import { disbursementLabel, disbursementStateName, disbursementTone, type DisbursementState } from './labels';
 import { fail, succeed, type Failure, type Outcome } from './outcome';
 import type { PayMe } from './payme';
 import { isLeadership } from './permissions';
 import { formatAmount, parseRate } from './rates';
+import { isValidLink } from './requests';
 import { allSpendingCategories, getSpendingCategory, type SpendingCategory } from './spending-categories';
 
 export interface Disbursement {
@@ -50,7 +58,7 @@ export function requestDisbursement(payMe: PayMe, actor: Actor, input: NewDisbur
 	const reason = input.reason.trim();
 	if (!reason) return fail({ code: 'reason-required' });
 	const link = input.link?.trim() || null;
-	if (link !== null && !/^https?:\/\/\S+$/.test(link)) return fail({ code: 'invalid-link', link });
+	if (link !== null && !isValidLink(link)) return fail({ code: 'invalid-link', link });
 
 	const { storage } = payMe;
 	return storage.transaction(() => {
@@ -80,13 +88,22 @@ export function requestDisbursement(payMe: PayMe, actor: Actor, input: NewDisbur
 /** The Categories the actor can request a Disbursement from. */
 export function requestableCategories(payMe: PayMe, actor: Actor): SpendingCategory[] {
 	return allSpendingCategories(payMe).filter(
-		(category) => !category.builtIn && !category.retired && (isLeadership(payMe, actor) || requestJobs(payMe, actor, category).length > 0)
+		(category) => !category.builtIn && !category.retired && (isLeadership(payMe, actor) || jobsRequestableFrom(payMe, actor, category).length > 0)
 	);
 }
 
 /** The Category's active Jobs the actor holds or manages, any of which they could request under. */
-export function requestJobs(payMe: PayMe, actor: Actor, category: SpendingCategory): Job[] {
-	return category.jobIds.map((id) => getJob(payMe, id)!).filter((job) => !job.retired && worksIn(actor, job));
+export function jobsRequestableFrom(payMe: PayMe, actor: Actor, category: SpendingCategory): Job[] {
+	return activeJobsOf(payMe, category).filter((job) => worksIn(actor, job));
+}
+
+function activeJobsOf(payMe: PayMe, category: SpendingCategory): Job[] {
+	return category.jobIds.map((id) => getJob(payMe, id)!).filter((job) => !job.retired);
+}
+
+/** Forgets a Disbursement whose card could not be posted, so it isn't left Requested where nobody can see or withdraw it. */
+export function discardUnpostedDisbursement(payMe: PayMe, number: number): void {
+	deleteUnpostedDisbursement(payMe.storage, number);
 }
 
 /** The requester or Leadership can withdraw a Disbursement while it is Requested. */
@@ -105,7 +122,6 @@ export function withdrawDisbursement(payMe: PayMe, actor: Actor, number: number)
 	});
 }
 
-/** Where the Disbursement's public card was posted. */
 export function recordDisbursementCard(payMe: PayMe, number: number, card: MessageRef): void {
 	updateDisbursementCard(payMe.storage, number, card.channelId, card.messageId);
 }
@@ -115,17 +131,15 @@ export function recordDisbursementCard(payMe: PayMe, number: number, card: Messa
  * Leadership holding none of them requests under no Job.
  */
 function pickJob(payMe: PayMe, actor: Actor, category: SpendingCategory, jobId: number | undefined): Job | Failure | null {
-	const jobs = requestJobs(payMe, actor, category);
+	const jobs = jobsRequestableFrom(payMe, actor, category);
 	const refused = fail({ code: 'disbursement-not-allowed', category: category.name });
-	if (jobId !== undefined) return jobs.find((job) => job.id === jobId) ?? refused;
+	if (jobId !== undefined) {
+		const offered = isLeadership(payMe, actor) ? activeJobsOf(payMe, category) : jobs;
+		return offered.find((job) => job.id === jobId) ?? refused;
+	}
 	if (jobs.length > 1) return fail({ code: 'disbursement-job-required', category: category.name });
 	if (jobs.length === 1) return jobs[0];
 	return isLeadership(payMe, actor) ? null : refused;
-}
-
-/** Holding the Job's role or one of its manager roles; unlike `managesJob`, being Leadership doesn't count. */
-function worksIn(actor: Actor, job: Job): boolean {
-	return [job.employeeRoleId, ...job.managerRoleIds].some((roleId) => actor.roleIds.includes(roleId));
 }
 
 function cardEffect(payMe: PayMe, disbursement: Disbursement, type: 'post-disbursement' | 'update-disbursement'): Effect {
