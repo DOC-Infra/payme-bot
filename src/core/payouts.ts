@@ -2,20 +2,19 @@ import { insertPayout, replaceOpenPayout, selectOpenPayout, selectPayout, select
 import { markSharesPaid, selectUnpaidShares } from '../storage/projects';
 import type { Actor } from './actor';
 import { overSpentWarning, overTargetWarning } from './appropriation';
-import { notice, type Card, type Effect, type PayoutAction } from './effects';
+import { notice, type Card, type Effect } from './effects';
 import { getEmployee } from './employees';
-import { jobsHeldBy, jobsManagedBy } from './job-membership';
 import { changeState } from './lifecycle';
-import { getJob, type Job } from './jobs';
-import { disbursementLabel, payoutLabel, payoutStateName, payoutTone, requestLabel, shareLabel, type PayoutState } from './labels';
+import { getJob } from './jobs';
+import { payoutLabel, payoutStateName, payoutTone, requestLabel, shareLabel, type PayoutState } from './labels';
 import { fail, succeed, type Outcome } from './outcome';
 import type { PayMe } from './payme';
-import { isLeadership, requireLeadership } from './permissions';
+import { requireLeadership } from './permissions';
 import { getProject, type Share } from './projects';
 import { formatAmount, plainAmount } from './rates';
 import { updateReviewCopies, type PaymentRequest } from './requests';
 import { employeePayId } from './spending-categories';
-import { disbursementGroupLines, requestedDisbursementGroups, requestedDisbursementsEffect } from './disbursements';
+import { requestedDisbursementsEffect } from './disbursements';
 import { getTask } from './tasks';
 
 export interface PayoutLine {
@@ -56,16 +55,6 @@ export interface Owed {
 	/** Shares are fixed amounts, so unlike requests their total is exact. */
 	sharesTotal: number;
 	openPayout: Payout | null;
-}
-
-export interface EmployeeOwed extends Owed {
-	employeeUserId: string;
-	minecraftName: string;
-}
-
-export interface PayoutsView {
-	owed: EmployeeOwed[];
-	history: Payout[];
 }
 
 export function getPayout(payMe: PayMe, number: number): Payout | null {
@@ -180,113 +169,6 @@ export function owedTo(payMe: PayMe, employeeUserId: string): Owed {
 
 export function totalOwed(owed: Owed): number {
 	return owed.estimatedTotal + owed.sharesTotal + (owed.openPayout?.total ?? 0);
-}
-
-function owedAndHistory(payMe: PayMe, owing: Owing, employeeUserIds?: readonly string[]): PayoutsView {
-	const inScope = (userId: string) => !employeeUserIds || employeeUserIds.includes(userId);
-	const owingUserIds = [...owing.unpaid, ...owing.unpaidShares, ...owing.openPayouts].map((item) => item.employeeUserId);
-	const owed = [...new Set(owingUserIds)].filter(inScope).map((userId) => ({
-		employeeUserId: userId,
-		minecraftName: getEmployee(payMe, userId)!.minecraftName,
-		...owedFrom(owing, userId)
-	}));
-	owed.sort((a, b) => a.minecraftName.localeCompare(b.minecraftName));
-	const history = selectPayoutsInState(payMe.storage, 'paid', 'discarded').filter((payout) => inScope(payout.employeeUserId));
-	return { owed, history };
-}
-
-export function showPayouts(payMe: PayMe, actor: Actor, members: readonly Actor[]): Outcome<PayoutsView> {
-	if (isLeadership(payMe, actor)) return leadershipView(payMe);
-
-	const managed = jobsManagedBy(payMe, actor);
-	if (managed.length === 0) return fail({ code: 'not-permitted' });
-
-	const owing = loadOwing(payMe);
-	const holders = members.filter((member) => holdsAnyJob(payMe, member, managed)).map((member) => member.userId);
-	const view = owedAndHistory(payMe, owing, [...holders, ...owedForJobs(owing, managed)]);
-	const history = view.history.map(historyText);
-	const description = [...owedLines(view), '', '**Payout history**', ...(history.length ? history : ['No Payouts yet.'])].join('\n');
-	return succeed([{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts (read-only)', description }, actions: [] }], view);
-}
-
-function holdsAnyJob(payMe: PayMe, member: Actor, jobs: readonly Job[]): boolean {
-	return jobsHeldBy(payMe, member).some((held) => jobs.some((job) => job.id === held.id));
-}
-
-// Every Approved request and unpaid Share is either unpaid or locked in an Open Payout, so all of them are owed.
-function owedForJobs(owing: Owing, jobs: readonly Job[]): string[] {
-	const requests = owing.approved.filter((request) => jobs.some((job) => request.eligibleJobIds.includes(job.id)));
-	const shares = owing.shares.filter((share) => jobs.some((job) => job.id === share.jobId));
-	return [...requests, ...shares].map((item) => item.employeeUserId);
-}
-
-function leadershipView(payMe: PayMe): Outcome<PayoutsView> {
-	const view = owedAndHistory(payMe, loadOwing(payMe));
-	const disbursements = requestedDisbursementGroups(payMe);
-	const employeeActions = view.owed.map((employee): PayoutAction =>
-		employee.openPayout && !owesMore(employee)
-			? {
-					kind: 'show',
-					payoutNumber: employee.openPayout.number,
-					label: `${payoutLabel(employee.openPayout.number)} for ${employee.minecraftName}`
-				}
-			: { kind: 'generate', employeeUserId: employee.employeeUserId, label: generateLabel(employee) }
-	);
-	const disbursementActions = disbursements.flatMap(({ items }) =>
-		items.map((item): PayoutAction => ({
-			kind: 'disbursement',
-			disbursementNumber: item.number,
-			label: `${disbursementLabel(item.number)} to ${item.recipient}`
-		}))
-	);
-	const description = [...owedLines(view), ...disbursementGroupLines(disbursements)].join('\n');
-	return succeed(
-		[{ type: 'show-payouts', card: { tone: 'info', title: 'Payouts', description }, actions: [...employeeActions, ...disbursementActions] }],
-		view
-	);
-}
-
-/** Owed something not yet in their Open Payout, if they have one. */
-function owesMore(employee: EmployeeOwed): boolean {
-	return employee.unpaidRequestNumbers.length > 0 || employee.unpaidShareIds.length > 0;
-}
-
-function generateLabel(employee: EmployeeOwed): string {
-	if (!employee.openPayout) return `Generate for ${employee.minecraftName}`;
-	return `Update ${payoutLabel(employee.openPayout.number)} for ${employee.minecraftName}`;
-}
-
-function owedLines(view: PayoutsView): string[] {
-	if (view.owed.length === 0) return ['Nobody is owed anything.'];
-	return view.owed.map((employee) => `<@${employee.employeeUserId}> (${employee.minecraftName}): ${owedText(employee)}`);
-}
-
-function historyText(payout: Payout): string {
-	const date = (payout.settledAt ?? payout.generatedAt).slice(0, 10);
-	const { number, employeeUserId, minecraftName, total, state } = payout;
-	return `**${payoutLabel(number)}** for <@${employeeUserId}> (${minecraftName}): ${formatAmount(total)}, ${payoutStateName(state)} on ${date}`;
-}
-
-export function showPayout(payMe: PayMe, actor: Actor, number: number): Outcome<Payout> {
-	const refused = requireLeadership(payMe, actor);
-	if (refused) return refused;
-
-	const payout = getPayout(payMe, number);
-	if (!payout) return fail({ code: 'payout-not-found' });
-	return succeed([payoutEffect(payMe, payout)], payout);
-}
-
-function owedText(employee: EmployeeOwed): string {
-	const parts: string[] = [];
-	if (employee.openPayout) parts.push(`Open Payout **${payoutLabel(employee.openPayout.number)}**, ${formatAmount(employee.openPayout.total)}`);
-	if (employee.unpaidRequestNumbers.length) {
-		const requests = employee.unpaidRequestNumbers.map(requestLabel).join(', ');
-		parts.push(`about ${formatAmount(employee.estimatedTotal)} owed (estimate at current Rates) for ${requests}`);
-	}
-	if (employee.unpaidShareIds.length) {
-		parts.push(`${formatAmount(employee.sharesTotal)} owed for Shares ${employee.unpaidShareIds.map(shareLabel).join(', ')}`);
-	}
-	return parts.join('; ');
 }
 
 export function generatePayout(payMe: PayMe, actor: Actor, employeeUserId: string): Outcome<Payout> {

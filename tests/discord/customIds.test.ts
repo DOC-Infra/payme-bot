@@ -27,8 +27,6 @@ const everyKind: CustomId[] = [
 	{ kind: 'review-button', action: 'deny', requestNumber: 12 },
 	{ kind: 'reason-modal', action: 'reject', requestNumber: 12 },
 	{ kind: 'reason-modal', action: 'deny', requestNumber: 12 },
-	{ kind: 'payout-button', action: 'generate', employeeUserId: user },
-	{ kind: 'payout-button', action: 'show', payoutNumber: 3 },
 	{ kind: 'payout-button', action: 'paid', payoutNumber: 3, revision: 2 },
 	{ kind: 'payout-button', action: 'discard', payoutNumber: 3, revision: 1 },
 	{ kind: 'project-button', action: 'create' },
@@ -167,8 +165,6 @@ describe('custom IDs', () => {
 		['review:approve:12', { kind: 'review-button', action: 'approve', requestNumber: 12 }],
 		['review:reject:12', { kind: 'review-button', action: 'reject', requestNumber: 12 }],
 		['review:deny:12', { kind: 'review-button', action: 'deny', requestNumber: 12 }],
-		[`payout:generate:${user}`, { kind: 'payout-button', action: 'generate', employeeUserId: user }],
-		['payout:show:3', { kind: 'payout-button', action: 'show', payoutNumber: 3 }],
 		['payout:paid:3', { kind: 'payout-button', action: 'paid', payoutNumber: 3, revision: 1 }],
 		['payout:discard:3', { kind: 'payout-button', action: 'discard', payoutNumber: 3, revision: 1 }],
 		['payout:paid:3:2', { kind: 'payout-button', action: 'paid', payoutNumber: 3, revision: 2 }]

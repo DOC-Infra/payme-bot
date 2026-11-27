@@ -11,7 +11,6 @@ import {
 	declineDisbursement,
 	markDisbursementPaid,
 	showDisbursement,
-	showPayouts,
 	discardUnpostedDisbursement,
 	getDisbursement,
 	recordDisbursementCard,
@@ -238,8 +237,8 @@ describe('A card that could not be posted', () => {
 	});
 });
 
-describe('Paying and declining from /payouts', () => {
-	it('lists Requested Disbursements by Spending Category for Leadership, with a button to open each', () => {
+describe('Paying and declining', () => {
+	it('lists Requested Disbursements by Spending Category in Generate Payouts, with a button to open each', () => {
 		const { payMe, category } = grantsOffice();
 		const events = created(addSpendingCategory(payMe, leadership(), { name: 'Events', jobIds: [] }));
 		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
@@ -247,35 +246,23 @@ describe('Paying and declining from /payouts', () => {
 		const withdrawn = created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
 		created(withdrawDisbursement(payMe, grantsOfficer, withdrawn.number));
 
-		expect(showPayouts(payMe, leadership(), [])).toMatchObject({
+		expect(generateAllPayouts(payMe, leadership())).toMatchObject({
 			effects: [
+				{ type: 'private-reply' },
 				{
+					type: 'show-disbursements',
 					card: {
-						description: expect.stringContaining(
-							[
-								'**Disbursements**',
-								'__Events__',
-								'- **D-2** to Stage_Co: $300 (Stage hire)',
-								'__Small Business Grants__',
-								'- **D-1** to Bakery_Bob: $2,500 (Opening a bakery)'
-							].join('\n')
-						)
+						description: [
+							'__Events__',
+							'- **D-2** to Stage_Co: $300 (Stage hire)',
+							'__Small Business Grants__',
+							'- **D-1** to Bakery_Bob: $2,500 (Opening a bakery)'
+						].join('\n')
 					},
-					actions: [
-						{ kind: 'disbursement', disbursementNumber: 2, label: 'D-2 to Stage_Co' },
-						{ kind: 'disbursement', disbursementNumber: 1, label: 'D-1 to Bakery_Bob' }
-					]
+					disbursementNumbers: [2, 1]
 				}
 			]
 		});
-	});
-
-	it('shows no Disbursements to a Manager looking at /payouts', () => {
-		const { payMe, category } = grantsOffice();
-		created(requestDisbursement(payMe, grantsOfficer, grant(category.id)));
-
-		const outcome = showPayouts(payMe, member('user-di', 'role-grants-manager'), []);
-		expect(outcome.ok && outcome.effects[0].type === 'show-payouts' && outcome.effects[0].card.description).not.toContain('D-1');
 	});
 
 	it('opens a Disbursement privately with its Pay Command and buttons to mark it paid or decline it', () => {

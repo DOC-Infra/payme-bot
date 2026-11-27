@@ -3,12 +3,9 @@ import { parseMonth, type DisbursementAction, type DisbursementDecision, type Di
 export type ReviewAction = 'approve' | 'reject' | 'deny';
 export type ReasonAction = Exclude<ReviewAction, 'approve'>;
 export type EntryButton = EntryAction | 'confirm-withdraw';
-export type PayoutButton =
-	| { action: 'generate'; employeeUserId: string }
-	| { action: 'show'; payoutNumber: number }
-	| { action: 'paid' | 'discard'; payoutNumber: number; revision: number };
+export type PayoutButton = { action: 'paid' | 'discard'; payoutNumber: number; revision: number };
 export type ProjectButton = { action: 'create' } | { action: (typeof projectButtons)[number]; projectId: number };
-/** Withdraw is on the public card; the rest are Leadership's, from /payouts. */
+/** Withdraw is on the public card; the rest are Leadership's, from Generate Payouts. */
 export type DisbursementButton = DisbursementAction | 'show' | DisbursementDecision;
 export type DashboardButton = (typeof dashboardButtons)[number];
 export type ManageButtonAction = (typeof manageButtons)[number];
@@ -118,8 +115,6 @@ export function encodeCustomId(id: CustomId): string {
 		case 'reason-modal':
 			return join('review-reason', id.action, id.requestNumber);
 		case 'payout-button':
-			if (id.action === 'generate') return join('payout', id.action, id.employeeUserId);
-			if (id.action === 'show') return join('payout', id.action, id.payoutNumber);
 			return join('payout', id.action, id.payoutNumber, id.revision);
 		case 'project-button':
 			return join('project', id.action, id.action === 'create' ? null : id.projectId);
@@ -178,7 +173,7 @@ const decoders = new Map<string, (parts: string[]) => CustomId | null>([
 	['amend', ([number, ...rest]) => (isDigits(number) && !rest.length ? { kind: 'amend-modal', requestNumber: Number(number) } : null)],
 	['review', (parts) => withAction(parts, reviewActions, (action, requestNumber) => ({ kind: 'review-button', action, requestNumber }))],
 	['review-reason', (parts) => withAction(parts, reasonActions, (action, requestNumber) => ({ kind: 'reason-modal', action, requestNumber }))],
-	['payout', decodePayout],
+	['payout', decodeSettle],
 	['project', decodeProjectButton],
 	['project-form', decodeProjectModal],
 	['project-pick', (parts) => (parts.length ? null : { kind: 'project-select' })],
@@ -229,15 +224,6 @@ function decodeProjectModal(parts: string[]): CustomId | null {
 	if (parts.length === 1 && parts[0] === 'create') return { kind: 'project-modal', action: 'create' };
 	if (parts[0] === 'edit-share') return withAction(parts, ['edit-share'], (action, shareId) => ({ kind: 'project-modal', action, shareId }));
 	return withAction(parts, projectModals, (action, projectId) => ({ kind: 'project-modal', action, projectId }));
-}
-
-function decodePayout(parts: string[]): CustomId | null {
-	if (parts[0] === 'generate') {
-		const [, userId, ...rest] = parts;
-		return isDigits(userId) && !rest.length ? { kind: 'payout-button', action: 'generate', employeeUserId: userId } : null;
-	}
-	if (parts[0] === 'show') return withAction(parts, ['show'], (action, payoutNumber) => ({ kind: 'payout-button', action, payoutNumber }));
-	return decodeSettle(parts);
 }
 
 /** Buttons made before Payouts had revisions carry none, and every Payout then was at revision 1. */

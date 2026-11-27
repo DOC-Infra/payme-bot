@@ -58,7 +58,7 @@ import { toEmbeds } from './embeds';
 import { entryButtons } from './entry';
 import { decodeCustomId } from './customIds';
 import { requestButtonRow } from './requestModal';
-import { buttonRows, payoutActionButtons, settleButtons } from './payouts';
+import { buttonRows, settleButtons } from './payouts';
 import { manageComponents } from './manage';
 import { newProjectButton, projectActionButtons, projectSelectRow } from './projects';
 import { employeeCategory } from './paymentReview';
@@ -232,7 +232,6 @@ const handlers: Handlers = {
 			acknowledged.has(interaction)
 		);
 	},
-	'show-payouts': async (effect, { interaction }) => interaction && replyPrivately(interaction, effect.card, payoutActionButtons(effect.actions)),
 	'show-project': async (effect, { interaction }) =>
 		interaction && replyPrivately(interaction, effect.card, projectActionButtons(effect.projectId, effect.actions)),
 	'show-manage': async (effect, { interaction }) => {

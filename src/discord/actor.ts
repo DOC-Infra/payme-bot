@@ -29,12 +29,6 @@ export async function fetchActor(interaction: BaseInteraction, userId: string): 
 	return memberToActor(userId, member ?? null);
 }
 
-/** Every cached member of the server as an Actor. */
-export async function guildMembers(guildId: string): Promise<Actor[]> {
-	const guild = await container.client.guilds.fetch(guildId);
-	return guild.members.cache.map((member) => memberToActor(member.id, member));
-}
-
 /** The member of the server as an Actor, with the roles and permissions they have there, or none if they are not a member. */
 export async function fetchActorIn(guildId: string, userId: string): Promise<Actor> {
 	const guild = await container.client.guilds.fetch(guildId);

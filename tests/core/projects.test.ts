@@ -22,7 +22,6 @@ import {
 	recordRequestsThread,
 	removeShare,
 	retireJob,
-	showPayouts,
 	showProject,
 	submitRequest,
 	totalOwed,
@@ -267,11 +266,11 @@ describe('Paying Shares', () => {
 		expect(generatePayout(payMe, leadership(), 'user-alex')).toMatchObject({ ok: true, value: { total: 100000, lines: [] } });
 	});
 
-	it("shows a Manager the Employees owed Shares from their Jobs' Projects", () => {
+	it('counts a Share a Manager gives as owed to the Employee at once', () => {
 		const { payMe, project } = bridge();
 		created(giveShare(payMe, morgan, project.id, alex, { amount: '10', note: null }));
 
-		expect(created(showPayouts(payMe, morgan, [])).owed).toMatchObject([{ employeeUserId: 'user-alex', unpaidShareIds: [1] }]);
+		expect(owedTo(payMe, 'user-alex')).toMatchObject({ unpaidShareIds: [1], sharesTotal: 1000 });
 	});
 });
 
